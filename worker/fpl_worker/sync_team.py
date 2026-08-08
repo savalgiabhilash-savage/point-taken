@@ -26,7 +26,11 @@ def sync(sb, entry_id: int) -> None:
         current_event = entry.get("current_event")
         picks_data = client._get(f"entry/{entry_id}/event/{current_event}/picks/") if current_event else None
 
-    chips = [c["name"] for c in history.get("chips", [])]
+    # history["chips"] lists chips already PLAYED this season; store what's still AVAILABLE so the
+    # column name matches its meaning. (2026/27 two-set nuance is ignored for now.)
+    all_chips = ["wildcard", "freehit", "bboost", "3xc"]
+    played = {c["name"] for c in history.get("chips", [])}
+    chips = [c for c in all_chips if c not in played]
 
     if not picks_data:
         # Preseason: the squad is private until the GW1 deadline. Do NOT write an empty-picks row —

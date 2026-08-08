@@ -24,6 +24,18 @@ type Move = {
   xp5: number;
 };
 
+type PathStep = {
+  gw: number;
+  in: Move[];
+  out: Move[];
+  num: number;
+  hits: number;
+  free: number;
+  xi: number;
+};
+
+type Chip = { chip: string; gw: number; gain: number; detail: string; available: boolean };
+
 type Transfers = {
   out: Move[];
   in: Move[];
@@ -31,6 +43,11 @@ type Transfers = {
   free_transfers: number | null;
   hits: number;
   hit_cost: number;
+  path?: PathStep[];
+  chips?: Chip[];
+  chip_reco?: string;
+  planned_pts?: number;
+  hold_pts?: number;
 };
 
 const POS_ACCENT: Record<Position, string> = {
@@ -40,19 +57,25 @@ const POS_ACCENT: Record<Position, string> = {
   FWD: "text-rose-400",
 };
 
-function MoveRow({ p }: { p: Move }) {
+const CHIP_STYLE: Record<string, string> = {
+  "Triple Captain": "text-violet-400",
+  "Bench Boost": "text-amber-400",
+  Wildcard: "text-emerald-400",
+  "Free Hit": "text-sky-400",
+};
+
+function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border/50 bg-card px-3 py-2">
-      <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-bold ${POS_ACCENT[p.position]}`}>{p.position}</span>
-        <span className="text-sm font-medium">{p.web_name}</span>
-        <span className="text-xs text-muted-foreground">{p.team_short}</span>
-      </div>
-      <div className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
-        <span>£{(p.now_cost / 10).toFixed(1)}</span>
-        <span className="text-foreground">{p.xp5.toFixed(1)}</span>
-      </div>
-    </div>
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${
+        dir === "out"
+          ? "bg-rose-500/10 text-rose-300"
+          : "bg-emerald-500/10 text-emerald-300"
+      }`}
+    >
+      <span className={`text-[9px] font-bold ${POS_ACCENT[p.position]}`}>{p.position}</span>
+      {p.web_name}
+    </span>
   );
 }
 
@@ -71,7 +94,7 @@ export default async function OptimizerPage() {
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          No optimization yet. Run <code>python -m fpl_worker.optimize --transfers</code>.
+          No optimization yet. Run <code>python -m fpl_worker.optimize --plan</code>.
         </p>
       </main>
     );
@@ -79,6 +102,12 @@ export default async function OptimizerPage() {
 
   const squad = (run.suggested_squad ?? []) as OptPlayer[];
   const transfers = (run.transfers ?? null) as Transfers | null;
+  const horizon = (run.horizon as number | null) ?? 5;
+  const chipReco = (run.chip_reco as string | null) ?? transfers?.chip_reco ?? null;
+  const path = transfers?.path ?? null;
+  const chips = transfers?.chips ?? null;
+  const bestChip = chips?.reduce<Chip | null>((b, c) => (c.gain > (b?.gain ?? -1e9) ? c : b), null) ?? null;
+
   const toSP = (p: OptPlayer): SquadPlayer => ({
     fpl_id: p.fpl_id,
     web_name: p.web_name,
@@ -95,27 +124,29 @@ export default async function OptimizerPage() {
   const bench = squad.filter((p) => !p.is_start);
   const byPos = (pos: Position) => starters.filter((p) => p.position === pos).map(toSP);
   const cost = squad.reduce((s, p) => s + p.now_cost, 0) / 10;
-  const xi5 = starters.reduce((s, p) => s + p.xp5, 0);
   const captain = squad.find((p) => p.is_captain);
   const gain = run.expected_gain as number | null;
 
-  const hitLabel =
-    transfers == null
+  const thisWeek = path?.[0] ?? null;
+  const thisWeekHit =
+    thisWeek == null
       ? null
-      : transfers.hit_cost > 0
-        ? `−${transfers.hit_cost} pt hit`
-        : transfers.free_transfers == null
-          ? "free (unlimited preseason)"
-          : "within free transfers";
+      : thisWeek.hits > 0
+        ? `−${thisWeek.hits * 4} pt hit`
+        : "within free transfers";
 
   const stats = [
     { label: "Squad cost", value: `£${cost.toFixed(1)}m` },
-    { label: "Proj. XI (5 GW)", value: `${xi5.toFixed(1)} pts` },
-    { label: "Captain", value: captain?.web_name ?? "—" },
     {
-      label: "Transfers",
-      value: transfers ? `${transfers.num}` : "—",
-      sub: transfers ? (hitLabel ?? undefined) : undefined,
+      label: `Planned (${horizon} GW)`,
+      value: transfers?.planned_pts != null ? `${transfers.planned_pts.toFixed(0)} pts` : "—",
+      sub: transfers?.hold_pts != null ? `vs ${transfers.hold_pts.toFixed(0)} holding` : undefined,
+    },
+    { label: "Captain (GW)", value: captain?.web_name ?? "—" },
+    {
+      label: "This week",
+      value: thisWeek ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"}` : "—",
+      sub: thisWeekHit ?? undefined,
     },
   ];
 
@@ -124,8 +155,9 @@ export default async function OptimizerPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
         <p className="text-sm text-muted-foreground">
-          The best transfers from your current squad over the next 5 GWs — a move is only made when its
-          projected gain beats the −4 hit. Respects £100m, 2/5/5/3, ≤3 per club, valid formation (HiGHS).
+          A multi-week plan for your squad over the next {horizon} gameweeks: a transfer path (which week to move,
+          when to roll a free transfer, when a −4 hit pays off) plus chip timing. Respects £100m, 2/5/5/3,
+          ≤3 per club, valid formation, and free-transfer rollover (HiGHS MILP).
         </p>
       </div>
 
@@ -136,7 +168,7 @@ export default async function OptimizerPage() {
             {gain.toFixed(1)} xPts
           </span>{" "}
           <span className="text-sm text-muted-foreground">
-            projected over the next 5 GWs vs your current XI{transfers && transfers.hit_cost > 0 ? ", after hits" : ""}.
+            projected over the next {horizon} GWs vs simply holding your current squad (net of any hits).
           </span>
         </div>
       )}
@@ -144,50 +176,110 @@ export default async function OptimizerPage() {
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
           <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {s.label}
-            </div>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
             <div className="mt-1 truncate text-lg font-semibold">{s.value}</div>
             {s.sub ? <div className="text-xs text-muted-foreground">{s.sub}</div> : null}
           </div>
         ))}
       </div>
 
-      {transfers && transfers.num > 0 && (
-        <section className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-rose-400">
-              Transfer out ({transfers.out.length})
-            </div>
-            <div className="space-y-2">
-              {transfers.out.map((p) => (
-                <MoveRow key={p.fpl_id} p={p} />
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-emerald-400">
-              Transfer in ({transfers.in.length})
-            </div>
-            <div className="space-y-2">
-              {transfers.in.map((p) => (
-                <MoveRow key={p.fpl_id} p={p} />
-              ))}
-            </div>
-          </div>
-        </section>
+      {chipReco && (
+        <div className="mt-5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-violet-300">Chip timing</span>
+          <div className="mt-0.5 text-sm">{chipReco}</div>
+        </div>
       )}
+
+      <div className="mt-8 grid gap-8 lg:grid-cols-2">
+        {/* Transfer path */}
+        <section>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Transfer path
+          </div>
+          {path && path.length > 0 ? (
+            <ol className="space-y-2">
+              {path.map((step) => (
+                <li
+                  key={step.gw}
+                  className="flex flex-col gap-1.5 rounded-lg border border-border/50 bg-card px-3 py-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold">GW{step.gw}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {step.num === 0
+                        ? `roll · ${step.free} FT banked`
+                        : `${step.num} transfer${step.num === 1 ? "" : "s"}${
+                            step.hits > 0 ? ` · −${step.hits * 4}` : ""
+                          }`}
+                    </span>
+                  </div>
+                  {step.num > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {step.out.map((o, i) => (
+                        <span key={o.fpl_id} className="flex items-center gap-1.5">
+                          <MovePill p={o} dir="out" />
+                          <span className="text-muted-foreground">→</span>
+                          {step.in[i] ? <MovePill p={step.in[i]} dir="in" /> : null}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-sm text-muted-foreground">No transfer path (run --plan).</p>
+          )}
+        </section>
+
+        {/* Chip timing */}
+        <section>
+          <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Chip windows
+          </div>
+          {chips && chips.length > 0 ? (
+            <ul className="space-y-2">
+              {chips.map((c) => {
+                const isBest = bestChip != null && c.chip === bestChip.chip && c.gain === bestChip.gain;
+                return (
+                  <li
+                    key={c.chip}
+                    className={`rounded-lg border px-3 py-2 ${
+                      isBest ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/50 bg-card"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-semibold ${CHIP_STYLE[c.chip] ?? ""}`}>
+                        {c.chip}
+                        {!c.available ? (
+                          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">used</span>
+                        ) : null}
+                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        GW{c.gw} · <span className="text-foreground">+{c.gain.toFixed(1)}</span>
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No chip analysis (run --plan).</p>
+          )}
+        </section>
+      </div>
 
       <div className="mt-8">
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Resulting squad
+          This week&apos;s squad (GW{thisWeek?.gw ?? run.gw})
         </div>
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench.map(toSP)} />
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Single-deadline optimization valued over 5 GWs. Multi-week sequencing (rolling free transfers,
-        planned hits) and chip timing are the next upgrade.
+        Projections span the next {horizon} GWs. Chip gains are largest in Double/Blank gameweeks, which are
+        announced in-season — until then Wildcard and Triple Captain tend to dominate. See the Guide for details.
       </p>
     </main>
   );

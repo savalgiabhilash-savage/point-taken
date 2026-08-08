@@ -50,9 +50,9 @@ jobs:
       - name: Model (projections)
         run: uv run python -m fpl_worker.model --run --horizon 5
 
-      # 4) Transfer optimizer for the user's squad.
-      - name: Optimize (transfers)
-        run: uv run python -m fpl_worker.optimize --transfers
+      # 4) Multi-week transfer path + chip timing for the user's squad.
+      - name: Optimize (multi-week + chips)
+        run: uv run python -m fpl_worker.optimize --plan
 
       # 5) Sync the user's live team (no-op preseason; keeps the snapshot).
       - name: Sync team

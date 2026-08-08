@@ -1,17 +1,19 @@
-"""Squad + transfer optimizer — HiGHS MILP (spec §3.3).
+"""Squad + transfer + chip optimizer — HiGHS MILP (spec §3.3).
 
-Two modes:
-  --fresh      pick the best 15 from scratch within £100m (what your team *could* be).
-  --transfers  start from YOUR current squad + bank + free transfers, and find the transfers
-               that maximise projected xPts over the horizon NET of -4 hits (a move is only
-               made if its gain beats the hit). This is the default.
+Modes:
+  --fresh      pick the best 15 from scratch within budget (what your team *could* be).
+  --transfers  single-deadline: best transfers from your squad, valued over the horizon, −4 hits.
+  --plan       (default) FULL multi-week + chip optimizer:
+                 * a joint MILP over the whole horizon that plans a transfer PATH — which GW to
+                   make each move, when to roll a free transfer, and when a −4 hit is worth taking
+                   (free transfers roll over, capped at 5; budget = squad value + bank);
+                 * transparent chip-timing for Triple Captain / Bench Boost / Wildcard / Free Hit,
+                   each scanning the horizon for its best gameweek and expected point gain.
 
-Both maximise projected points over the 5-GW horizon subject to FPL rules (2/5/5/3, <=3 per
-club, valid formation, captain). Results are written to optimizer_runs; the web reads them.
-Selling price is approximated by current price (exact preseason). Multi-week sequencing and
-chip timing are the next upgrade.
+All modes respect FPL rules (2/5/5/3, ≤3 per club, valid formation, captain). Selling price is
+approximated by current price (exact preseason). Results are written to optimizer_runs; the web reads them.
 
-    python -m fpl_worker.optimize --transfers
+    python -m fpl_worker.optimize --plan
 """
 
 from __future__ import annotations
@@ -25,13 +27,20 @@ from dotenv import load_dotenv
 from . import db
 from .model import MODEL_VERSION
 
-BUDGET = 1000  # £100.0m in tenths of a million
+BUDGET = 1000  # £100.0m in tenths of a million (used by --fresh)
 SQUAD_QUOTA = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
 FORMATION_MIN = {"GK": 1, "DEF": 3, "MID": 2, "FWD": 1}
 FORMATION_MAX = {"GK": 1, "DEF": 5, "MID": 5, "FWD": 3}
 EXCLUDE_STATUS = {"i", "s", "u", "n"}
 BENCH_WEIGHT = 0.1
 HIT_COST = 4
+FT_CAP = 5              # 2026/27: free transfers accumulate up to 5
+DECAY = 0.9            # discount future GWs in the objective (uncertainty grows with distance)
+POOL_SIZE = 90         # candidate players beyond your current squad (keeps the MILP tractable)
+CHIP_THRESHOLD = 4.0   # only recommend playing a chip if it beats this many xPts (~a −4 hit)
+
+# Map our chip display names to FPL's internal codes (as they appear in chips_available).
+CHIP_CODES = {"Triple Captain": "3xc", "Bench Boost": "bboost", "Wildcard": "wildcard", "Free Hit": "freehit"}
 
 
 def _fetch_all_projections(sb) -> list[dict]:
@@ -48,6 +57,10 @@ def _fetch_all_projections(sb) -> list[dict]:
 
 
 def load_pool(sb):
+    """Returns (pool, gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw).
+
+    xp_by_gw[player_id][gw] is the per-gameweek projection — the raw material the multi-week
+    solver and the chip evaluators need."""
     players = (
         sb.table("players")
         .select("fpl_id, web_name, position, team_id, now_cost, status")
@@ -58,20 +71,24 @@ def load_pool(sb):
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
 
     projs = _fetch_all_projections(sb)
-    next_gw = min(p["gw"] for p in projs)
+    gws = sorted({r["gw"] for r in projs})
+    next_gw = gws[0] if gws else None
+    xp_by_gw: dict[int, dict[int, float]] = defaultdict(dict)
     xp5: dict[int, float] = defaultdict(float)
     xpn: dict[int, float] = {}
     for r in projs:
-        xp5[r["player_id"]] += r["x_pts"] or 0.0
+        v = r["x_pts"] or 0.0
+        xp_by_gw[r["player_id"]][r["gw"]] = v
+        xp5[r["player_id"]] += v
         if r["gw"] == next_gw:
-            xpn[r["player_id"]] = r["x_pts"] or 0.0
+            xpn[r["player_id"]] = v
 
     pool = []
     for p in players:
         if p["status"] in EXCLUDE_STATUS or p["position"] not in SQUAD_QUOTA or p["now_cost"] is None:
             continue
         pool.append(_entry(p, short_by_id, xp5, xpn, is_current=False))
-    return pool, next_gw, short_by_id, dict(xp5), xpn
+    return pool, gws, short_by_id, dict(xp5), xpn, {k: dict(v) for k, v in xp_by_gw.items()}
 
 
 def _entry(p: dict, short_by_id, xp5, xpn, is_current: bool) -> dict:
@@ -87,6 +104,52 @@ def _entry(p: dict, short_by_id, xp5, xpn, is_current: bool) -> dict:
         "is_current": is_current,
     }
 
+
+def _bounded_universe(current: list[dict], pool: list[dict], k: int = POOL_SIZE) -> list[dict]:
+    """Your current squad + the top-k other players by horizon xPts. Bounds the MILP size."""
+    have = {c["fpl_id"] for c in current}
+    extra = sorted((p for p in pool if p["fpl_id"] not in have), key=lambda p: -p["xp5"])[:k]
+    return current + extra
+
+
+# --- valid best XI (formation-aware), used by the chip evaluators --------------
+
+def _best_xi(players: list[dict]) -> tuple[float, list[dict], list[dict]]:
+    """Given 15 players (each with 'position' and 'xp'), pick the highest-scoring legal XI.
+    Returns (xi_value, starters, bench). Enumerates the 8 valid outfield shapes."""
+    byp = {P: sorted((p for p in players if p["position"] == P), key=lambda x: -x["xp"]) for P in SQUAD_QUOTA}
+    if not byp["GK"]:
+        return 0.0, [], players
+    gk = byp["GK"][:1]
+    best: tuple[float, list[dict]] | None = None
+    for d in range(3, 6):
+        for m in range(2, 6):
+            for f in range(1, 4):
+                if d + m + f != 10:
+                    continue
+                if len(byp["DEF"]) < d or len(byp["MID"]) < m or len(byp["FWD"]) < f:
+                    continue
+                xi = gk + byp["DEF"][:d] + byp["MID"][:m] + byp["FWD"][:f]
+                val = sum(p["xp"] for p in xi)
+                if best is None or val > best[0]:
+                    best = (val, xi)
+    if best is None:
+        return 0.0, [], players
+    val, xi = best
+    xi_ids = {p["fpl_id"] for p in xi}
+    bench = [p for p in players if p["fpl_id"] not in xi_ids]
+    return val, xi, bench
+
+
+def _owned_at_gw(owned: list[dict], xp_by_gw: dict, gw: int) -> list[dict]:
+    return [
+        {"position": o["position"], "fpl_id": o["fpl_id"], "web_name": o["web_name"],
+         "xp": xp_by_gw.get(o["fpl_id"], {}).get(gw, 0.0)}
+        for o in owned
+    ]
+
+
+# --- single-squad MILP (used by --fresh, --transfers, and the chip evaluators) --
 
 def _solve(universe: list[dict], budget: int, current_count: int, free_transfers: int) -> dict:
     """Core MILP over `universe` (each entry has cost/xp5/xpn/position/team_id/is_current)."""
@@ -151,6 +214,205 @@ def _solve(universe: list[dict], budget: int, current_count: int, free_transfers
     return {"squad": picked, "paid": round(h.val(paid))}
 
 
+# --- multi-week transfer-path MILP --------------------------------------------
+
+def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=False, time_limit=120.0):
+    """Joint MILP across the whole horizon: choose the squad, XI, captain, and transfers for
+    EVERY gameweek at once, so the solver decides *when* to transfer, *when* to roll a free
+    transfer, and *when* a −4 hit pays off. Free transfers roll over (cap FT_CAP); each GW's
+    squad must be affordable within `budget` (= your squad value + bank)."""
+    H = len(gws)
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    h.setOptionValue("time_limit", time_limit)
+    h.setOptionValue("mip_rel_gap", 0.01)
+    n = len(universe)
+    ids = [u["fpl_id"] for u in universe]
+    pos = [u["position"] for u in universe]
+    cost = [u["cost"] for u in universe]
+    team = [u["team_id"] for u in universe]
+    init = [1 if ids[i] in current_ids else 0 for i in range(n)]
+    xp = [[xp_by_gw.get(ids[i], {}).get(g, 0.0) for g in gws] for i in range(n)]
+
+    own = [[h.addBinary() for _ in range(H)] for _ in range(n)]
+    start = [[h.addBinary() for _ in range(H)] for _ in range(n)]
+    cap = [[h.addBinary() for _ in range(H)] for _ in range(n)]
+    # buy/sell can be continuous in [0,1]: the squad transitions (integer) force them integral.
+    buy = [[h.addVariable(0, 1) for _ in range(H)] for _ in range(n)]
+    sell = [[h.addVariable(0, 1) for _ in range(H)] for _ in range(n)]
+    free = [h.addVariable(1, 15) for _ in range(H)]  # free transfers available going into GW g
+    pen = [h.addVariable(0, 15) for _ in range(H)]        # paid (hit) transfers at GW g
+
+    teams = set(team)
+    for g in range(H):
+        h.addConstr(sum(own[i][g] for i in range(n)) == 15)
+        h.addConstr(sum(cost[i] * own[i][g] for i in range(n)) <= budget)
+        for P, q in SQUAD_QUOTA.items():
+            h.addConstr(sum(own[i][g] for i in range(n) if pos[i] == P) == q)
+        for t in teams:
+            idxs = [i for i in range(n) if team[i] == t]
+            if len(idxs) > 3:
+                h.addConstr(sum(own[i][g] for i in idxs) <= 3)
+        for i in range(n):
+            h.addConstr(start[i][g] <= own[i][g])
+            h.addConstr(cap[i][g] <= start[i][g])
+        h.addConstr(sum(start[i][g] for i in range(n)) == 11)
+        for P in SQUAD_QUOTA:
+            s = sum(start[i][g] for i in range(n) if pos[i] == P)
+            h.addConstr(s >= FORMATION_MIN[P])
+            h.addConstr(s <= FORMATION_MAX[P])
+        h.addConstr(sum(cap[i][g] for i in range(n)) == 1)
+
+        # squad transitions: own[g] - own[g-1] = buy - sell (own[-1] = your current squad)
+        for i in range(n):
+            prev = init[i] if g == 0 else own[i][g - 1]
+            h.addConstr(own[i][g] - prev == buy[i][g] - sell[i][g])
+
+        tf = sum(buy[i][g] for i in range(n))     # transfers made this GW (= number bought)
+        h.addConstr(pen[g] >= tf - free[g])        # anything over the free allowance is a hit
+        if g == 0:
+            h.addConstr(free[0] <= ft0)            # your actual FT (or unlimited, preseason)
+        elif ft_unlimited and g == 1:
+            # Preseason is unlimited only before GW1; the in-season FT clock then starts at 1.
+            h.addConstr(free[1] <= 1)
+            h.addConstr(free[1] <= FT_CAP)
+        else:
+            # free transfers actually consumed last GW = tf[g-1] - pen[g-1]; you gain +1 (capped).
+            used_prev = sum(buy[i][g - 1] for i in range(n)) - pen[g - 1]
+            h.addConstr(free[g] <= free[g - 1] - used_prev + 1)
+            h.addConstr(free[g] <= FT_CAP)
+
+    obj = (
+        sum(DECAY ** g * (xp[i][g] * start[i][g] + xp[i][g] * cap[i][g]
+                          + BENCH_WEIGHT * xp[i][g] * (own[i][g] - start[i][g]))
+            for i in range(n) for g in range(H))
+        - HIT_COST * sum(pen[g] for g in range(H))
+    )
+    h.maximize(obj)
+
+    status = h.getModelStatus()
+    if status not in (highspy.HighsModelStatus.kOptimal, highspy.HighsModelStatus.kTimeLimit):
+        raise RuntimeError(f"path optimizer status: {status}")
+
+    def squad_at(g):
+        out = []
+        for i in range(n):
+            if round(h.val(own[i][g])) == 1:
+                u = universe[i]
+                out.append({
+                    **{k: u[k] for k in ("fpl_id", "web_name", "position", "team_short", "cost", "xp5", "xpn", "is_current")},
+                    "now_cost": u["cost"],
+                    "is_start": round(h.val(start[i][g])) == 1,
+                    "is_captain": round(h.val(cap[i][g])) == 1,
+                })
+        return out
+
+    path, xi_by_gw, cap_by_gw, hits_total = [], [], [], 0
+    for g in range(H):
+        ins = [_slim(universe[i]) for i in range(n) if round(h.val(buy[i][g])) == 1]
+        outs = [_slim(universe[i]) for i in range(n) if round(h.val(sell[i][g])) == 1]
+        hits_g = round(h.val(pen[g]))
+        hits_total += hits_g
+        xi_g = sum(xp[i][g] for i in range(n) if round(h.val(start[i][g])) == 1)
+        cap_g = sum(xp[i][g] for i in range(n) if round(h.val(cap[i][g])) == 1)
+        xi_by_gw.append(round(xi_g, 2))
+        cap_by_gw.append(round(cap_g, 2))
+        path.append({
+            "gw": gws[g],
+            "in": ins,
+            "out": outs,
+            "num": len(ins),
+            "hits": hits_g,
+            "free": round(h.val(free[g])),
+            "xi": round(xi_g + cap_g, 2),  # XI incl. captain double
+        })
+    planned_pts = round(sum(xi_by_gw) + sum(cap_by_gw) - HIT_COST * hits_total, 1)
+    return {"gw0_squad": squad_at(0), "path": path, "hits_total": hits_total, "planned_pts": planned_pts}
+
+
+# --- chip timing (transparent, one evaluator per chip) ------------------------
+
+def _chip_triple_captain(owned, xp_by_gw, gws):
+    best = None
+    for g in gws:
+        _, xi, _ = _best_xi(_owned_at_gw(owned, xp_by_gw, g))
+        cap = max(xi, key=lambda p: p["xp"]) if xi else None
+        gain = round(cap["xp"], 2) if cap else 0.0  # the extra ×1 on top of the normal captain
+        if best is None or gain > best["gain"]:
+            best = {"chip": "Triple Captain", "gw": g, "gain": gain,
+                    "detail": f"{cap['web_name']} projects {cap['xp']:.1f} pts" if cap else ""}
+    return best
+
+
+def _chip_bench_boost(owned, xp_by_gw, gws):
+    best = None
+    for g in gws:
+        _, _, bench = _best_xi(_owned_at_gw(owned, xp_by_gw, g))
+        gain = round(sum(p["xp"] for p in bench), 2)
+        if best is None or gain > best["gain"]:
+            best = {"chip": "Bench Boost", "gw": g, "gain": gain,
+                    "detail": "bench projects the most points here (best in a Double GW)"}
+    return best
+
+
+def _chip_wildcard(owned, universe, budget, xp_by_gw, gws):
+    """For each GW, compare a free full rebuild for the rest of the horizon vs holding your squad."""
+    best = None
+    for gi, g in enumerate(gws):
+        window = gws[gi:]
+        uni = [{**u, "xp5": sum(xp_by_gw.get(u["fpl_id"], {}).get(w, 0.0) for w in window),
+                "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
+        fresh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
+        fresh_val = sum(_best_xi(_owned_at_gw(fresh, xp_by_gw, w))[0] for w in window)
+        cur_val = sum(_best_xi(_owned_at_gw(owned, xp_by_gw, w))[0] for w in window)
+        gain = round(fresh_val - cur_val, 2)
+        if best is None or gain > best["gain"]:
+            best = {"chip": "Wildcard", "gw": g, "gain": gain,
+                    "detail": f"a full rebuild adds {gain:.1f} pts over the next {len(window)} GWs"}
+    return best
+
+
+def _chip_free_hit(owned, universe, budget, xp_by_gw, gws):
+    """For each GW, compare a one-week optimal squad vs your squad for that single GW."""
+    best = None
+    for g in gws:
+        uni = [{**u, "xp5": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0),
+                "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
+        fh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
+        fh_val = _best_xi(_owned_at_gw(fh, xp_by_gw, g))[0]
+        cur_val = _best_xi(_owned_at_gw(owned, xp_by_gw, g))[0]
+        gain = round(fh_val - cur_val, 2)
+        if best is None or gain > best["gain"]:
+            best = {"chip": "Free Hit", "gw": g, "gain": gain,
+                    "detail": "a one-week squad beats yours by the most here (best in a Blank GW)"}
+    return best
+
+
+def _chip_plan(owned, universe, budget, xp_by_gw, gws, chips_available):
+    chips = [
+        _chip_triple_captain(owned, xp_by_gw, gws),
+        _chip_bench_boost(owned, xp_by_gw, gws),
+        _chip_wildcard(owned, universe, budget, xp_by_gw, gws),
+        _chip_free_hit(owned, universe, budget, xp_by_gw, gws),
+    ]
+    # Respect which chips you still hold (preseason: chips_available is None -> all available).
+    if chips_available:
+        avail = set(chips_available)
+        for c in chips:
+            c["available"] = CHIP_CODES[c["chip"]] in avail
+    else:
+        for c in chips:
+            c["available"] = True
+
+    playable = [c for c in chips if c["available"] and c["gain"] >= CHIP_THRESHOLD]
+    best = max(playable, key=lambda c: c["gain"]) if playable else None
+    if best:
+        reco = f"Play {best['chip']} in GW{best['gw']} (+{best['gain']:.1f} xPts) — {best['detail']}."
+    else:
+        reco = f"Hold your chips — no window beats {CHIP_THRESHOLD:.0f} xPts over the next {len(gws)} GWs."
+    return {"all": chips, "best": best, "reco": reco}
+
+
 def _slim(p: dict) -> dict:
     return {
         "fpl_id": p["fpl_id"],
@@ -175,6 +437,7 @@ def _current_state(sb):
         "starter_ids": [p["element"] for p in st["picks"] if p["position"] <= 11],
         "bank": st["bank"] or 0,
         "free_transfers": st["free_transfers"],
+        "chips_available": st.get("chips_available"),
     }
 
 
@@ -187,17 +450,20 @@ def _print_squad(squad: list[dict], captain: dict | None) -> None:
 
 
 def run_fresh(sb) -> None:
-    pool, next_gw, _, _, _ = load_pool(sb)
+    pool, gws, _, _, _, _ = load_pool(sb)
+    next_gw = gws[0]
     print(f"Fresh-squad optimize over {len(pool)} players (GW{next_gw}) ...")
     res = _solve(pool, BUDGET, current_count=0, free_transfers=15)
     squad = res["squad"]
     captain = next((p for p in squad if p["is_captain"]), None)
     _print_squad(squad, captain)
-    _write_run(sb, next_gw, squad, captain, transfers=None, gain=None, objective="max_xpts_5gw_fresh")
+    _write_run(sb, next_gw, squad, captain, transfers=None, gain=None,
+               objective="max_xpts_5gw_fresh", horizon=len(gws), chip_reco=None)
 
 
 def run_transfers(sb) -> None:
-    pool, next_gw, short_by_id, xp5_by_id, xpn_by_id = load_pool(sb)
+    pool, gws, short_by_id, xp5_by_id, xpn_by_id, _ = load_pool(sb)
+    next_gw = gws[0]
     state = _current_state(sb)
     if not state:
         print("No current squad synced — run sync_team first (or the preseason snapshot).")
@@ -213,7 +479,7 @@ def run_transfers(sb) -> None:
 
     ft = state["free_transfers"]
     free_transfers = 15 if ft is None else max(1, ft)  # None => preseason unlimited
-    print(f"Transfer optimize (GW{next_gw}, FT={'∞' if ft is None else free_transfers}) over {len(universe)} players ...")
+    print(f"Transfer optimize (GW{next_gw}, FT={'inf' if ft is None else free_transfers}) over {len(universe)} players ...")
 
     res = _solve(universe, BUDGET, current_count=len(current), free_transfers=free_transfers)
     squad = res["squad"]
@@ -242,20 +508,101 @@ def run_transfers(sb) -> None:
         "hits": paid,
         "hit_cost": HIT_COST * paid,
     }
-    _write_run(sb, next_gw, squad, captain, transfers=transfers, gain=gain, objective="max_xpts_5gw_transfers")
+    _write_run(sb, next_gw, squad, captain, transfers=transfers, gain=gain,
+               objective="max_xpts_5gw_transfers", horizon=len(gws), chip_reco=None)
 
 
-def _write_run(sb, gw, squad, captain, transfers, gain, objective) -> None:
+def run_plan(sb) -> None:
+    pool, gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw = load_pool(sb)
+    if not gws:
+        print("No projections found — run the model first.")
+        return
+    state = _current_state(sb)
+    if not state:
+        print("No current squad synced — run sync_team first (or the preseason snapshot).")
+        return
+
+    current_ids = set(state["ids"])
+    cur_rows = (
+        sb.table("players").select("fpl_id, web_name, position, team_id, now_cost")
+        .in_("fpl_id", list(current_ids)).execute().data
+    )
+    current = [_entry(p, short_by_id, xp5_by_id, xpn_by_id, is_current=True) for p in cur_rows]
+    owned = [{"fpl_id": c["fpl_id"], "web_name": c["web_name"], "position": c["position"],
+              "team_short": c["team_short"]} for c in current]
+    universe = _bounded_universe(current, pool)
+
+    budget = sum(c["cost"] for c in current) + state["bank"]
+    ft = state["free_transfers"]
+    ft0 = 15 if ft is None else max(1, ft)
+    print(f"Multi-week plan: {len(gws)} GWs (GW{gws[0]}-{gws[-1]}), FT={'inf' if ft is None else ft0}, "
+          f"budget £{budget/10:.1f}m, universe {len(universe)} ...")
+
+    path_res = _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=(ft is None))
+    squad = path_res["gw0_squad"]
+    path = path_res["path"]
+    captain = next((p for p in squad if p["is_captain"]), None)
+
+    # Value of the plan vs simply holding your current squad (no transfers) over the horizon.
+    hold_pts = 0.0
+    for g in gws:
+        pls = _owned_at_gw(owned, xp_by_gw, g)
+        val, xi, _ = _best_xi(pls)
+        cap_xp = max((p["xp"] for p in xi), default=0.0)
+        hold_pts += val + cap_xp
+    gain = round(path_res["planned_pts"] - hold_pts, 1)
+
+    print(f"\nTransfer path (planned {path_res['planned_pts']} pts vs {round(hold_pts,1)} holding = {gain:+.1f}):")
+    for step in path:
+        if step["num"] == 0:
+            print(f"  GW{step['gw']}: roll (FT banked: {step['free']})")
+        else:
+            moves = ", ".join(f"{o['web_name']}->{i['web_name']}" for o, i in zip(step["out"], step["in"]))
+            hit = f", -{HIT_COST*step['hits']} hit" if step["hits"] else ""
+            print(f"  GW{step['gw']}: {step['num']} transfer(s){hit}  [{moves}]")
+
+    # Preseason (no FT set) every chip is available by definition; the synced chip list is
+    # unreliable until the season starts, so don't let it suppress a recommendation.
+    chips_avail = None if ft is None else state["chips_available"]
+    chips = _chip_plan(owned, universe, budget, xp_by_gw, gws, chips_avail)
+    print("\nChip timing:")
+    for c in chips["all"]:
+        flag = "" if c["available"] else " (used)"
+        print(f"  {c['chip']:15} best GW{c['gw']}  +{c['gain']:.1f}{flag}  — {c['detail']}")
+    print(f"  => {chips['reco']}")
+
+    print(f"\nThis week's XI (captain {captain['web_name'] if captain else '?'}):")
+    _print_squad(squad, captain)
+
+    immediate = path[0]
+    transfers = {
+        "out": immediate["out"],
+        "in": immediate["in"],
+        "num": immediate["num"],
+        "free_transfers": None if ft is None else ft0,
+        "hits": immediate["hits"],
+        "hit_cost": HIT_COST * immediate["hits"],
+        "path": path,
+        "chips": chips["all"],
+        "chip_reco": chips["reco"],
+        "planned_pts": path_res["planned_pts"],
+        "hold_pts": round(hold_pts, 1),
+    }
+    _write_run(sb, gws[0], squad, captain, transfers=transfers, gain=gain,
+               objective="max_xpts_multiweek", horizon=len(gws), chip_reco=chips["reco"])
+
+
+def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, chip_reco=None) -> None:
     sb.table("optimizer_runs").delete().eq("user_id", "me").execute()
     sb.table("optimizer_runs").insert(
         {
             "user_id": "me",
             "gw": gw,
-            "horizon": 5,
+            "horizon": horizon,
             "objective": objective,
             "suggested_squad": squad,
             "transfers": transfers,
-            "chip_reco": None,
+            "chip_reco": chip_reco,
             "captain_id": captain["fpl_id"] if captain else None,
             "expected_gain": gain,
         }
@@ -264,16 +611,19 @@ def _write_run(sb, gw, squad, captain, transfers, gain, objective) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FPL squad + transfer optimizer (HiGHS MILP).")
+    parser = argparse.ArgumentParser(description="FPL squad + transfer + chip optimizer (HiGHS MILP).")
     parser.add_argument("--fresh", action="store_true", help="best 15 from scratch")
-    parser.add_argument("--transfers", action="store_true", help="best transfers from your squad (default)")
+    parser.add_argument("--transfers", action="store_true", help="single-deadline transfers (valued over 5 GWs)")
+    parser.add_argument("--plan", action="store_true", help="full multi-week transfer path + chip timing (default)")
     args = parser.parse_args()
     load_dotenv()
     sb = db.get_client()
     if args.fresh:
         run_fresh(sb)
-    else:
+    elif args.transfers:
         run_transfers(sb)
+    else:
+        run_plan(sb)
 
 
 if __name__ == "__main__":
