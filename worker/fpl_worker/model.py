@@ -1,0 +1,294 @@
+"""Rules-based expected-points (xPts) model — Phase 3, spec §3.1.
+
+Transparent by design: every projection is the sum of named components, each stored so the UI
+can explain the headline number. Preseason there is no 2026/27 match data, so attacking output
+uses last-season Understat xG (via the crosswalk) as a prior; minutes use last-season minutes +
+current availability. Blending in live current-season form is a later refinement.
+
+    python -m fpl_worker.model --dry-run            # compute + print top projections, no DB write
+    python -m fpl_worker.model --run --horizon 5    # write projections for the next 5 GWs
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+
+from dotenv import load_dotenv
+
+from . import db, fdr, soccer_stats
+
+MODEL_VERSION = "rules-v1"
+
+GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
+CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
+ASSIST_PTS = 3
+DEFCON_BASE = {"DEF": 0.45, "MID": 0.15, "GK": 0.05, "FWD": 0.03}  # rough P(hit threshold) placeholder
+PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
+
+# --- minutes -----------------------------------------------------------------
+
+def _availability(status: str | None, chance: int | None) -> float:
+    if status in ("i", "s", "u", "n"):
+        return 0.0
+    if chance is not None:
+        return chance / 100.0
+    return 0.5 if status == "d" else 1.0  # 'd' doubtful, else available
+
+
+def _minutes(player: dict) -> tuple[float, float, float]:
+    """Return (p_start, p_play, exp_minutes)."""
+    avail = _availability(player["status"], player["chance_of_playing_next_round"])
+    mins_last = player["minutes"] or 0
+    nailed = min(1.0, mins_last / 2600)  # last-season minutes -> starter prior (~29 full games)
+    p_start = avail * nailed
+    p_cameo = (1.0 - p_start) * (0.15 if avail > 0 else 0.0)
+    p_play = min(1.0, p_start + p_cameo)
+    exp_minutes = p_start * 82 + p_cameo * 20
+    return p_start, p_play, exp_minutes
+
+
+# --- fixture / team helpers --------------------------------------------------
+
+def _attack_adj(fdr_value: float | None) -> float:
+    """custom FDR (1 easy .. 5 hard) -> attacking multiplier (~1.24 .. 0.76)."""
+    f = 3.0 if fdr_value is None else float(fdr_value)
+    return 1.0 + 0.12 * (3.0 - f)
+
+
+def build_team_ratings_by_id(teams: list[dict], ratings_by_name: dict[str, dict]) -> dict[int, dict]:
+    """{fpl_id: {xgf_pg, xga_pg}} with a weak fallback for promoted clubs (no last-season data)."""
+    known = [r for r in ratings_by_name.values()]
+    if known:
+        weak_att = min(r["xgf_pg"] for r in known)
+        leaky_def = max(r["xga_pg"] for r in known)
+    else:
+        weak_att, leaky_def = 1.0, 1.6
+    out: dict[int, dict] = {}
+    for t in teams:
+        r = ratings_by_name.get(t["name"])
+        out[t["fpl_id"]] = r if r else {"xgf_pg": weak_att, "xga_pg": leaky_def, "rating": None}
+    return out
+
+
+# --- base-rate blending ------------------------------------------------------
+
+def compute_base_rates(players: list[dict], us_by_id: dict) -> dict[str, dict]:
+    """Position base per-90 rates (minutes-weighted) across matched players, used as the
+    shrinkage prior so small-sample hot rates regress toward the positional average."""
+    from collections import defaultdict
+
+    agg = defaultdict(lambda: {"xg": 0.0, "xa": 0.0, "min": 0.0})
+    for p in players:
+        us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
+        if us and (us.get("minutes") or 0) > 0:
+            a = agg[p["position"]]
+            a["xg"] += us["xg"]
+            a["xa"] += us["xa"]
+            a["min"] += us["minutes"]
+    base = {}
+    for pos, a in agg.items():
+        n90 = a["min"] / 90.0
+        base[pos] = {"xg90": a["xg"] / n90 if n90 else 0.0, "xa90": a["xa"] / n90 if n90 else 0.0}
+    return base
+
+
+def player_rates(us: dict | None, pos: str, base: dict[str, dict]) -> dict:
+    """Empirical-Bayes shrinkage of a player's per-90 toward the position base rate:
+    blended = (observed + K*base) / (n90 + K). Unmatched players (no PL data) stay at 0."""
+    b = base.get(pos, {"xg90": 0.0, "xa90": 0.0})
+    if us and (us.get("minutes") or 0) > 0:
+        n90 = us["minutes"] / 90.0
+        return {
+            "xg90": (us["xg"] + PRIOR_K * b["xg90"]) / (n90 + PRIOR_K),
+            "xa90": (us["xa"] + PRIOR_K * b["xa90"]) / (n90 + PRIOR_K),
+            "yellow90": (us.get("yellow_cards", 0) or 0) / n90,
+        }
+    return {"xg90": 0.0, "xa90": 0.0, "yellow90": 0.1}
+
+
+# --- core projection ---------------------------------------------------------
+
+def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
+                    our: dict, opp: dict) -> dict:
+    """One player, one fixture -> component dict of expected points.
+
+    `rates` holds the base-rate-blended per-90 attacking rates (see player_rates)."""
+    pos = player["position"] or "MID"
+    p_start, p_play, exp_min = _minutes(player)
+    mins_frac = exp_min / 90.0
+    adj = _attack_adj(fdr_value)
+
+    xg90 = rates["xg90"]
+    xa90 = rates["xa90"]
+    yellow90 = rates["yellow90"]
+
+    x_goals = xg90 * mins_frac * adj
+    x_assists = xa90 * mins_frac * adj
+    x_goals_pts = x_goals * GOAL_PTS[pos]
+    x_assist_pts = x_assists * ASSIST_PTS
+
+    # clean sheet: expected goals conceded blends opponent attack and our defence, home tweak
+    lam = 0.5 * opp["xgf_pg"] + 0.5 * our["xga_pg"]
+    lam *= 0.9 if is_home else 1.1
+    p_cs = math.exp(-lam)
+    p_60 = p_start * 0.9
+    x_cs_pts = p_cs * CS_PTS[pos] * p_60
+
+    # appearance
+    x_appearance_pts = p_play * 1.0 + p_60 * 1.0
+
+    # saves (GK, rough)
+    x_saves_pts = (lam * 2.0 / 3.0) * p_start if pos == "GK" else 0.0
+
+    # defensive contributions (placeholder until FBref tackle/interception data)
+    x_defcon_pts = DEFCON_BASE.get(pos, 0.0) * mins_frac * 2.0
+
+    # bonus proxy from involvement
+    involvement = x_goals_pts + x_assist_pts + (x_cs_pts if pos in ("GK", "DEF") else 0.0)
+    x_bonus_pts = min(1.5, 0.25 * involvement)
+
+    # deductions: goals conceded (GK/DEF -1 per 2) + yellow cards
+    x_conceded = -(lam / 2.0) * p_start if pos in ("GK", "DEF") else 0.0
+    x_cards = -(yellow90 * mins_frac)
+    x_deductions_pts = x_conceded + x_cards
+
+    x_pts = (
+        x_appearance_pts + x_goals_pts + x_assist_pts + x_cs_pts
+        + x_saves_pts + x_defcon_pts + x_bonus_pts + x_deductions_pts
+    )
+    return {
+        "x_pts": x_pts,
+        "x_appearance_pts": x_appearance_pts,
+        "x_goals_pts": x_goals_pts,
+        "x_assist_pts": x_assist_pts,
+        "x_cs_pts": x_cs_pts,
+        "x_saves_pts": x_saves_pts,
+        "x_defcon_pts": x_defcon_pts,
+        "x_bonus_pts": x_bonus_pts,
+        "x_deductions_pts": x_deductions_pts,
+        "p_start": p_start,
+        "exp_minutes": exp_min,
+        "fixture_adj": adj,
+        "p_cs": p_cs,
+        "xg90": xg90,
+        "xa90": xa90,
+    }
+
+
+def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
+    players = (
+        sb.table("players")
+        .select("fpl_id, web_name, understat_id, position, team_id, status, "
+                "chance_of_playing_next_round, minutes, now_cost")
+        .execute()
+        .data
+    )
+    teams = sb.table("teams").select("fpl_id, name, short_name").execute().data
+    fixtures = (
+        sb.table("fixtures")
+        .select("gw, team_h, team_a, custom_fdr_h, custom_fdr_a, finished")
+        .execute()
+        .data
+    )
+
+    us_df = soccer_stats.understat_player_season()
+    us_by_id = {str(r["player_id"]): r for r in us_df.to_dict("records")}
+    base = compute_base_rates(players, us_by_id)
+    if dry_run:
+        print("Position base per-90 (shrinkage prior):")
+        for pos in ("GK", "DEF", "MID", "FWD"):
+            b = base.get(pos, {})
+            print(f"  {pos}: xg90={b.get('xg90', 0):.3f} xa90={b.get('xa90', 0):.3f}")
+    ratings = fdr.team_ratings()
+    team_rt = build_team_ratings_by_id(teams, ratings)
+    short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
+
+    upcoming = [f for f in fixtures if not f["finished"] and f["gw"] is not None]
+    if not upcoming:
+        print("No upcoming fixtures found.")
+        return
+    next_gw = min(f["gw"] for f in upcoming)
+    gws = list(range(next_gw, next_gw + horizon))
+
+    # index fixtures by (team_id, gw) -> list of (is_home, fdr, opp_team_id)
+    by_team_gw: dict[tuple[int, int], list] = {}
+    for f in upcoming:
+        if f["gw"] not in gws:
+            continue
+        by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, f["custom_fdr_h"], f["team_a"]))
+        by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, f["custom_fdr_a"], f["team_h"]))
+
+    rows = []
+    for p in players:
+        us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
+        rates = player_rates(us, p["position"], base)
+        our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
+        for gw in gws:
+            fxs = by_team_gw.get((p["team_id"], gw), [])
+            if not fxs:
+                continue  # blank GW for this team
+            agg: dict[str, float] = {}
+            opp_short = []
+            for is_home, fdr_v, opp_id in fxs:
+                comp = project_fixture(p, rates, is_home, fdr_v, our, team_rt.get(opp_id, our))
+                for k, v in comp.items():
+                    if k in ("p_start", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
+                        continue
+                    agg[k] = agg.get(k, 0.0) + v
+                opp_short.append(("" if is_home else "@") + short_by_id.get(opp_id, "?"))
+            rows.append({
+                "player_id": p["fpl_id"],
+                "gw": gw,
+                "x_pts": round(agg["x_pts"], 3),
+                "x_appearance_pts": round(agg["x_appearance_pts"], 3),
+                "x_goals_pts": round(agg["x_goals_pts"], 3),
+                "x_assist_pts": round(agg["x_assist_pts"], 3),
+                "x_cs_pts": round(agg["x_cs_pts"], 3),
+                "x_saves_pts": round(agg["x_saves_pts"], 3),
+                "x_defcon_pts": round(agg["x_defcon_pts"], 3),
+                "x_bonus_pts": round(agg["x_bonus_pts"], 3),
+                "x_deductions_pts": round(agg["x_deductions_pts"], 3),
+                "model_version": MODEL_VERSION,
+                "components": {"opponents": opp_short, "n_fixtures": len(fxs)},
+                "_web_name": p["web_name"],
+                "_pos": p["position"],
+                "_cost": p["now_cost"],
+                "_opp": ",".join(opp_short),
+            })
+
+    if dry_run:
+        _print_top(rows, next_gw)
+        return
+
+    payload = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    sb.table("projections").delete().eq("model_version", MODEL_VERSION).in_("gw", gws).execute()
+    db.upsert(sb, "projections", payload, on_conflict="player_id,gw,model_version")
+    print(f"Wrote {len(payload)} projections for GW{next_gw}-{gws[-1]} (model {MODEL_VERSION}).")
+
+
+def _print_top(rows: list[dict], gw: int) -> None:
+    this_gw = [r for r in rows if r["gw"] == gw]
+    this_gw.sort(key=lambda r: r["x_pts"], reverse=True)
+    print(f"\nTop 25 projected for GW{gw} (model {MODEL_VERSION}):")
+    print(f"{'player':16}{'pos':5}{'£':6}{'opp':8}{'xPts':>6}  {'gls':>5}{'ast':>5}{'cs':>5}{'app':>5}")
+    for r in this_gw[:25]:
+        print(f"{r['_web_name'][:15]:16}{r['_pos']:5}{r['_cost']/10:<6}{r['_opp'][:7]:8}"
+              f"{r['x_pts']:6.2f}  {r['x_goals_pts']:5.2f}{r['x_assist_pts']:5.2f}"
+              f"{r['x_cs_pts']:5.2f}{r['x_appearance_pts']:5.2f}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Rules-based xPts model (Phase 3).")
+    parser.add_argument("--run", action="store_true", help="write projections to Supabase")
+    parser.add_argument("--dry-run", action="store_true", help="compute + print, no DB write")
+    parser.add_argument("--horizon", type=int, default=5, help="number of gameweeks (default 5)")
+    args = parser.parse_args()
+
+    load_dotenv()
+    sb = db.get_client()
+    run(sb, horizon=args.horizon, dry_run=args.dry_run or not args.run)
+
+
+if __name__ == "__main__":
+    main()

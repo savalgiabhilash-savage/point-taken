@@ -1,0 +1,56 @@
+# Full data pipeline: FPL API -> Supabase, then advanced stats, model, optimizer, team sync.
+# Runs twice daily in the cloud so the deployed site stays fresh without a local machine.
+# Requires these repo secrets (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FPL_ENTRY_ID
+name: fpl-pipeline
+
+on:
+  schedule:
+    # 06:30 and 18:30 UTC — after overnight price changes and around midday team news.
+    - cron: "30 6,18 * * *"
+  workflow_dispatch: {} # allow manual runs from the Actions tab / gh CLI
+
+concurrency:
+  group: fpl-pipeline
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync
+
+      # 1) Foundation: FPL API -> teams/players/fixtures (critical).
+      - name: Refresh FPL data
+        run: uv run python -m fpl_worker.refresh --refresh
+
+      # 2) Advanced stats: Understat crosswalk + custom FDR.
+      - name: Enrich (crosswalk + FDR)
+        run: uv run python -m fpl_worker.enrich --all
+
+      # 3) Rules-based xPts projections.
+      - name: Model (projections)
+        run: uv run python -m fpl_worker.model --run --horizon 5
+
+      # 4) Transfer optimizer for the user's squad.
+      - name: Optimize (transfers)
+        run: uv run python -m fpl_worker.optimize --transfers
+
+      # 5) Sync the user's live team (no-op preseason; keeps the snapshot).
+      - name: Sync team
+        run: uv run python -m fpl_worker.sync_team
