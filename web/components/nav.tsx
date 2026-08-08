@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/fixtures", label: "Fixtures" },
   { href: "/team", label: "My Team" },
   { href: "/optimizer", label: "Optimizer" },
+  { href: "/guide", label: "Guide" },
 ];
 
 export function Nav() {
