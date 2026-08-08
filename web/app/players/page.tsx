@@ -1,4 +1,8 @@
-import { createSupabaseServerClient, type PlayerRow } from "@/lib/supabase";
+import {
+  createSupabaseServerClient,
+  type BreakdownComponent,
+  type PlayerRow,
+} from "@/lib/supabase";
 import { PlayersTable } from "@/components/players-table";
 
 // Always read fresh from the DB at request time.
@@ -6,7 +10,22 @@ export const dynamic = "force-dynamic";
 
 const MODEL = "rules-v1";
 
-type ProjRow = { player_id: number; gw: number; x_pts: number | null };
+type ProjRow = {
+  player_id: number;
+  gw: number;
+  x_pts: number | null;
+  x_appearance_pts: number | null;
+  x_goals_pts: number | null;
+  x_assist_pts: number | null;
+  x_cs_pts: number | null;
+  x_saves_pts: number | null;
+  x_defcon_pts: number | null;
+  x_bonus_pts: number | null;
+  x_deductions_pts: number | null;
+};
+
+const PROJ_COLUMNS =
+  "player_id, gw, x_pts, x_appearance_pts, x_goals_pts, x_assist_pts, x_cs_pts, x_saves_pts, x_defcon_pts, x_bonus_pts, x_deductions_pts";
 
 // PostgREST caps a response at 1000 rows; the projections table is larger, so page through it.
 async function fetchAllProjections(
@@ -17,7 +36,7 @@ async function fetchAllProjections(
   for (let from = 0; ; from += size) {
     const { data } = await supabase
       .from("projections")
-      .select("player_id, gw, x_pts")
+      .select(PROJ_COLUMNS)
       .eq("model_version", MODEL)
       .range(from, from + size - 1);
     const batch = (data ?? []) as ProjRow[];
@@ -25,6 +44,19 @@ async function fetchAllProjections(
     if (batch.length < size) break;
   }
   return all;
+}
+
+function components(r: ProjRow): BreakdownComponent[] {
+  return [
+    { label: "Appearance", value: r.x_appearance_pts ?? 0 },
+    { label: "Goals", value: r.x_goals_pts ?? 0 },
+    { label: "Assists", value: r.x_assist_pts ?? 0 },
+    { label: "Clean sheet", value: r.x_cs_pts ?? 0 },
+    { label: "Bonus", value: r.x_bonus_pts ?? 0 },
+    { label: "DefCon", value: r.x_defcon_pts ?? 0 },
+    { label: "Saves", value: r.x_saves_pts ?? 0 },
+    { label: "Deductions", value: r.x_deductions_pts ?? 0 },
+  ];
 }
 
 export default async function PlayersPage() {
@@ -50,40 +82,59 @@ export default async function PlayersPage() {
   }
 
   const projections = await fetchAllProjections(supabase);
-  const nextGw = projections.length ? Math.min(...projections.map((p) => p.gw)) : null;
+  const gws = [...new Set(projections.map((p) => p.gw))].sort((a, b) => a - b);
+  const nextGw = gws.length ? gws[0] : null;
 
-  // Aggregate projections per player: next-GW xPts and 5-GW total.
-  const projByPlayer = new Map<number, { xp_next: number | null; xp5: number }>();
+  // Aggregate projections per player.
+  const proj = new Map<
+    number,
+    { xp_next: number | null; xp5: number; comps: BreakdownComponent[] | null; xpByGw: Map<number, number> }
+  >();
   for (const r of projections) {
-    const e = projByPlayer.get(r.player_id) ?? { xp_next: null, xp5: 0 };
+    const e = proj.get(r.player_id) ?? { xp_next: null, xp5: 0, comps: null, xpByGw: new Map() };
     e.xp5 += r.x_pts ?? 0;
-    if (r.gw === nextGw) e.xp_next = r.x_pts ?? null;
-    projByPlayer.set(r.player_id, e);
+    e.xpByGw.set(r.gw, r.x_pts ?? 0);
+    if (r.gw === nextGw) {
+      e.xp_next = r.x_pts ?? null;
+      e.comps = components(r);
+    }
+    proj.set(r.player_id, e);
   }
 
-  // Next-GW opponent + custom FDR per team.
+  // Opponent + custom FDR per team, per GW across the horizon.
   const shortById = new Map((teamsRes.data ?? []).map((t) => [t.fpl_id, t.short_name]));
-  const oppByTeam = new Map<number, { opp: string; fdr: number | null }>();
-  if (nextGw != null) {
+  const oppByTeamGw = new Map<number, Map<number, { opp: string; fdr: number | null }>>();
+  if (gws.length) {
     const { data: fixtures } = await supabase
       .from("fixtures")
-      .select("team_h, team_a, custom_fdr_h, custom_fdr_a")
-      .eq("gw", nextGw);
+      .select("gw, team_h, team_a, custom_fdr_h, custom_fdr_a")
+      .in("gw", gws);
     for (const f of fixtures ?? []) {
-      oppByTeam.set(f.team_h, { opp: shortById.get(f.team_a) ?? "?", fdr: f.custom_fdr_h });
-      oppByTeam.set(f.team_a, { opp: `@${shortById.get(f.team_h) ?? "?"}`, fdr: f.custom_fdr_a });
+      if (!oppByTeamGw.has(f.team_h)) oppByTeamGw.set(f.team_h, new Map());
+      if (!oppByTeamGw.has(f.team_a)) oppByTeamGw.set(f.team_a, new Map());
+      oppByTeamGw.get(f.team_h)!.set(f.gw, { opp: shortById.get(f.team_a) ?? "?", fdr: f.custom_fdr_h });
+      oppByTeamGw.get(f.team_a)!.set(f.gw, { opp: `@${shortById.get(f.team_h) ?? "?"}`, fdr: f.custom_fdr_a });
     }
   }
 
   const rows: PlayerRow[] = (playersRes.data ?? []).map((p) => {
-    const pr = projByPlayer.get(p.fpl_id);
-    const opp = p.team_id != null ? oppByTeam.get(p.team_id) : undefined;
+    const pr = proj.get(p.fpl_id);
+    const teamGw = p.team_id != null ? oppByTeamGw.get(p.team_id) : undefined;
+    const next = nextGw != null ? teamGw?.get(nextGw) : undefined;
+    const schedule = pr
+      ? gws.map((gw) => {
+          const fx = teamGw?.get(gw);
+          return { gw, xp: pr.xpByGw.get(gw) ?? 0, opp: fx?.opp ?? null, fdr: fx?.fdr ?? null };
+        })
+      : null;
     return {
       ...(p as unknown as PlayerRow),
       xp_next: pr?.xp_next ?? null,
       xp5: pr ? Number(pr.xp5.toFixed(2)) : null,
-      opp: opp?.opp ?? null,
-      opp_fdr: opp?.fdr ?? null,
+      opp: next?.opp ?? null,
+      opp_fdr: next?.fdr ?? null,
+      components: pr?.comps ?? null,
+      schedule,
     };
   });
 
@@ -108,16 +159,13 @@ export default async function PlayersPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Player Explorer</h1>
         <p className="text-sm text-muted-foreground">
-          Projected expected points (xPts) for every player, fixture-adjusted. Sort by xPts to find value.
+          Projected expected points (xPts) for every player, fixture-adjusted. Click a row to see the breakdown.
         </p>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <div
-            key={s.label}
-            className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm"
-          >
+          <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {s.label}
             </div>

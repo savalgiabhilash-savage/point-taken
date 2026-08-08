@@ -24,6 +24,11 @@ export function createSupabaseServerClient() {
 
 export type Position = "GK" | "DEF" | "MID" | "FWD";
 
+/** One named part of the next-GW xPts total, for the transparent breakdown. */
+export type BreakdownComponent = { label: string; value: number };
+/** One upcoming fixture's projection, for the mini schedule in the detail drawer. */
+export type ScheduleItem = { gw: number; xp: number; opp: string | null; fdr: number | null };
+
 /** A player row enriched with rules-v1 projection data for the explorer table. */
 export type PlayerRow = {
   fpl_id: number;
@@ -39,4 +44,6 @@ export type PlayerRow = {
   xp5: number | null; // projected xPts summed over the next 5 GWs
   opp: string | null; // next-GW opponent short code ("HUL" home, "@HUL" away)
   opp_fdr: number | null; // custom FDR of that fixture (1 easy .. 5 hard)
+  components: BreakdownComponent[] | null; // next-GW xPts breakdown
+  schedule: ScheduleItem[] | null; // per-GW projection over the horizon
 };

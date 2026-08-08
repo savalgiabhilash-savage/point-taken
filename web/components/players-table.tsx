@@ -173,7 +173,124 @@ const columns: ColumnDef<PlayerRow>[] = [
   },
 ];
 
+const COMP_COLOR: Record<string, string> = {
+  Appearance: "bg-zinc-400",
+  Goals: "bg-emerald-500",
+  Assists: "bg-sky-500",
+  "Clean sheet": "bg-teal-500",
+  Bonus: "bg-violet-500",
+  DefCon: "bg-amber-500",
+  Saves: "bg-cyan-500",
+  Deductions: "bg-rose-500",
+};
+
+function PlayerDrawer({
+  player,
+  nextGw,
+  onClose,
+}: {
+  player: PlayerRow | null;
+  nextGw: number | null;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    if (player) window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [player, onClose]);
+
+  if (!player) return null;
+  const comps = player.components ?? [];
+  const positives = comps.filter((c) => c.value > 0.001);
+  const totalPos = positives.reduce((s, c) => s + c.value, 0) || 1;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-sm flex-col gap-5 overflow-y-auto border-l border-border bg-card p-5 shadow-xl">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-semibold">{player.web_name}</span>
+              <PosPill pos={player.position} />
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {player.team?.name ?? ""} · {price(player.now_cost)} · {one(player.selected_by_percent)}% owned
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold tabular-nums">{player.xp_next?.toFixed(1) ?? "—"}</span>
+            <span className="text-sm text-muted-foreground">
+              xPts{nextGw != null ? ` · GW${nextGw}` : ""}
+              {player.opp ? ` vs ${player.opp}` : ""}
+            </span>
+          </div>
+          <div className="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-muted">
+            {positives.map((c) => (
+              <div
+                key={c.label}
+                className={COMP_COLOR[c.label] ?? "bg-zinc-500"}
+                style={{ width: `${(c.value / totalPos) * 100}%` }}
+                title={`${c.label}: ${c.value.toFixed(2)}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          {comps.map((c) => (
+            <div key={c.label} className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2">
+                <span className={`size-2.5 rounded-full ${COMP_COLOR[c.label] ?? "bg-zinc-500"}`} />
+                <span className={c.value < 0 ? "text-muted-foreground" : ""}>{c.label}</span>
+              </span>
+              <span className={`tabular-nums ${c.value < 0 ? "text-rose-400" : "text-foreground"}`}>
+                {c.value >= 0 ? "+" : ""}
+                {c.value.toFixed(2)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {player.schedule && player.schedule.length > 0 && (
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Next {player.schedule.length} fixtures
+            </div>
+            <div className="flex gap-1.5">
+              {player.schedule.map((s) => (
+                <div key={s.gw} className="flex flex-1 flex-col items-center gap-1">
+                  <span
+                    className={`w-full rounded px-1 py-1 text-center text-[11px] font-medium ${fdrClasses(s.fdr)}`}
+                  >
+                    {s.opp ?? "—"}
+                  </span>
+                  <span className="text-[11px] font-semibold tabular-nums">{s.xp.toFixed(1)}</span>
+                  <span className="text-[9px] text-muted-foreground">GW{s.gw}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </aside>
+    </>
+  );
+}
+
 export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw: number | null }) {
+  const [selected, setSelected] = React.useState<PlayerRow | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "xp_next", desc: true }]);
   const [pos, setPos] = React.useState("ALL");
   const [team, setTeam] = React.useState("ALL");
@@ -305,7 +422,11 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
           <TableBody>
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="border-border/40">
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer border-border/40"
+                  onClick={() => setSelected(row.original)}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}
@@ -329,6 +450,8 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
           </TableBody>
         </Table>
       </div>
+
+      <PlayerDrawer player={selected} nextGw={nextGw} onClose={() => setSelected(null)} />
     </div>
   );
 }
