@@ -3,6 +3,7 @@
 # Runs twice daily in the cloud so the deployed site stays fresh without a local machine.
 # Requires these repo secrets (Settings -> Secrets and variables -> Actions):
 #   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FPL_ENTRY_ID
+# Optional: ANTHROPIC_API_KEY enables the news/sentiment step (skipped if unset).
 name: fpl-pipeline
 
 on:
@@ -25,6 +26,7 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,3 +57,9 @@ jobs:
       # 5) Sync the user's live team (no-op preseason; keeps the snapshot).
       - name: Sync team
         run: uv run python -m fpl_worker.sync_team
+
+      # 6) News & sentiment (advisory). Only runs when ANTHROPIC_API_KEY is set,
+      #    so the pipeline stays green until the key is added as a repo secret.
+      - name: News & sentiment
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: uv run python -m fpl_worker.news_job --run

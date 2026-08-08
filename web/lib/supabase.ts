@@ -29,6 +29,20 @@ export type BreakdownComponent = { label: string; value: number };
 /** One upcoming fixture's projection, for the mini schedule in the detail drawer. */
 export type ScheduleItem = { gw: number; xp: number; opp: string | null; fdr: number | null };
 
+/**
+ * Advisory news/sentiment signal (Phase 7). Derived from recent headlines classified by Claude.
+ * `minutes_risk_adj` is in [-1, 0] and stays advisory — it is NOT folded into the xPts model.
+ */
+export type NewsSignal = {
+  sentiment: string | null;
+  topics: string[] | null;
+  summary: string | null;
+  minutes_risk_adj: number | null;
+  url: string | null;
+  source: string | null;
+  published_at: string | null;
+};
+
 /** A player row enriched with rules-v1 projection data for the explorer table. */
 export type PlayerRow = {
   fpl_id: number;
@@ -46,4 +60,5 @@ export type PlayerRow = {
   opp_fdr: number | null; // custom FDR of that fixture (1 easy .. 5 hard)
   components: BreakdownComponent[] | null; // next-GW xPts breakdown
   schedule: ScheduleItem[] | null; // per-GW projection over the horizon
+  news: NewsSignal | null; // advisory news/sentiment signal, if any recent news
 };

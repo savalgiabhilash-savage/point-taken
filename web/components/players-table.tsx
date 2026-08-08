@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { PlayerRow, Position } from "@/lib/supabase";
+import type { NewsSignal, PlayerRow, Position } from "@/lib/supabase";
 
 const POSITIONS: Position[] = ["GK", "DEF", "MID", "FWD"];
 const RIGHT = new Set(["price", "own", "last", "xp_next", "xp5"]);
@@ -80,6 +80,43 @@ function PosPill({ pos }: { pos: Position | null }) {
   );
 }
 
+// Advisory news chip — surface the single most decision-relevant topic (rank order),
+// falling back to overall sentiment when the topics aren't availability-related.
+const NEWS_STYLES: Record<string, { label: string; cls: string }> = {
+  "injury-risk": { label: "injury", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400" },
+  suspension: { label: "susp.", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400" },
+  rotation: { label: "rotation", cls: "bg-amber-500/15 text-amber-600 ring-amber-500/30 dark:text-amber-400" },
+  "return-from-injury": { label: "return", cls: "bg-sky-500/15 text-sky-600 ring-sky-500/30 dark:text-sky-400" },
+  "form-buzz": { label: "buzz", cls: "bg-emerald-500/15 text-emerald-600 ring-emerald-500/30 dark:text-emerald-400" },
+  transfer: { label: "transfer", cls: "bg-violet-500/15 text-violet-600 ring-violet-500/30 dark:text-violet-400" },
+  "off-pitch": { label: "news", cls: "bg-zinc-500/15 text-zinc-600 ring-zinc-500/30 dark:text-zinc-400" },
+};
+const NEWS_PRIORITY = [
+  "injury-risk", "suspension", "rotation", "return-from-injury", "form-buzz", "transfer", "off-pitch",
+];
+
+function newsBadge(news: NewsSignal): { label: string; cls: string } {
+  const topics = news.topics ?? [];
+  for (const t of NEWS_PRIORITY) if (topics.includes(t)) return NEWS_STYLES[t];
+  if (news.sentiment === "negative")
+    return { label: "news", cls: "bg-amber-500/15 text-amber-600 ring-amber-500/30 dark:text-amber-400" };
+  if (news.sentiment === "positive")
+    return { label: "news", cls: "bg-emerald-500/15 text-emerald-600 ring-emerald-500/30 dark:text-emerald-400" };
+  return { label: "news", cls: "bg-zinc-500/15 text-zinc-600 ring-zinc-500/30 dark:text-zinc-400" };
+}
+
+function NewsChip({ news }: { news: NewsSignal }) {
+  const b = newsBadge(news);
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset ${b.cls}`}
+      title={news.summary ?? undefined}
+    >
+      {b.label}
+    </span>
+  );
+}
+
 const columns: ColumnDef<PlayerRow>[] = [
   {
     id: "web_name",
@@ -89,7 +126,10 @@ const columns: ColumnDef<PlayerRow>[] = [
       const r = info.row.original;
       return (
         <div className="flex flex-col leading-tight">
-          <span className="font-medium">{r.web_name}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium">{r.web_name}</span>
+            {r.news ? <NewsChip news={r.news} /> : null}
+          </span>
           <span className="text-xs text-muted-foreground">{r.team?.short_name ?? ""}</span>
         </div>
       );
@@ -281,6 +321,48 @@ function PlayerDrawer({
                   <span className="text-[9px] text-muted-foreground">GW{s.gw}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {player.news && (
+          <div>
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              News &amp; sentiment
+            </div>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <NewsChip news={player.news} />
+                {(player.news.topics ?? [])
+                  .filter((t) => t !== "none")
+                  .map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                    >
+                      {t}
+                    </span>
+                  ))}
+              </div>
+              {player.news.summary ? (
+                <p className="mt-2 text-sm leading-snug">{player.news.summary}</p>
+              ) : null}
+              {player.news.minutes_risk_adj != null && player.news.minutes_risk_adj < 0 ? (
+                <div className="mt-2 text-xs text-amber-500">
+                  Minutes risk {Math.round(player.news.minutes_risk_adj * 100)}%
+                  <span className="text-muted-foreground"> · advisory, not in xPts</span>
+                </div>
+              ) : null}
+              {player.news.url ? (
+                <a
+                  href={player.news.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block text-xs text-emerald-500 hover:underline"
+                >
+                  {player.news.source ?? "Source"} ↗
+                </a>
+              ) : null}
             </div>
           </div>
         )}

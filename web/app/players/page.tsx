@@ -1,6 +1,7 @@
 import {
   createSupabaseServerClient,
   type BreakdownComponent,
+  type NewsSignal,
   type PlayerRow,
 } from "@/lib/supabase";
 import { PlayersTable } from "@/components/players-table";
@@ -62,13 +63,16 @@ function components(r: ProjRow): BreakdownComponent[] {
 export default async function PlayersPage() {
   const supabase = createSupabaseServerClient();
 
-  const [playersRes, teamsRes] = await Promise.all([
+  const [playersRes, teamsRes, newsRes] = await Promise.all([
     supabase
       .from("players")
       .select(
         "fpl_id, web_name, position, now_cost, selected_by_percent, total_points, status, team_id, team:teams(short_name, name)",
       ),
     supabase.from("teams").select("fpl_id, short_name"),
+    supabase
+      .from("news_sentiment")
+      .select("player_id, sentiment, topics, summary, minutes_risk_adj, url, source, published_at"),
   ]);
 
   if (playersRes.error) {
@@ -100,6 +104,22 @@ export default async function PlayersPage() {
     }
     proj.set(r.player_id, e);
   }
+
+  // Advisory news/sentiment signal per player (Phase 7).
+  const newsByPlayer = new Map<number, NewsSignal>(
+    (newsRes.data ?? []).map((n) => [
+      n.player_id as number,
+      {
+        sentiment: n.sentiment,
+        topics: n.topics,
+        summary: n.summary,
+        minutes_risk_adj: n.minutes_risk_adj,
+        url: n.url,
+        source: n.source,
+        published_at: n.published_at,
+      },
+    ]),
+  );
 
   // Opponent + custom FDR per team, per GW across the horizon.
   const shortById = new Map((teamsRes.data ?? []).map((t) => [t.fpl_id, t.short_name]));
@@ -135,6 +155,7 @@ export default async function PlayersPage() {
       opp_fdr: next?.fdr ?? null,
       components: pr?.comps ?? null,
       schedule,
+      news: newsByPlayer.get(p.fpl_id) ?? null,
     };
   });
 
