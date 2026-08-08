@@ -1,3 +1,4 @@
+# FPL Selector — scheduled data pipeline.
 # Full data pipeline: FPL API -> Supabase, then advanced stats, model, optimizer, team sync.
 # Runs twice daily in the cloud so the deployed site stays fresh without a local machine.
 # Requires these repo secrets (Settings -> Secrets and variables -> Actions):
