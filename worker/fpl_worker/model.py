@@ -176,6 +176,23 @@ def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
     }
 
 
+# Component columns scaled by the per-position calibration multiplier (keeps x_pts = sum of parts).
+_CALIB_FIELDS = (
+    "x_pts", "x_appearance_pts", "x_goals_pts", "x_assist_pts", "x_cs_pts",
+    "x_saves_pts", "x_defcon_pts", "x_bonus_pts", "x_deductions_pts",
+)
+
+
+def _load_calibration(sb) -> dict[str, float]:
+    """Per-position multiplier learned from past accuracy (predict.py). Empty (=> no change) until
+    gameweeks have been scored, or if the migration isn't applied yet."""
+    try:
+        rows = sb.table("model_calibration").select("position, multiplier").execute().data
+        return {r["position"]: float(r["multiplier"]) for r in rows}
+    except Exception:  # noqa: BLE001 — table may not exist yet; projections must still run
+        return {}
+
+
 def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     players = (
         sb.table("players")
@@ -256,6 +273,17 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "_cost": p["now_cost"],
                 "_opp": ",".join(opp_short),
             })
+
+    # Transparent calibration: scale each projection by its position's learned multiplier so
+    # systematic over/under-prediction is corrected going forward. Identity (×1.0) until scored.
+    calib = _load_calibration(sb)
+    if calib:
+        for r in rows:
+            m = calib.get(r["_pos"], 1.0)
+            if m != 1.0:
+                for k in _CALIB_FIELDS:
+                    r[k] = round(r[k] * m, 3)
+            r["components"]["calibration"] = round(m, 3)
 
     if dry_run:
         _print_top(rows, next_gw)

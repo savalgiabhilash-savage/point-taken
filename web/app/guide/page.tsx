@@ -78,6 +78,7 @@ export default function GuidePage() {
             <li><b>Fixtures</b> — a difficulty ticker: each team&apos;s next 8 gameweeks, coloured by how tough the run is (easiest runs first).</li>
             <li><b>My Team</b> — your real FPL squad as a pitch view.</li>
             <li><b>Optimizer</b> — a multi-week plan for your squad: a transfer <i>path</i> (which week to move, when to roll a free transfer, when a −4 hit pays off) plus <b>chip timing</b> — the best gameweek and expected gain for your Triple Captain, Bench Boost, Wildcard, and Free Hit.</li>
+            <li><b>Best XI</b> — the highest-projected squad for this gameweek, within a £100m budget or with no budget. Each week&apos;s pick is tracked against the real result, and the accuracy calibrates future projections.</li>
             <li><b>Guide</b> — this page.</li>
           </ul>
         </Card>

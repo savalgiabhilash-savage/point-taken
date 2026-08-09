@@ -43,6 +43,29 @@ export type NewsSignal = {
   published_at: string | null;
 };
 
+/** One player in a logged best-XI prediction (Best XI tab). */
+export type BestSquadPlayer = {
+  fpl_id: number;
+  web_name: string;
+  position: Position;
+  team_short: string;
+  now_cost: number;
+  xpn: number;
+  is_start: boolean;
+  is_captain: boolean;
+};
+/** The best XI we published for a gameweek, later scored against actual points. */
+export type GwPrediction = {
+  gw: number;
+  variant: "capped" | "uncapped";
+  squad: BestSquadPlayer[];
+  predicted_pts: number | null;
+  actual_pts: number | null;
+  scored: boolean;
+};
+/** Per-position calibration learned from past accuracy, applied to future projections. */
+export type Calibration = { position: string; n_gws: number; multiplier: number };
+
 /** A player row enriched with rules-v1 projection data for the explorer table. */
 export type PlayerRow = {
   fpl_id: number;

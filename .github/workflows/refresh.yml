@@ -50,10 +50,15 @@ jobs:
       - name: Model (projections)
         run: uv run python -m fpl_worker.model --run --horizon 5
 
-      # 4) Multi-week transfer path + chip timing.
+      # 4) Best XI predictions + accuracy scoring + model calibration.
+      #    Safe before migration 0003 is applied (it prints a hint and exits).
+      - name: Predict (best XI + accuracy)
+        run: uv run python -m fpl_worker.predict --run
+
+      # 5) Multi-week transfer path + chip timing.
       - name: Optimize (multi-week + chips)
         run: uv run python -m fpl_worker.optimize --plan
 
-      # 5) Sync the user's live team (no-op preseason; keeps the snapshot).
+      # 6) Sync the user's live team (no-op preseason; keeps the snapshot).
       - name: Sync team
         run: uv run python -m fpl_worker.sync_team

@@ -90,6 +90,11 @@ class FplClient:
         path = f"element-summary/{player_id}/"
         return self._from_cache(path) if from_cache else self._get(path)  # type: ignore[return-value]
 
+    def event_live(self, gw: int, from_cache: bool = False) -> dict:
+        """Live per-player points for a gameweek (used to score predictions after it finishes)."""
+        path = f"event/{gw}/live/"
+        return self._from_cache(path) if from_cache else self._get(path)  # type: ignore[return-value]
+
     def close(self) -> None:
         self._client.close()
 
