@@ -65,6 +65,18 @@ const CHIP_STYLE: Record<string, string> = {
   "Free Hit": "text-sky-400",
 };
 
+// FPL transfers are like-for-like by position (a DEF out ⇒ a DEF in — the squad keeps 2/5/5/3),
+// so pair each OUT with an IN of the SAME position rather than by list order.
+function pairByPosition(out: Move[], inn: Move[]): [Move, Move | undefined][] {
+  const queues = new Map<Position, Move[]>();
+  for (const p of inn) {
+    const q = queues.get(p.position) ?? [];
+    q.push(p);
+    queues.set(p.position, q);
+  }
+  return out.map((o) => [o, queues.get(o.position)?.shift()]);
+}
+
 function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
   return (
     <span
@@ -225,11 +237,11 @@ export default async function OptimizerPage() {
                   </div>
                   {step.num > 0 && (
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {step.out.map((o, i) => (
+                      {pairByPosition(step.out, step.in).map(([o, inp]) => (
                         <span key={o.fpl_id} className="flex items-center gap-1.5">
                           <MovePill p={o} dir="out" />
                           <span className="text-muted-foreground">→</span>
-                          {step.in[i] ? <MovePill p={step.in[i]} dir="in" /> : null}
+                          {inp ? <MovePill p={inp} dir="in" /> : null}
                         </span>
                       ))}
                     </div>
