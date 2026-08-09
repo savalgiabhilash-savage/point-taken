@@ -9,6 +9,7 @@ const ITEMS = [
   { href: "/team", label: "My Team" },
   { href: "/optimizer", label: "Optimizer" },
   { href: "/best", label: "Best XI" },
+  { href: "/assistant", label: "Assistant" },
   { href: "/guide", label: "Guide" },
 ];
 
