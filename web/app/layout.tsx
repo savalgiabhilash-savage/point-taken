@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Nav } from "@/components/nav";
+import { AuthButton } from "@/components/auth-button";
 import "./globals.css";
 
 // "Google Sans" is proprietary and not on Google Fonts; DM Sans is the closest openly-licensed,
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <span>FPL Selector</span>
             </Link>
             <Nav />
+            <AuthButton />
           </div>
         </header>
         <div className="flex-1">{children}</div>
