@@ -1,6 +1,7 @@
 import { type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
+import { TeamUpload } from "@/components/team-upload";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,14 @@ export default async function TeamPage() {
             </>
           )}
         </p>
+        {loggedIn ? (
+          <div className="mt-6 max-w-md">
+            <TeamUpload
+              title="Upload a team screenshot"
+              note="Preseason your squad is private on the FPL API. Screenshot your team from the FPL app or site (all 15 — 11 starters + 4 bench, with the C/V armbands) and upload it to load them here now. Your actual team replaces this automatically once the GW deadline passes and it syncs from FPL."
+            />
+          </div>
+        ) : null}
       </main>
     );
   }
@@ -146,15 +155,29 @@ export default async function TeamPage() {
         </div>
       )}
 
-      {state.gw === 0 && (
+      {state.gw === 0 ? (
         <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Preseason draft snapshot — the squad will auto-sync from public data once the GW1 deadline passes.
+          Preseason draft snapshot. This is automatically replaced by your actual team once the GW
+          deadline passes and it syncs from FPL.
+        </p>
+      ) : (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Live team · GW{state.gw} — synced from your FPL account.
         </p>
       )}
 
       <div className="mt-6">
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
       </div>
+
+      {userId !== "me" && state.gw === 0 ? (
+        <div className="mt-8 max-w-md border-t border-border/50 pt-6">
+          <TeamUpload
+            title="Replace with a screenshot"
+            note="Uploaded the wrong team, or made changes? Upload a fresh screenshot to update this draft. After the GW deadline your actual team syncs from FPL and takes over automatically — this upload is only used preseason."
+          />
+        </div>
+      ) : null}
     </main>
   );
 }
