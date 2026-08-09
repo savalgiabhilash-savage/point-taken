@@ -78,7 +78,7 @@ export const TOOLS = [
   },
 ];
 
-export async function runTool(name: string, input: unknown): Promise<unknown> {
+export async function runTool(name: string, input: unknown, userId = "me"): Promise<unknown> {
   const sb = createSupabaseServerClient();
   const args = (input ?? {}) as Record<string, unknown>;
 
@@ -148,7 +148,7 @@ export async function runTool(name: string, input: unknown): Promise<unknown> {
     const { data: st } = await sb
       .from("user_team_state")
       .select("*")
-      .eq("user_id", "me")
+      .eq("user_id", userId)
       .order("gw", { ascending: false })
       .limit(1);
     const team = st?.[0];
@@ -185,7 +185,7 @@ export async function runTool(name: string, input: unknown): Promise<unknown> {
     const { data } = await sb
       .from("optimizer_runs")
       .select("*")
-      .eq("user_id", "me")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(1);
     const run = data?.[0];

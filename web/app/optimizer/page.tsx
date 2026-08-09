@@ -1,4 +1,5 @@
 import { createSupabaseServerClient, type Position } from "@/lib/supabase";
+import { currentUserId } from "@/lib/current-user";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 
 export const dynamic = "force-dynamic";
@@ -81,10 +82,11 @@ function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
 
 export default async function OptimizerPage() {
   const supabase = createSupabaseServerClient();
+  const userId = await currentUserId();
   const { data: runs } = await supabase
     .from("optimizer_runs")
     .select("*")
-    .eq("user_id", "me")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1);
   const run = runs?.[0];

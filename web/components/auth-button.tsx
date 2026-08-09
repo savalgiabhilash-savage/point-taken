@@ -26,7 +26,10 @@ export function AuthButton() {
   if (email) {
     return (
       <div className="ml-auto flex items-center gap-3 text-sm">
-        <span className="max-w-[160px] truncate text-muted-foreground">{email}</span>
+        <Link href="/settings" className="hidden text-muted-foreground transition-colors hover:text-foreground sm:inline">
+          Settings
+        </Link>
+        <span className="max-w-[140px] truncate text-muted-foreground">{email}</span>
         <button
           onClick={signOut}
           className="rounded-md px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"

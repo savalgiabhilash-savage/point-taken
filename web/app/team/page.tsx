@@ -1,5 +1,7 @@
 import { createSupabaseServerClient, type Position } from "@/lib/supabase";
+import { currentUserId } from "@/lib/current-user";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -21,22 +23,35 @@ type Pick = {
 
 export default async function TeamPage() {
   const supabase = createSupabaseServerClient();
+  const userId = await currentUserId();
 
   const { data: stateRows } = await supabase
     .from("user_team_state")
     .select("*")
-    .eq("user_id", "me")
+    .eq("user_id", userId)
     .order("gw", { ascending: false })
     .limit(1);
   const state = stateRows?.[0];
   const picks = (state?.picks ?? []) as Pick[];
 
   if (!state || picks.length === 0) {
+    const loggedIn = userId !== "me";
     return (
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          No squad synced yet. Run the worker <code>sync_team</code> once a gameweek has started.
+          {loggedIn ? (
+            <>
+              No squad synced for your account yet. Add your FPL entry ID and sync in{" "}
+              <Link href="/settings" className="text-emerald-400 hover:underline">Settings</Link>{" "}
+              (your squad becomes available once GW1&apos;s deadline passes).
+            </>
+          ) : (
+            <>
+              No squad synced yet. <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> and
+              connect your FPL team in Settings.
+            </>
+          )}
         </p>
       </main>
     );

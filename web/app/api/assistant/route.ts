@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS, runTool } from "@/lib/assistant-tools";
+import { currentUserId } from "@/lib/current-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
   );
   if (!incoming.length) return Response.json({ error: "No message provided." }, { status: 400 });
 
+  const userId = await currentUserId();
   const client = new Anthropic({ apiKey });
   const messages: Anthropic.MessageParam[] = incoming.map((m) => ({
     role: m.role as "user" | "assistant",
@@ -71,7 +73,7 @@ export async function POST(req: Request) {
       for (const tu of toolUses) {
         let out: unknown;
         try {
-          out = await runTool(tu.name, tu.input);
+          out = await runTool(tu.name, tu.input, userId);
         } catch (err) {
           out = { error: err instanceof Error ? err.message : String(err) };
         }
