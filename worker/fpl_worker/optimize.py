@@ -37,7 +37,10 @@ HIT_COST = 4
 FT_CAP = 5              # 2026/27: free transfers accumulate up to 5
 DECAY = 0.9            # discount future GWs in the objective (uncertainty grows with distance)
 POOL_SIZE = 90         # candidate players beyond your current squad (keeps the MILP tractable)
-CHIP_THRESHOLD = 4.0   # only recommend playing a chip if it beats this many xPts (~a −4 hit)
+# A chip is recommended only if its MARGINAL gain (vs playing normally with your free transfers)
+# clears a per-chip bar — set so ordinary single-gameweek plays don't fire. Chips are saved for
+# Double/Blank gameweeks, where a Bench Boost / Triple Captain haul or a Free Hit swing is large.
+CHIP_THRESHOLDS = {"Triple Captain": 12.0, "Bench Boost": 18.0, "Wildcard": 8.0, "Free Hit": 8.0}
 
 # Map our chip display names to FPL's internal codes (as they appear in chips_available).
 CHIP_CODES = {"Triple Captain": "3xc", "Bench Boost": "bboost", "Wildcard": "wildcard", "Free Hit": "freehit"}
@@ -327,89 +330,112 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
             "xi": round(xi_g + cap_g, 2),  # XI incl. captain double
         })
     planned_pts = round(sum(xi_by_gw) + sum(cap_by_gw) - HIT_COST * hits_total, 1)
-    return {"gw0_squad": squad_at(0), "path": path, "hits_total": hits_total, "planned_pts": planned_pts}
+    plan_squads = [squad_at(g) for g in range(H)]  # the 15 owned each GW along the planned path
+    hits_by_gw = [step["hits"] for step in path]
+    return {"gw0_squad": plan_squads[0], "path": path, "hits_total": hits_total,
+            "planned_pts": planned_pts, "plan_squads": plan_squads, "hits_by_gw": hits_by_gw}
 
 
-# --- chip timing (transparent, one evaluator per chip) ------------------------
+# --- chip timing --------------------------------------------------------------
+# Every chip is valued as its MARGINAL gain over playing normally: the baseline is the squad you
+# would actually field that week along the planned transfer path (which already spends your free
+# transfers), NOT a frozen "do nothing" squad. That is the fix for the nonsense "Wildcard in GW1"
+# result — preseason your normal transfers are already unlimited/free, so a Wildcard adds ~0.
 
-def _chip_triple_captain(owned, xp_by_gw, gws):
+def _plan_val_at(squad15, xp_by_gw, gw):
+    """Value of a 15-man squad in one gameweek: best legal XI + captain (the extra ×1), and the
+    bench total. Every chip comparison uses this so they are apples-to-apples."""
+    val, xi, bench = _best_xi(_owned_at_gw(squad15, xp_by_gw, gw))
+    cap = max(xi, key=lambda p: p["xp"]) if xi else None
+    return {
+        "xi_cap": val + (cap["xp"] if cap else 0.0),  # XI incl. the captain doubling
+        "bench": sum(p["xp"] for p in bench),
+        "cap": cap["xp"] if cap else 0.0,             # the captain's points = the extra ×1 a TC adds
+        "cap_name": cap["web_name"] if cap else None,
+    }
+
+
+def _chip_triple_captain(plan_squads, xp_by_gw, gws):
     best = None
-    for g in gws:
-        _, xi, _ = _best_xi(_owned_at_gw(owned, xp_by_gw, g))
-        cap = max(xi, key=lambda p: p["xp"]) if xi else None
-        gain = round(cap["xp"], 2) if cap else 0.0  # the extra ×1 on top of the normal captain
+    for gi, g in enumerate(gws):
+        v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
+        gain = round(v["cap"], 2)  # a TC turns the ×2 captain into ×3 → the extra is one more ×1
         if best is None or gain > best["gain"]:
             best = {"chip": "Triple Captain", "gw": g, "gain": gain,
-                    "detail": f"{cap['web_name']} projects {cap['xp']:.1f} pts" if cap else ""}
+                    "detail": f"captain {v['cap_name']} projects {v['cap']:.1f} pts — usually saved for a Double GW"}
     return best
 
 
-def _chip_bench_boost(owned, xp_by_gw, gws):
+def _chip_bench_boost(plan_squads, xp_by_gw, gws):
     best = None
-    for g in gws:
-        _, _, bench = _best_xi(_owned_at_gw(owned, xp_by_gw, g))
-        gain = round(sum(p["xp"] for p in bench), 2)
+    for gi, g in enumerate(gws):
+        v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
+        gain = round(v["bench"], 2)  # BB scores your 4 bench players too
         if best is None or gain > best["gain"]:
             best = {"chip": "Bench Boost", "gw": g, "gain": gain,
-                    "detail": "bench projects the most points here (best in a Double GW)"}
+                    "detail": "your bench projects the most here — worth most in a Double GW"}
     return best
 
 
-def _chip_wildcard(owned, universe, budget, xp_by_gw, gws):
-    """For each GW, compare a free full rebuild for the rest of the horizon vs holding your squad."""
+def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws):
+    """Marginal value of a free full rebuild vs continuing your planned transfers: the extra points
+    the rebuild reaches PLUS any hits it saves. ≈0 when your free transfers already reach the
+    optimal squad (e.g. preseason, when transfers are unlimited)."""
     best = None
     for gi, g in enumerate(gws):
         window = gws[gi:]
         uni = [{**u, "xp5": sum(xp_by_gw.get(u["fpl_id"], {}).get(w, 0.0) for w in window),
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
         fresh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
-        fresh_val = sum(_best_xi(_owned_at_gw(fresh, xp_by_gw, w))[0] for w in window)
-        cur_val = sum(_best_xi(_owned_at_gw(owned, xp_by_gw, w))[0] for w in window)
-        gain = round(fresh_val - cur_val, 2)
+        fresh_val = sum(_plan_val_at(fresh, xp_by_gw, w)["xi_cap"] for w in window)
+        plan_val = sum(_plan_val_at(plan_squads[gj], xp_by_gw, gws[gj])["xi_cap"] for gj in range(gi, len(gws)))
+        hits_saved = sum(hits_by_gw[gj] for gj in range(gi, len(gws)))
+        gain = round(fresh_val - plan_val + HIT_COST * hits_saved, 2)
         if best is None or gain > best["gain"]:
-            best = {"chip": "Wildcard", "gw": g, "gain": gain,
-                    "detail": f"a full rebuild adds {gain:.1f} pts over the next {len(window)} GWs"}
+            detail = (f"a free rebuild adds {gain:.1f} pts over your planned transfers for the next "
+                      f"{len(window)} GW{'s' if len(window) != 1 else ''}"
+                      if gain > 1.0 else "your free transfers already reach the optimal squad — no edge from wildcarding")
+            best = {"chip": "Wildcard", "gw": g, "gain": gain, "detail": detail}
     return best
 
 
-def _chip_free_hit(owned, universe, budget, xp_by_gw, gws):
-    """For each GW, compare a one-week optimal squad vs your squad for that single GW."""
+def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws):
+    """Marginal value of a one-week optimal squad vs the team you'd actually field that GW. Large
+    in a Blank GW (when your squad has few players); ≈0 when your squad is already near-optimal."""
     best = None
-    for g in gws:
+    for gi, g in enumerate(gws):
         uni = [{**u, "xp5": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0),
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
         fh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
-        fh_val = _best_xi(_owned_at_gw(fh, xp_by_gw, g))[0]
-        cur_val = _best_xi(_owned_at_gw(owned, xp_by_gw, g))[0]
-        gain = round(fh_val - cur_val, 2)
+        gain = round(_plan_val_at(fh, xp_by_gw, g)["xi_cap"] - _plan_val_at(plan_squads[gi], xp_by_gw, g)["xi_cap"], 2)
         if best is None or gain > best["gain"]:
-            best = {"chip": "Free Hit", "gw": g, "gain": gain,
-                    "detail": "a one-week squad beats yours by the most here (best in a Blank GW)"}
+            detail = (f"a one-week squad beats your team by {gain:.1f} here — worth most in a Blank GW"
+                      if gain > 1.0 else "your team is already near-optimal this week — no edge from a Free Hit")
+            best = {"chip": "Free Hit", "gw": g, "gain": gain, "detail": detail}
     return best
 
 
-def _chip_plan(owned, universe, budget, xp_by_gw, gws, chips_available):
+def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available):
     chips = [
-        _chip_triple_captain(owned, xp_by_gw, gws),
-        _chip_bench_boost(owned, xp_by_gw, gws),
-        _chip_wildcard(owned, universe, budget, xp_by_gw, gws),
-        _chip_free_hit(owned, universe, budget, xp_by_gw, gws),
+        _chip_triple_captain(plan_squads, xp_by_gw, gws),
+        _chip_bench_boost(plan_squads, xp_by_gw, gws),
+        _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws),
+        _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws),
     ]
     # Respect which chips you still hold (preseason: chips_available is None -> all available).
-    if chips_available:
-        avail = set(chips_available)
-        for c in chips:
-            c["available"] = CHIP_CODES[c["chip"]] in avail
-    else:
-        for c in chips:
-            c["available"] = True
+    avail = set(chips_available) if chips_available else None
+    for c in chips:
+        c["available"] = avail is None or CHIP_CODES[c["chip"]] in avail
+        c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
 
-    playable = [c for c in chips if c["available"] and c["gain"] >= CHIP_THRESHOLD]
-    best = max(playable, key=lambda c: c["gain"]) if playable else None
+    # Recommend the chip that most clears its own bar; otherwise hold (the correct default).
+    playable = [c for c in chips if c["available"] and c["gain"] >= c["threshold"]]
+    best = max(playable, key=lambda c: c["gain"] - c["threshold"]) if playable else None
     if best:
         reco = f"Play {best['chip']} in GW{best['gw']} (+{best['gain']:.1f} xPts) — {best['detail']}."
     else:
-        reco = f"Hold your chips — no window beats {CHIP_THRESHOLD:.0f} xPts over the next {len(gws)} GWs."
+        reco = (f"Hold your chips — no window clears the bar over the next {len(gws)} GWs. "
+                "Chips are best saved for Double/Blank gameweeks (announced in-season).")
     return {"all": chips, "best": best, "reco": reco}
 
 
@@ -564,7 +590,7 @@ def run_plan(sb) -> None:
     # Preseason (no FT set) every chip is available by definition; the synced chip list is
     # unreliable until the season starts, so don't let it suppress a recommendation.
     chips_avail = None if ft is None else state["chips_available"]
-    chips = _chip_plan(owned, universe, budget, xp_by_gw, gws, chips_avail)
+    chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail)
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"

@@ -34,7 +34,7 @@ type PathStep = {
   xi: number;
 };
 
-type Chip = { chip: string; gw: number; gain: number; detail: string; available: boolean };
+type Chip = { chip: string; gw: number; gain: number; detail: string; available: boolean; threshold?: number };
 
 type Transfers = {
   out: Move[];
@@ -106,7 +106,15 @@ export default async function OptimizerPage() {
   const chipReco = (run.chip_reco as string | null) ?? transfers?.chip_reco ?? null;
   const path = transfers?.path ?? null;
   const chips = transfers?.chips ?? null;
-  const bestChip = chips?.reduce<Chip | null>((b, c) => (c.gain > (b?.gain ?? -1e9) ? c : b), null) ?? null;
+  // Highlight only a chip actually worth playing (gain clears its own bar); otherwise nothing —
+  // the banner says "hold". Never highlight the mere max-gain chip when the call is to hold.
+  const recommended =
+    chips
+      ?.filter((c) => c.available && c.threshold != null && c.gain >= c.threshold)
+      .reduce<Chip | null>(
+        (b, c) => (c.gain - c.threshold! > (b ? b.gain - b.threshold! : -1e9) ? c : b),
+        null,
+      ) ?? null;
 
   const toSP = (p: OptPlayer): SquadPlayer => ({
     fpl_id: p.fpl_id,
@@ -240,7 +248,7 @@ export default async function OptimizerPage() {
           {chips && chips.length > 0 ? (
             <ul className="space-y-2">
               {chips.map((c) => {
-                const isBest = bestChip != null && c.chip === bestChip.chip && c.gain === bestChip.gain;
+                const isBest = recommended != null && c.chip === recommended.chip;
                 return (
                   <li
                     key={c.chip}
