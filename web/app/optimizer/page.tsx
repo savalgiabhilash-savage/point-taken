@@ -57,6 +57,7 @@ type Transfers = {
   chip_reco?: string;
   planned_pts?: number;
   hold_pts?: number;
+  based_on?: number[]; // the squad (element ids) this plan was computed against
 };
 
 const POS_ACCENT: Record<Position, string> = {
@@ -125,6 +126,24 @@ export default async function OptimizerPage() {
 
   const squad = (run.suggested_squad ?? []) as OptPlayer[];
   const transfers = (run.transfers ?? null) as Transfers | null;
+
+  // Staleness: the optimizer runs on a schedule (and after a team change), NOT live on this page.
+  // Compare the user's current squad to the one the plan was computed against; if they differ, the
+  // plan predates the change and we warn rather than show stale transfers.
+  const { data: teamRows } = await supabase
+    .from("user_team_state")
+    .select("picks")
+    .eq("user_id", userId)
+    .order("gw", { ascending: false })
+    .limit(1);
+  const currentIds = ((teamRows?.[0]?.picks ?? []) as { element: number }[])
+    .map((p) => p.element)
+    .sort((a, b) => a - b);
+  const basedOn = (transfers?.based_on ?? []).slice().sort((a, b) => a - b);
+  const stale =
+    basedOn.length > 0 &&
+    currentIds.length > 0 &&
+    (currentIds.length !== basedOn.length || currentIds.some((id, i) => id !== basedOn[i]));
   const horizon = (run.horizon as number | null) ?? 5;
   const chipReco = (run.chip_reco as string | null) ?? transfers?.chip_reco ?? null;
   const path = transfers?.path ?? null;
@@ -191,6 +210,17 @@ export default async function OptimizerPage() {
           ≤3 per club, valid formation, and free-transfer rollover (HiGHS MILP).
         </p>
       </div>
+
+      {stale && (
+        <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-amber-400">Plan out of date</span>
+          <div className="mt-0.5 text-sm text-amber-700 dark:text-amber-300">
+            Your squad changed since this plan was computed, so the transfers below still reference your
+            previous team. A fresh optimization runs automatically after a team change (usually within a
+            minute or two) and on the 3-hourly sync — reload this page then.
+          </div>
+        </div>
+      )}
 
       {gain != null && (
         <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">

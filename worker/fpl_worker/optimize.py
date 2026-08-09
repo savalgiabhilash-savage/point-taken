@@ -670,6 +670,9 @@ def run_plan(sb, user_id="me") -> None:
         "chip_reco": chips["reco"],
         "planned_pts": path_res["planned_pts"],
         "hold_pts": round(hold_pts, 1),
+        # The squad this plan was computed against, so the web can detect when the user's team has
+        # changed since (upload/sync) and flag the plan as stale until the next optimize run.
+        "based_on": sorted(current_ids),
     }
     _write_run(sb, gws[0], squad, captain, transfers=transfers, gain=gain,
                objective="max_xpts_multiweek", horizon=len(gws), chip_reco=chips["reco"], user_id=user_id)

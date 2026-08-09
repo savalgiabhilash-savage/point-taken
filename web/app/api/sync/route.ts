@@ -1,4 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase/server";
+import { triggerReoptimize } from "@/lib/reoptimize";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -56,6 +57,7 @@ export async function POST() {
           { onConflict: "user_id,gw" },
         );
         if (error) throw new Error(error.message);
+        await triggerReoptimize();
         return Response.json({
           synced: true,
           message: `"${entry.name ?? entryId}" is private on FPL until GW1's deadline, so I loaded your latest saved squad — ${s.picks.length} players. It'll refresh from live data automatically once the season starts.`,
@@ -86,6 +88,7 @@ export async function POST() {
       { onConflict: "user_id,gw" },
     );
     if (error) throw new Error(error.message);
+    await triggerReoptimize();
 
     return Response.json({
       synced: true,

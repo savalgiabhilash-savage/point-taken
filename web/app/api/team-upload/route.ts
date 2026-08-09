@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { triggerReoptimize } from "@/lib/reoptimize";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -154,6 +155,8 @@ export async function POST(req: Request) {
     { onConflict: "user_id,gw" },
   );
   if (error) return Response.json({ error: `Couldn't save the team: ${error.message}` }, { status: 500 });
+
+  await triggerReoptimize(); // refresh the optimizer plan for the new squad (best-effort)
 
   return Response.json({ ok: true, count: picks.length, matched: matchedNames, unmatched });
 }

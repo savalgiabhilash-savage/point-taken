@@ -1,0 +1,38 @@
+# FPL Selector — on-demand re-optimize (fast, no data refetch).
+# Triggered by the web app after a user changes their team (screenshot upload or sync) so the
+# Optimizer plan reflects the new squad within a minute or two, instead of waiting for the 3-hourly
+# data pipeline (refresh.yml). Reads existing projections + team state from Supabase and rewrites
+# optimizer_runs for every user.
+# Requires repo secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FPL_ENTRY_ID
+name: fpl-optimize
+
+on:
+  workflow_dispatch: {} # fired via the GitHub API from /api/team-upload and /api/sync
+
+concurrency:
+  group: fpl-optimize
+  cancel-in-progress: true # a newer team change supersedes an in-flight run
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Optimize (multi-week + chips)
+        run: uv run python -m fpl_worker.optimize --plan
