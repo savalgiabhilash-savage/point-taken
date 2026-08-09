@@ -1,5 +1,5 @@
-import { createSupabaseServerClient, type Position } from "@/lib/supabase";
-import { currentUserId } from "@/lib/current-user";
+import { type Position } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 
 export const dynamic = "force-dynamic";
@@ -93,8 +93,9 @@ function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
 }
 
 export default async function OptimizerPage() {
-  const supabase = createSupabaseServerClient();
-  const userId = await currentUserId();
+  const supabase = await createServerSupabase();
+  const { data: authData } = await supabase.auth.getUser();
+  const userId = authData.user?.id ?? "me";
   const { data: runs } = await supabase
     .from("optimizer_runs")
     .select("*")

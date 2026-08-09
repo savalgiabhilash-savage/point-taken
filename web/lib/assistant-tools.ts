@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 // Tools the grounded assistant can call. Each reads live data from Supabase and returns compact
 // JSON — the model may only cite what these return, never invent numbers.
@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase";
 const MODEL_VERSION = "rules-v1";
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
-type SB = ReturnType<typeof createSupabaseServerClient>;
+type SB = Awaited<ReturnType<typeof createServerSupabase>>;
 
 async function nextGw(sb: SB): Promise<number | null> {
   const { data } = await sb
@@ -79,7 +79,7 @@ export const TOOLS = [
 ];
 
 export async function runTool(name: string, input: unknown, userId = "me"): Promise<unknown> {
-  const sb = createSupabaseServerClient();
+  const sb = await createServerSupabase();
   const args = (input ?? {}) as Record<string, unknown>;
 
   if (name === "list_top_players") {

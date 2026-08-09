@@ -31,9 +31,39 @@ export async function POST() {
     const picksData = currentEvent ? await fpl(`entry/${entryId}/event/${currentEvent}/picks/`).catch(() => null) : null;
 
     if (!picksData?.picks?.length) {
+      // Preseason: FPL keeps the squad private on the public API until GW1's deadline. Recover the
+      // most recent known snapshot for this entry (an earlier import / previous sync) into this account.
+      const { data: snap } = await supabase
+        .from("user_team_state")
+        .select("*")
+        .eq("fpl_entry_id", entryId)
+        .order("gw", { ascending: false })
+        .limit(1);
+      const s = snap?.[0] as { gw: number; bank: number | null; team_value: number | null; free_transfers: number | null; chips_available: string[] | null; picks: unknown[] | null; rank: number | null } | undefined;
+      if (s?.picks?.length) {
+        const { error } = await supabase.from("user_team_state").upsert(
+          {
+            user_id: user.id,
+            fpl_entry_id: entryId,
+            gw: s.gw,
+            bank: s.bank,
+            team_value: s.team_value,
+            free_transfers: s.free_transfers,
+            chips_available: s.chips_available,
+            picks: s.picks,
+            rank: s.rank,
+          },
+          { onConflict: "user_id,gw" },
+        );
+        if (error) throw new Error(error.message);
+        return Response.json({
+          synced: true,
+          message: `"${entry.name ?? entryId}" is private on FPL until GW1's deadline, so I loaded your latest saved squad — ${s.picks.length} players. It'll refresh from live data automatically once the season starts.`,
+        });
+      }
       return Response.json({
         synced: false,
-        message: `Found your team "${entry.name ?? entryId}", but its squad isn't public yet (no gameweek has started). It'll sync automatically once GW1's deadline passes.`,
+        message: `Found your team "${entry.name ?? entryId}", but no squad is available yet — FPL keeps preseason teams private until the GW1 deadline. It'll sync automatically then.`,
       });
     }
 
