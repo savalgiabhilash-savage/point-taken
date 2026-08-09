@@ -1,8 +1,8 @@
-"""Sync the user's FPL team state from the PUBLIC /entry/ endpoints into user_team_state.
+"""Sync every registered user's FPL team into user_team_state (multi-user, Phase 9.4).
 
-Preseason (before the GW1 deadline) a squad is private, so the public picks endpoint is empty
-and this stores just the summary; once a gameweek is played the picks become public and this
-captures the full squad automatically. Run on a schedule in-season.
+Syncs the shared "me" demo (from FPL_ENTRY_ID) plus each row in `profiles`. In-season the public
+/entry/ picks are captured directly; preseason (squad private) it keeps or recovers the latest known
+snapshot for that entry so no account is left empty. Runs on the schedule.
 
     python -m fpl_worker.sync_team
 """
@@ -16,31 +16,42 @@ from dotenv import load_dotenv
 from . import db
 from .fpl_client import FplClient
 
-USER_ID = "me"  # single-user for now; becomes a real auth user id in v3
+ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"]
 
 
-def sync(sb, entry_id: int) -> None:
-    with FplClient() as client:
-        entry = client._get(f"entry/{entry_id}/")
-        history = client._get(f"entry/{entry_id}/history/")
-        current_event = entry.get("current_event")
-        picks_data = client._get(f"entry/{entry_id}/event/{current_event}/picks/") if current_event else None
+def _sync_one(sb, client: FplClient, entry_id: int, user_id: str) -> None:
+    entry = client._get(f"entry/{entry_id}/")
+    history = client._get(f"entry/{entry_id}/history/")
+    current_event = entry.get("current_event")
+    picks_data = client._get(f"entry/{entry_id}/event/{current_event}/picks/") if current_event else None
 
-    # history["chips"] lists chips already PLAYED this season; store what's still AVAILABLE so the
-    # column name matches its meaning. (2026/27 two-set nuance is ignored for now.)
-    all_chips = ["wildcard", "freehit", "bboost", "3xc"]
     played = {c["name"] for c in history.get("chips", [])}
-    chips = [c for c in all_chips if c not in played]
+    chips = [c for c in ALL_CHIPS if c not in played]  # available = all - already played
+    label = user_id[:8]
 
     if not picks_data:
-        # Preseason: the squad is private until the GW1 deadline. Do NOT write an empty-picks row —
-        # that would clobber the one-time snapshot loaded from /my-team. Keep the existing state.
-        print(f"Synced entry {entry_id} ({entry.get('name')}): preseason, squad not public yet — keeping snapshot.")
+        # Preseason: squad is private on the public API. Keep an existing snapshot, or recover the
+        # latest known one for this entry (e.g. the "me" import) so the account isn't left empty.
+        have = sb.table("user_team_state").select("gw").eq("user_id", user_id).limit(1).execute().data
+        if have:
+            print(f"  {label} entry {entry_id}: preseason, not public — kept existing.")
+            return
+        snap = (
+            sb.table("user_team_state").select("*").eq("fpl_entry_id", entry_id)
+            .order("gw", desc=True).limit(1).execute().data
+        )
+        if snap:
+            row = dict(snap[0])
+            row["user_id"] = user_id
+            sb.table("user_team_state").upsert(row, on_conflict="user_id,gw").execute()
+            print(f"  {label} entry {entry_id}: recovered snapshot ({len(row.get('picks') or [])} picks).")
+        else:
+            print(f"  {label} entry {entry_id}: preseason, no snapshot yet.")
         return
 
     eh = picks_data.get("entry_history", {})
     row = {
-        "user_id": USER_ID,
+        "user_id": user_id,
         "fpl_entry_id": entry_id,
         "gw": current_event,
         "bank": eh.get("bank"),
@@ -51,13 +62,31 @@ def sync(sb, entry_id: int) -> None:
         "picks": picks_data.get("picks"),
     }
     sb.table("user_team_state").upsert(row, on_conflict="user_id,gw").execute()
-    print(f"Synced entry {entry_id} ({entry.get('name')}): gw={row['gw']}, picks={len(row['picks'])}")
+    print(f"  {label} entry {entry_id} ({entry.get('name')}): gw={current_event}, picks={len(row['picks'])}")
+
+
+def sync_all(sb) -> None:
+    """Sync the shared "me" demo (FPL_ENTRY_ID) plus every registered user's team."""
+    targets: list[tuple[int, str]] = []
+    env_entry = os.environ.get("FPL_ENTRY_ID")
+    if env_entry:
+        targets.append((int(env_entry), "me"))
+    for p in sb.table("profiles").select("id, fpl_entry_id").execute().data:
+        if p.get("fpl_entry_id"):
+            targets.append((p["fpl_entry_id"], p["id"]))
+
+    print(f"Syncing {len(targets)} team(s) ...")
+    with FplClient() as client:
+        for entry_id, user_id in targets:
+            try:
+                _sync_one(sb, client, entry_id, user_id)
+            except Exception as exc:  # noqa: BLE001 — one user's failure shouldn't stop the rest
+                print(f"  {user_id[:8]} entry {entry_id}: sync failed ({exc})")
 
 
 def main() -> None:
     load_dotenv()
-    entry_id = int(os.environ["FPL_ENTRY_ID"])
-    sync(db.get_client(), entry_id)
+    sync_all(db.get_client())
 
 
 if __name__ == "__main__":

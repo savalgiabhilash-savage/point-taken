@@ -450,9 +450,9 @@ def _slim(p: dict) -> dict:
     }
 
 
-def _current_state(sb):
+def _current_state(sb, user_id="me"):
     rows = (
-        sb.table("user_team_state").select("*").eq("user_id", "me")
+        sb.table("user_team_state").select("*").eq("user_id", user_id)
         .order("gw", desc=True).limit(1).execute().data
     )
     if not rows or not rows[0]["picks"]:
@@ -538,14 +538,14 @@ def run_transfers(sb) -> None:
                objective="max_xpts_5gw_transfers", horizon=len(gws), chip_reco=None)
 
 
-def run_plan(sb) -> None:
+def run_plan(sb, user_id="me") -> None:
     pool, gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw = load_pool(sb)
     if not gws:
         print("No projections found — run the model first.")
         return
-    state = _current_state(sb)
+    state = _current_state(sb, user_id)
     if not state:
-        print("No current squad synced — run sync_team first (or the preseason snapshot).")
+        print(f"[{user_id[:8]}] no squad synced — skipping.")
         return
 
     current_ids = set(state["ids"])
@@ -615,14 +615,14 @@ def run_plan(sb) -> None:
         "hold_pts": round(hold_pts, 1),
     }
     _write_run(sb, gws[0], squad, captain, transfers=transfers, gain=gain,
-               objective="max_xpts_multiweek", horizon=len(gws), chip_reco=chips["reco"])
+               objective="max_xpts_multiweek", horizon=len(gws), chip_reco=chips["reco"], user_id=user_id)
 
 
-def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, chip_reco=None) -> None:
-    sb.table("optimizer_runs").delete().eq("user_id", "me").execute()
+def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, chip_reco=None, user_id="me") -> None:
+    sb.table("optimizer_runs").delete().eq("user_id", user_id).execute()
     sb.table("optimizer_runs").insert(
         {
-            "user_id": "me",
+            "user_id": user_id,
             "gw": gw,
             "horizon": horizon,
             "objective": objective,
@@ -634,6 +634,18 @@ def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, ch
         }
     ).execute()
     print("\nWrote optimizer_runs.")
+
+
+def _all_user_ids(sb) -> list[str]:
+    """The shared "me" demo plus every registered user (profiles) with an FPL entry."""
+    ids = ["me"]
+    try:
+        for p in sb.table("profiles").select("id, fpl_entry_id").execute().data:
+            if p.get("fpl_entry_id"):
+                ids.append(p["id"])
+    except Exception:  # noqa: BLE001 — profiles table may not exist yet
+        pass
+    return ids
 
 
 def main() -> None:
@@ -649,7 +661,8 @@ def main() -> None:
     elif args.transfers:
         run_transfers(sb)
     else:
-        run_plan(sb)
+        for uid in _all_user_ids(sb):
+            run_plan(sb, uid)
 
 
 if __name__ == "__main__":
