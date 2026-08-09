@@ -200,10 +200,11 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       this_week_transfers: (t.num as number) ?? 0,
       transfers_out: ((t.out as { web_name: string }[]) ?? []).map((p) => p.web_name),
       transfers_in: ((t.in as { web_name: string }[]) ?? []).map((p) => p.web_name),
-      chip_windows: ((t.chips as { chip: string; gw: number; gain: number }[]) ?? []).map((c) => ({
+      chip_windows: ((t.chips as { chip: string; gw: number; gain: number; gw_type?: string }[]) ?? []).map((c) => ({
         chip: c.chip,
         best_gw: c.gw,
         gain: c.gain,
+        gameweek_type: c.gw_type || "single",
       })),
       transfer_path: ((t.path as { gw: number; num: number; hits: number }[]) ?? []).map((s) => ({
         gw: s.gw,

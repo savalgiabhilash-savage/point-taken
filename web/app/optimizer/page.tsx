@@ -35,7 +35,15 @@ type PathStep = {
   xi: number;
 };
 
-type Chip = { chip: string; gw: number; gain: number; detail: string; available: boolean; threshold?: number };
+type Chip = {
+  chip: string;
+  gw: number;
+  gain: number;
+  detail: string;
+  available: boolean;
+  threshold?: number;
+  gw_type?: string; // "DGW" | "BGW" | "" — set once the season's doubles/blanks are announced
+};
 
 type Transfers = {
   out: Move[];
@@ -278,8 +286,22 @@ export default async function OptimizerPage() {
                           <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">used</span>
                         ) : null}
                       </span>
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        GW{c.gw} · <span className="text-foreground">+{c.gain.toFixed(1)}</span>
+                      <span className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+                        {c.gw_type === "DGW" || c.gw_type === "BGW" ? (
+                          <span
+                            className={`rounded px-1 py-0.5 text-[9px] font-bold tracking-wide ${
+                              c.gw_type === "DGW"
+                                ? "bg-emerald-500/15 text-emerald-300"
+                                : "bg-amber-500/15 text-amber-300"
+                            }`}
+                            title={c.gw_type === "DGW" ? "Double Gameweek" : "Blank Gameweek"}
+                          >
+                            {c.gw_type}
+                          </span>
+                        ) : null}
+                        <span>
+                          GW{c.gw} · <span className="text-foreground">+{c.gain.toFixed(1)}</span>
+                        </span>
                       </span>
                     </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div>

@@ -152,6 +152,45 @@ def _owned_at_gw(owned: list[dict], xp_by_gw: dict, gw: int) -> list[dict]:
     ]
 
 
+def _gw_flags(sb, gws) -> dict[int, dict]:
+    """Classify each gameweek by its fixture schedule → {gw: {"type": "DGW"|"BGW"|"", "n": int}}.
+
+    A **Double GW** is one where some clubs play twice (n = how many double); a **Blank GW** is one
+    where some clubs have no fixture (n = how many blank). This is what makes chip timing
+    fixture-aware: Bench Boost / Triple Captain want a DGW (more of your players play), Free Hit
+    wants a BGW (your normal squad is short of starters). Preseason the schedule is all single
+    fixtures, so every GW is "" — the flags light up once the season's DGWs/BGWs are announced
+    (fixtures move for cup ties). The projections themselves already sum both legs of a DGW, so the
+    gains react automatically; these flags make the *reason* explicit in the recommendation."""
+    fx = sb.table("fixtures").select("gw, team_h, team_a, finished").execute().data
+    all_teams = set()
+    for f in fx:
+        for k in ("team_h", "team_a"):
+            if f[k]:
+                all_teams.add(f[k])
+    n_teams = len(all_teams) or 20
+    flags: dict[int, dict] = {}
+    for gw in gws:
+        cnt: dict[int, int] = defaultdict(int)
+        for f in fx:
+            if f["gw"] == gw and not f["finished"]:
+                for k in ("team_h", "team_a"):
+                    if f[k]:
+                        cnt[f[k]] += 1
+        if not cnt:
+            flags[gw] = {"type": "", "n": 0}
+            continue
+        doubling = sum(1 for c in cnt.values() if c >= 2)
+        blanking = n_teams - len(cnt)
+        if doubling:
+            flags[gw] = {"type": "DGW", "n": doubling}
+        elif blanking > 0:
+            flags[gw] = {"type": "BGW", "n": blanking}
+        else:
+            flags[gw] = {"type": "", "n": 0}
+    return flags
+
+
 # --- single-squad MILP (used by --fresh, --transfers, and the chip evaluators) --
 
 def _solve(universe: list[dict], budget: int, current_count: int, free_transfers: int) -> dict:
@@ -362,7 +401,7 @@ def _chip_triple_captain(plan_squads, xp_by_gw, gws):
         gain = round(v["cap"], 2)  # a TC turns the ×2 captain into ×3 → the extra is one more ×1
         if best is None or gain > best["gain"]:
             best = {"chip": "Triple Captain", "gw": g, "gain": gain,
-                    "detail": f"captain {v['cap_name']} projects {v['cap']:.1f} pts — usually saved for a Double GW"}
+                    "detail": f"captain {v['cap_name']} projects {v['cap']:.1f} pts"}
     return best
 
 
@@ -373,7 +412,7 @@ def _chip_bench_boost(plan_squads, xp_by_gw, gws):
         gain = round(v["bench"], 2)  # BB scores your 4 bench players too
         if best is None or gain > best["gain"]:
             best = {"chip": "Bench Boost", "gw": g, "gain": gain,
-                    "detail": "your bench projects the most here — worth most in a Double GW"}
+                    "detail": "your bench projects the most in this gameweek"}
     return best
 
 
@@ -409,13 +448,13 @@ def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws):
         fh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
         gain = round(_plan_val_at(fh, xp_by_gw, g)["xi_cap"] - _plan_val_at(plan_squads[gi], xp_by_gw, g)["xi_cap"], 2)
         if best is None or gain > best["gain"]:
-            detail = (f"a one-week squad beats your team by {gain:.1f} here — worth most in a Blank GW"
+            detail = (f"a one-week squad beats your team by {gain:.1f} here"
                       if gain > 1.0 else "your team is already near-optimal this week — no edge from a Free Hit")
             best = {"chip": "Free Hit", "gw": g, "gain": gain, "detail": detail}
     return best
 
 
-def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available):
+def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None):
     chips = [
         _chip_triple_captain(plan_squads, xp_by_gw, gws),
         _chip_bench_boost(plan_squads, xp_by_gw, gws),
@@ -424,9 +463,23 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
     ]
     # Respect which chips you still hold (preseason: chips_available is None -> all available).
     avail = set(chips_available) if chips_available else None
+    gw_flags = gw_flags or {}
     for c in chips:
         c["available"] = avail is None or CHIP_CODES[c["chip"]] in avail
         c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
+        # Make the chip fixture-aware: tag its best window's schedule type and say so. When a real
+        # Double/Blank GW is detected we cite it (that's the ideal week for BB/TC vs FH); otherwise
+        # we keep the generic "save it for a DGW/BGW" guidance so preseason advice still reads right.
+        fl = gw_flags.get(c["gw"], {"type": "", "n": 0})
+        c["gw_type"] = fl["type"]
+        if fl["type"] == "DGW":
+            c["detail"] += f"; GW{c['gw']} is a Double GW ({fl['n']} clubs play twice)"
+        elif fl["type"] == "BGW":
+            c["detail"] += f"; GW{c['gw']} is a Blank GW ({fl['n']} clubs have no fixture)"
+        elif c["chip"] in ("Triple Captain", "Bench Boost"):
+            c["detail"] += "; best saved for a Double GW"
+        elif c["chip"] == "Free Hit":
+            c["detail"] += "; best saved for a Blank GW"
 
     # Recommend the chip that most clears its own bar; otherwise hold (the correct default).
     playable = [c for c in chips if c["available"] and c["gain"] >= c["threshold"]]
@@ -590,7 +643,11 @@ def run_plan(sb, user_id="me") -> None:
     # Preseason (no FT set) every chip is available by definition; the synced chip list is
     # unreliable until the season starts, so don't let it suppress a recommendation.
     chips_avail = None if ft is None else state["chips_available"]
-    chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail)
+    gw_flags = _gw_flags(sb, gws)
+    dgw_bgw = [f"GW{g}:{fl['type']}" for g, fl in sorted(gw_flags.items()) if fl["type"]]
+    if dgw_bgw:
+        print(f"  Fixture flags: {', '.join(dgw_bgw)}")
+    chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail, gw_flags)
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"
