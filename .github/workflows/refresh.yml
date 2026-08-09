@@ -7,7 +7,9 @@ name: fpl-data
 
 on:
   schedule:
-    - cron: "0 */3 * * *" # every 3 hours, on the hour (UTC)
+    # 20 past every 3rd hour (UTC). Deliberately off the top of the hour — GitHub's scheduler
+    # is heavily delayed/skipped at :00 (peak load), so an off-peak minute fires more reliably.
+    - cron: "20 */3 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab / gh CLI
 
 concurrency:
