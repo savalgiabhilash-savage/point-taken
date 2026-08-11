@@ -21,12 +21,21 @@ export async function POST(req: Request) {
     // keep the default
   }
 
-  const ok = await triggerReoptimize({ horizon, userId: user.id });
-  if (!ok) {
-    return Response.json(
-      { error: "On-demand optimize isn't set up yet (missing GITHUB_DISPATCH_TOKEN)." },
-      { status: 503 },
-    );
+  const r = await triggerReoptimize({ horizon, userId: user.id });
+  if (!r.ok) {
+    const msg =
+      r.error === "no-token"
+        ? "GITHUB_DISPATCH_TOKEN isn't set on the server."
+        : r.status === 401
+          ? "GitHub rejected the token (401 Bad credentials) — it's wrong or truncated. Regenerate a fine-grained token and paste the full value."
+          : r.status === 403
+            ? "GitHub returned 403 — the token needs 'Actions: Read and write' permission on the repo (and, for fine-grained tokens, approval for it)."
+            : r.status === 404
+              ? "GitHub returned 404 — the token can't see the repo or the workflow (check repository access)."
+              : r.status === 422
+                ? "GitHub rejected the workflow inputs (422)."
+                : `Couldn't start the optimization (GitHub ${r.status ?? "network error"}).`;
+    return Response.json({ error: msg, status: r.status }, { status: 502 });
   }
   return Response.json({ started: true, horizon });
 }
