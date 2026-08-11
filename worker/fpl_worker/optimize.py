@@ -639,7 +639,10 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     print(f"Multi-week plan: {len(gws)} GWs (GW{gws[0]}-{gws[-1]}), FT={'inf' if ft is None else ft0}, "
           f"budget £{budget/10:.1f}m, universe {len(universe)} ...")
 
-    path_res = _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=(ft is None))
+    # Give the MILP more time as the horizon grows (a 30-GW plan is a far bigger problem than 5).
+    solve_time = min(300.0, 45.0 + 7.0 * len(gws))
+    path_res = _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw,
+                           ft_unlimited=(ft is None), time_limit=solve_time)
     squad = path_res["gw0_squad"]
     path = path_res["path"]
     captain = next((p for p in squad if p["is_captain"]), None)

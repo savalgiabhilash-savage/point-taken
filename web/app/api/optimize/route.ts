@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { horizon?: number };
     const h = Number(body?.horizon);
-    if (Number.isInteger(h) && h >= 1 && h <= 8) horizon = h;
+    if (Number.isInteger(h) && h >= 1 && h <= 38) horizon = h;
   } catch {
     // keep the default
   }

@@ -114,6 +114,16 @@ export default async function OptimizerPage() {
     .limit(1);
   const run = runs?.[0];
 
+  // How many upcoming gameweeks we have projections for = the max plan horizon the user can pick.
+  // Shrinks as the season progresses ("gameweeks left").
+  const [{ data: gwMax }, { data: gwMin }] = await Promise.all([
+    supabase.from("projections").select("gw").eq("model_version", "rules-v1").order("gw", { ascending: false }).limit(1),
+    supabase.from("projections").select("gw").eq("model_version", "rules-v1").order("gw", { ascending: true }).limit(1),
+  ]);
+  const maxGw = (gwMax?.[0]?.gw as number | undefined) ?? null;
+  const minGw = (gwMin?.[0]?.gw as number | undefined) ?? null;
+  const maxHorizon = maxGw != null && minGw != null ? Math.max(1, Math.min(maxGw - minGw + 1, 38)) : 5;
+
   if (!run) {
     return (
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
@@ -124,7 +134,7 @@ export default async function OptimizerPage() {
               No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
               appears here in a minute or two.
             </p>
-            <OptimizeControls initialHorizon={5} userId={userId} lastComputedAt={null} />
+            <OptimizeControls initialHorizon={5} maxHorizon={maxHorizon} userId={userId} lastComputedAt={null} />
           </>
         ) : (
           <p className="mt-4 text-sm text-muted-foreground">
@@ -179,6 +189,12 @@ export default async function OptimizerPage() {
     is_captain: p.is_captain,
     is_vice_captain: false,
     xp_next: p.xpn,
+    xp_horizon: p.xp5,
+    note: p.is_captain
+      ? "Captain — the highest projected returns in your XI, so the ×2 goes here."
+      : p.is_start
+        ? "Starts: highest projected points for its slot within the squad rules."
+        : "Bench: covers a starter; projected below the XI but keeps a legal 15.",
   });
 
   const starters = squad.filter((p) => p.is_start);
@@ -211,6 +227,31 @@ export default async function OptimizerPage() {
     },
   ];
 
+  // Plain-English rationale for the plan, built from the run itself (no LLM — every line traces to a
+  // number the model produced), so the "why" is transparent.
+  const rationale: string[] = [
+    `Planning over the next ${horizon} gameweek${horizon === 1 ? "" : "s"} — nearer gameweeks count for more (later ones are discounted as less certain).`,
+  ];
+  if (captain) {
+    rationale.push(
+      `Captain ${captain.web_name}: ${captain.xpn.toFixed(1)} projected pts next GW — the highest in your XI, so the ×2 goes to them.`,
+    );
+  }
+  if (thisWeek && thisWeek.num > 0) {
+    rationale.push(
+      thisWeek.hits > 0
+        ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week including a −${thisWeek.hits * 4} hit — taken only because the incoming players add more than the 4-point cost.`
+        : `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week, all within your free transfers — each swaps in a higher-projected player at the same position.`,
+    );
+  } else if (thisWeek) {
+    rationale.push(`No transfer this week — your squad is already best for now, so roll the free transfer for later.`);
+  }
+  if (gain != null) {
+    rationale.push(
+      `Net effect: ${gain >= 0 ? "+" : ""}${gain.toFixed(1)} xPts versus simply holding your current squad across the horizon.`,
+    );
+  }
+
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex flex-col gap-1">
@@ -225,6 +266,7 @@ export default async function OptimizerPage() {
       {userId !== "me" && (
         <OptimizeControls
           initialHorizon={horizon}
+          maxHorizon={maxHorizon}
           userId={userId}
           lastComputedAt={(run.created_at as string | null) ?? null}
         />
@@ -269,6 +311,18 @@ export default async function OptimizerPage() {
           <div className="mt-0.5 text-sm">{chipReco}</div>
         </div>
       )}
+
+      <div className="mt-5 rounded-xl border border-border/60 bg-card px-4 py-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Why this plan</span>
+        <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">
+          {rationale.map((r, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="mt-0.5 text-emerald-400">•</span>
+              <span>{r}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {/* Transfer path */}

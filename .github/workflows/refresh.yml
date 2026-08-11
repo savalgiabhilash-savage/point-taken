@@ -47,9 +47,9 @@ jobs:
         run: uv run python -m fpl_worker.enrich --all
 
       # 3) Rules-based xPts projections (reflect updated availability).
-      #    Horizon 8 so the Optimizer's user-selectable plan length can reach 8 GWs.
+      #    Horizon 38 so the Optimizer's user-selectable plan length can span the rest of the season.
       - name: Model (projections)
-        run: uv run python -m fpl_worker.model --run --horizon 8
+        run: uv run python -m fpl_worker.model --run --horizon 38
 
       # 4) Best XI predictions + accuracy scoring + model calibration.
       #    Safe before migration 0003 is applied (it prints a hint and exits).
