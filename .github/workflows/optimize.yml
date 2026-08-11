@@ -1,17 +1,27 @@
 # FPL Selector — on-demand re-optimize (fast, no data refetch).
-# Triggered by the web app after a user changes their team (screenshot upload or sync) so the
-# Optimizer plan reflects the new squad within a minute or two, instead of waiting for the 3-hourly
-# data pipeline (refresh.yml). Reads existing projections + team state from Supabase and rewrites
-# optimizer_runs for every user.
+# Triggered by the web app after a user changes their team (screenshot upload / sync) or clicks
+# "Optimize my squad" on the Optimizer page. Reads existing projections + team state from Supabase
+# and rewrites optimizer_runs. Inputs let the web target one user and choose the plan horizon.
 # Requires repo secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FPL_ENTRY_ID
 name: fpl-optimize
 
 on:
-  workflow_dispatch: {} # fired via the GitHub API from /api/team-upload and /api/sync
+  workflow_dispatch:
+    inputs:
+      horizon:
+        description: "Number of upcoming gameweeks to plan over (blank = each user's last choice)"
+        required: false
+        default: ""
+      user_id:
+        description: "Optimize a single user id (blank = every user)"
+        required: false
+        default: ""
 
 concurrency:
-  group: fpl-optimize
-  cancel-in-progress: true # a newer team change supersedes an in-flight run
+  # Per-user, so one user's optimize doesn't cancel another's; repeated triggers for the same user
+  # supersede the stale one.
+  group: fpl-optimize-${{ github.event.inputs.user_id || 'all' }}
+  cancel-in-progress: true
 
 jobs:
   optimize:
@@ -35,4 +45,13 @@ jobs:
         run: uv sync
 
       - name: Optimize (multi-week + chips)
-        run: uv run python -m fpl_worker.optimize --plan
+        # Inputs are passed via env (not inlined into the shell) to avoid injection.
+        env:
+          IN_HORIZON: ${{ github.event.inputs.horizon }}
+          IN_USER: ${{ github.event.inputs.user_id }}
+        run: |
+          ARGS="--plan"
+          if [ -n "$IN_HORIZON" ]; then ARGS="$ARGS --horizon $IN_HORIZON"; fi
+          if [ -n "$IN_USER" ]; then ARGS="$ARGS --user $IN_USER"; fi
+          echo "Running: optimize $ARGS"
+          uv run python -m fpl_worker.optimize $ARGS

@@ -156,7 +156,7 @@ export async function POST(req: Request) {
   );
   if (error) return Response.json({ error: `Couldn't save the team: ${error.message}` }, { status: 500 });
 
-  await triggerReoptimize(); // refresh the optimizer plan for the new squad (best-effort)
+  await triggerReoptimize({ userId: user.id }); // refresh the optimizer plan for the new squad (best-effort)
 
   return Response.json({ ok: true, count: picks.length, matched: matchedNames, unmatched });
 }

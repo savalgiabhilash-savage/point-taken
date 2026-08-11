@@ -591,15 +591,37 @@ def run_transfers(sb) -> None:
                objective="max_xpts_5gw_transfers", horizon=len(gws), chip_reco=None)
 
 
-def run_plan(sb, user_id="me") -> None:
-    pool, gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw = load_pool(sb)
-    if not gws:
+def _last_horizon(sb, user_id, default=5):
+    """The horizon this user last planned at. There's only ever one optimizer_runs row per user, so
+    reading it back makes the choice sticky: the cron and team-change re-runs keep whatever the user
+    picked via the Optimizer's "Optimize my squad" control, instead of reverting to the default."""
+    try:
+        rows = (
+            sb.table("optimizer_runs").select("horizon").eq("user_id", user_id)
+            .order("created_at", desc=True).limit(1).execute().data
+        )
+        h = rows[0].get("horizon") if rows else None
+        return int(h) if h else default
+    except Exception:  # noqa: BLE001 — table/column may be missing; fall back to the default
+        return default
+
+
+def run_plan(sb, user_id="me", horizon=None) -> None:
+    pool, all_gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw = load_pool(sb)
+    if not all_gws:
         print("No projections found — run the model first.")
         return
     state = _current_state(sb, user_id)
     if not state:
         print(f"[{user_id[:8]}] no squad synced — skipping.")
         return
+
+    # Horizon = how many upcoming gameweeks to plan over. Default to the user's last choice; clamp to
+    # the gameweeks we actually have projections for.
+    if horizon is None:
+        horizon = _last_horizon(sb, user_id)
+    horizon = max(1, min(int(horizon), len(all_gws)))
+    gws = all_gws[:horizon]
 
     current_ids = set(state["ids"])
     cur_rows = (
@@ -713,6 +735,9 @@ def main() -> None:
     parser.add_argument("--fresh", action="store_true", help="best 15 from scratch")
     parser.add_argument("--transfers", action="store_true", help="single-deadline transfers (valued over 5 GWs)")
     parser.add_argument("--plan", action="store_true", help="full multi-week transfer path + chip timing (default)")
+    parser.add_argument("--horizon", type=int, default=None,
+                        help="number of upcoming GWs to plan over (default: the user's last choice, else 5)")
+    parser.add_argument("--user", default=None, help="optimize a single user id (default: every user)")
     args = parser.parse_args()
     load_dotenv()
     sb = db.get_client()
@@ -721,8 +746,9 @@ def main() -> None:
     elif args.transfers:
         run_transfers(sb)
     else:
-        for uid in _all_user_ids(sb):
-            run_plan(sb, uid)
+        uids = [args.user] if args.user else _all_user_ids(sb)
+        for uid in uids:
+            run_plan(sb, uid, horizon=args.horizon)
 
 
 if __name__ == "__main__":

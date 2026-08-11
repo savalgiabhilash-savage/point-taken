@@ -1,6 +1,7 @@
 import { type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
+import { OptimizeControls } from "@/components/optimize-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -117,9 +118,19 @@ export default async function OptimizerPage() {
     return (
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
-        <p className="mt-4 text-sm text-muted-foreground">
-          No optimization yet. Run <code>python -m fpl_worker.optimize --plan</code>.
-        </p>
+        {userId !== "me" ? (
+          <>
+            <p className="mt-4 text-sm text-muted-foreground">
+              No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
+              appears here in a minute or two.
+            </p>
+            <OptimizeControls initialHorizon={5} userId={userId} lastComputedAt={null} />
+          </>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">
+            No optimization yet. Run <code>python -m fpl_worker.optimize --plan</code>.
+          </p>
+        )}
       </main>
     );
   }
@@ -210,6 +221,14 @@ export default async function OptimizerPage() {
           ≤3 per club, valid formation, and free-transfer rollover (HiGHS MILP).
         </p>
       </div>
+
+      {userId !== "me" && (
+        <OptimizeControls
+          initialHorizon={horizon}
+          userId={userId}
+          lastComputedAt={(run.created_at as string | null) ?? null}
+        />
+      )}
 
       {stale && (
         <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
