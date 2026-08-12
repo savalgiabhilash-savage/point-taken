@@ -467,28 +467,32 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
     for c in chips:
         c["available"] = avail is None or CHIP_CODES[c["chip"]] in avail
         c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
-        # Make the chip fixture-aware: tag its best window's schedule type and say so. When a real
-        # Double/Blank GW is detected we cite it (that's the ideal week for BB/TC vs FH); otherwise
-        # we keep the generic "save it for a DGW/BGW" guidance so preseason advice still reads right.
+        # Only attach Double/Blank-GW language to a gameweek the FIXTURE DATA actually confirms as one.
+        # DGWs/BGWs don't exist in the base calendar — they're only created mid-season when matches are
+        # rearranged (cup clashes etc.), so the first half has none. We must never imply a specific
+        # gameweek is a DGW/BGW just because a chip's projection peaks there.
         fl = gw_flags.get(c["gw"], {"type": "", "n": 0})
         c["gw_type"] = fl["type"]
         if fl["type"] == "DGW":
             c["detail"] += f"; GW{c['gw']} is a Double GW ({fl['n']} clubs play twice)"
         elif fl["type"] == "BGW":
             c["detail"] += f"; GW{c['gw']} is a Blank GW ({fl['n']} clubs have no fixture)"
-        elif c["chip"] in ("Triple Captain", "Bench Boost"):
-            c["detail"] += "; best saved for a Double GW"
-        elif c["chip"] == "Free Hit":
-            c["detail"] += "; best saved for a Blank GW"
 
     # Recommend the chip that most clears its own bar; otherwise hold (the correct default).
+    any_special = any(f.get("type") for f in gw_flags.values())
     playable = [c for c in chips if c["available"] and c["gain"] >= c["threshold"]]
     best = max(playable, key=lambda c: c["gain"] - c["threshold"]) if playable else None
     if best:
         reco = f"Play {best['chip']} in GW{best['gw']} (+{best['gain']:.1f} xPts) — {best['detail']}."
+    elif any_special:
+        reco = f"Hold your chips — no window over the next {len(gws)} GWs clears the bar yet."
     else:
-        reco = (f"Hold your chips — no window clears the bar over the next {len(gws)} GWs. "
-                "Chips are best saved for Double/Blank gameweeks (announced in-season).")
+        reco = (
+            f"Hold your chips — no window clears the bar over the next {len(gws)} GWs, and no "
+            "Double/Blank gameweeks are scheduled. Those only appear in the second half of the season "
+            "(fixtures rearranged around the FA Cup, usually from late February); the app flags them "
+            "automatically once the fixture list confirms it."
+        )
     return {"all": chips, "best": best, "reco": reco}
 
 

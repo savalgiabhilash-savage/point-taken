@@ -169,6 +169,7 @@ export default async function OptimizerPage() {
   const chipReco = (run.chip_reco as string | null) ?? transfers?.chip_reco ?? null;
   const path = transfers?.path ?? null;
   const chips = transfers?.chips ?? null;
+  const hasSpecialGw = (chips ?? []).some((c) => c.gw_type === "DGW" || c.gw_type === "BGW");
   // Highlight only a chip actually worth playing (gain clears its own bar); otherwise nothing —
   // the banner says "hold". Never highlight the mere max-gain chip when the call is to hold.
   const recommended =
@@ -426,8 +427,11 @@ export default async function OptimizerPage() {
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Projections span the next {horizon} GWs. Chip gains are largest in Double/Blank gameweeks, which are
-        announced in-season — until then Wildcard and Triple Captain tend to dominate. See the Guide for details.
+        Projections span the next {horizon} GWs.{" "}
+        {hasSpecialGw
+          ? "Any Double/Blank gameweeks in this window are flagged above — the ideal time for Bench Boost / Triple Captain (doubles) or Free Hit (blanks)."
+          : "No Double or Blank gameweeks are scheduled — they only appear in the second half as fixtures are rearranged (around the FA Cup, usually from late February), and the app flags them automatically once the fixtures confirm it."}{" "}
+        See the Guide for details.
       </p>
     </main>
   );
