@@ -262,6 +262,11 @@ export default async function OptimizerPage() {
           when to roll a free transfer, when a −4 hit pays off) plus chip timing. Respects £100m, 2/5/5/3,
           ≤3 per club, valid formation, and free-transfer rollover (HiGHS MILP).
         </p>
+        <p className="text-xs text-muted-foreground">
+          Unlike <span className="text-foreground">Best XI</span> (the best team for a single gameweek), this looks
+          across your chosen horizon — so it can suggest swaps that lift your total over several GWs even when this
+          week&apos;s XI is already optimal. Set the horizon to 1 to compare like-for-like.
+        </p>
       </div>
 
       {userId !== "me" && (

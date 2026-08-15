@@ -40,6 +40,12 @@ export default async function BestPage() {
           Each week&apos;s pick is tracked against what actually happened, and the accuracy feeds back to
           calibrate future projections.
         </p>
+        <p className="text-xs text-muted-foreground">
+          This is the best team for <span className="text-foreground">this gameweek only</span>. For a plan that
+          looks several gameweeks ahead — transfers, chip timing, captaincy over a horizon you choose — use the{" "}
+          <span className="text-foreground">Optimizer</span> (it can suggest different players when their fixtures
+          improve later, even if this week&apos;s XI is already optimal).
+        </p>
       </div>
 
       {migrationMissing && (
