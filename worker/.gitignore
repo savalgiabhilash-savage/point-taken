@@ -1,0 +1,4 @@
+
+# selenium/chromedriver artifacts from FBref scraping (form.py)
+downloaded_files/
+*.lock
