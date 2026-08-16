@@ -110,17 +110,19 @@ def player_rates(us: dict | None, pos: str, base: dict[str, dict]) -> dict:
 # --- core projection ---------------------------------------------------------
 
 def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
-                    our: dict, opp: dict) -> dict:
+                    our: dict, opp: dict, form_mult: float = 1.0) -> dict:
     """One player, one fixture -> component dict of expected points.
 
-    `rates` holds the base-rate-blended per-90 attacking rates (see player_rates)."""
+    `rates` holds the base-rate-blended per-90 attacking rates (see player_rates). `form_mult` is a
+    small preseason-form multiplier on attacking output (2026 World Cup — see form.py); 1.0 = no
+    change. It scales the attacking rates only, so it flows through goals, assists, and bonus."""
     pos = player["position"] or "MID"
     p_start, p_play, exp_min = _minutes(player)
     mins_frac = exp_min / 90.0
     adj = _attack_adj(fdr_value)
 
-    xg90 = rates["xg90"]
-    xa90 = rates["xa90"]
+    xg90 = rates["xg90"] * form_mult
+    xa90 = rates["xa90"] * form_mult
     yellow90 = rates["yellow90"]
 
     x_goals = xg90 * mins_frac * adj
@@ -193,6 +195,16 @@ def _load_calibration(sb) -> dict[str, float]:
         return {}
 
 
+def _load_form(sb) -> dict[int, float]:
+    """Preseason (World Cup) form multipliers by fpl_id (form.py). Empty (=> no change) if the table
+    isn't there yet. A small, bounded nudge to attacking output until the domestic season starts."""
+    try:
+        rows = sb.table("preseason_form").select("player_id, form_mult").execute().data
+        return {r["player_id"]: float(r["form_mult"]) for r in rows}
+    except Exception:  # noqa: BLE001 — table may not exist yet; projections must still run
+        return {}
+
+
 def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     players = (
         sb.table("players")
@@ -220,6 +232,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     ratings = fdr.team_ratings()
     team_rt = build_team_ratings_by_id(teams, ratings)
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
+    form = _load_form(sb)  # small preseason (World Cup) form nudge; {} until form.py populates it
 
     upcoming = [f for f in fixtures if not f["finished"] and f["gw"] is not None]
     if not upcoming:
@@ -241,6 +254,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
         rates = player_rates(us, p["position"], base)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
+        fm = form.get(p["fpl_id"], 1.0)
         for gw in gws:
             fxs = by_team_gw.get((p["team_id"], gw), [])
             if not fxs:
@@ -248,7 +262,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             agg: dict[str, float] = {}
             opp_short = []
             for is_home, fdr_v, opp_id in fxs:
-                comp = project_fixture(p, rates, is_home, fdr_v, our, team_rt.get(opp_id, our))
+                comp = project_fixture(p, rates, is_home, fdr_v, our, team_rt.get(opp_id, our), form_mult=fm)
                 for k, v in comp.items():
                     if k in ("p_start", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
                         continue
@@ -267,7 +281,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "x_bonus_pts": round(agg["x_bonus_pts"], 3),
                 "x_deductions_pts": round(agg["x_deductions_pts"], 3),
                 "model_version": MODEL_VERSION,
-                "components": {"opponents": opp_short, "n_fixtures": len(fxs)},
+                "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3)},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],
                 "_cost": p["now_cost"],
