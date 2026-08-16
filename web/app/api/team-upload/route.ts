@@ -39,7 +39,20 @@ const TOOL: Anthropic.Tool = {
   },
 };
 
-const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[^a-z]/g, "");
+// Fold accents AND the Latin letters that DON'T decompose under NFD (Turkish dotless ı, ø, ł, etc.),
+// otherwise names like "Kadıoğlu" normalise to "kadoglu" and won't match a vision-read "Kadioglu".
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/ı/g, "i")
+    .replace(/ø/g, "o")
+    .replace(/ł/g, "l")
+    .replace(/[đð]/g, "d")
+    .replace(/ß/g, "ss")
+    .replace(/æ/g, "ae")
+    .replace(/œ/g, "oe")
+    .replace(/[^a-z]/g, "");
 
 export async function POST(req: Request) {
   const key = apiKey();
