@@ -18,6 +18,54 @@ from .fpl_client import FplClient
 
 ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"]
 FT_CAP = 5
+# Since 2025/26 every chip comes twice: one set for GW1-19 (lost if unused by the GW19 deadline) and a
+# fresh set for GW20-38.
+CHIP_HALF_END = 19
+
+
+def chips_available_for(history: dict, gw: int) -> list[str]:
+    """Chips still playable in the half-season containing `gw` (a chip played in the other half
+    doesn't count against this half's copy)."""
+    lo, hi = (1, CHIP_HALF_END) if gw <= CHIP_HALF_END else (CHIP_HALF_END + 1, 38)
+    played = {c["name"] for c in history.get("chips", []) if lo <= c["event"] <= hi}
+    return [c for c in ALL_CHIPS if c not in played]
+
+
+def selling_prices(client: FplClient, entry_id: int, element_ids: list[int]) -> dict[int, int]:
+    """FPL selling price (tenths of £m) for each owned player: purchase price + half of any rise,
+    rounded down; a fall is taken in full. Purchase price = the latest permanent transfer-in (Free Hit
+    weeks revert, so they're ignored); players kept from the entry's first squad were bought at their
+    price in its first gameweek."""
+    history = client._get(f"entry/{entry_id}/history/")
+    transfers = client._get(f"entry/{entry_id}/transfers/")
+    boot = client.bootstrap_static()
+    now = {e["id"]: e["now_cost"] for e in boot["elements"]}
+    start = {e["id"]: e["now_cost"] - (e.get("cost_change_start") or 0) for e in boot["elements"]}
+    fh_gws = {c["event"] for c in history.get("chips", []) if c["name"] == "freehit"}
+    first_gw = min((e["event"] for e in history.get("current", [])), default=1)
+
+    bought: dict[int, tuple[int, int]] = {}  # element -> (event, price) of its latest transfer-in
+    for t in transfers:
+        if t["event"] in fh_gws:
+            continue
+        el, ev = t["element_in"], t["event"]
+        if el not in bought or ev >= bought[el][0]:
+            bought[el] = (ev, t["element_in_cost"])
+
+    out: dict[int, int] = {}
+    for el in element_ids:
+        if el not in now:
+            continue
+        if el in bought:
+            purchase = bought[el][1]
+        elif first_gw <= 1:
+            purchase = start[el]
+        else:  # joined mid-season: price in the entry's first gameweek
+            hist = client.element_summary(el).get("history", [])
+            purchase = next((h["value"] for h in hist if h["round"] >= first_gw), start[el])
+        cur = now[el]
+        out[el] = cur if cur <= purchase else purchase + (cur - purchase) // 2
+    return out
 
 
 def free_transfers_next(history: dict) -> int:
@@ -46,8 +94,7 @@ def _sync_one(sb, client: FplClient, entry_id: int, user_id: str) -> None:
     current_event = entry.get("current_event")
     picks_data = client._get(f"entry/{entry_id}/event/{current_event}/picks/") if current_event else None
 
-    played = {c["name"] for c in history.get("chips", [])}
-    chips = [c for c in ALL_CHIPS if c not in played]  # available = all - already played
+    chips = chips_available_for(history, (current_event or 0) + 1)  # half of the next deadline
     label = user_id[:8]
 
     if not picks_data:

@@ -8,6 +8,15 @@ const FPL = "https://fantasy.premierleague.com/api";
 const UA = "Mozilla/5.0 fpl-selector (personal FPL tool)";
 const ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"];
 const FT_CAP = 5;
+// Since 2025/26 each chip comes twice: one set for GW1-19 (lost if unused), a fresh set for GW20-38.
+const CHIP_HALF_END = 19;
+
+// Chips still playable in the half-season containing `gw` (mirrors worker sync_team.py).
+function chipsAvailableFor(history: { chips?: { event: number; name: string }[] }, gw: number): string[] {
+  const [lo, hi] = gw <= CHIP_HALF_END ? [1, CHIP_HALF_END] : [CHIP_HALF_END + 1, 38];
+  const played = new Set((history.chips ?? []).filter((c) => c.event >= lo && c.event <= hi).map((c) => c.name));
+  return ALL_CHIPS.filter((c) => !played.has(c));
+}
 
 type HistoryEvent = { event: number; event_transfers?: number; event_transfers_cost?: number };
 
@@ -90,8 +99,7 @@ export async function POST() {
       });
     }
 
-    const played = new Set((history.chips ?? []).map((c: { name: string }) => c.name));
-    const chipsAvailable = ALL_CHIPS.filter((c) => !played.has(c));
+    const chipsAvailable = chipsAvailableFor(history, (currentEvent ?? 0) + 1); // half of the next deadline
     const eh = (history.current ?? []).at(-1) ?? {};
 
     const { error } = await supabase.from("user_team_state").upsert(

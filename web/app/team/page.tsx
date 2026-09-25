@@ -160,6 +160,11 @@ export default async function TeamPage() {
           Preseason draft snapshot. This is automatically replaced by your actual team once the GW
           deadline passes and it syncs from FPL.
         </p>
+      ) : state.fpl_entry_id == null ? (
+        <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          Uploaded squad for GW{state.gw}. It overrides your synced team until the GW{state.gw} deadline, then
+          FPL&apos;s real picks replace it. Bank and free transfers are carried over from your last sync.
+        </p>
       ) : (
         <p className="mt-4 text-xs text-muted-foreground">
           Live team · GW{state.gw} — synced from your FPL account.
@@ -170,11 +175,15 @@ export default async function TeamPage() {
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
       </div>
 
-      {userId !== "me" && state.gw === 0 ? (
+      {userId !== "me" ? (
         <div className="mt-8 max-w-md border-t border-border/50 pt-6">
           <TeamUpload
             title="Replace with a screenshot"
-            note="Uploaded the wrong team, or made changes? Upload a fresh screenshot to update this draft. After the GW deadline your actual team syncs from FPL and takes over automatically — this upload is only used preseason."
+            note={
+              state.gw === 0
+                ? "Uploaded the wrong team, or made changes? Upload a fresh screenshot to update this draft. After the GW deadline your actual team syncs from FPL and takes over automatically."
+                : "Made transfers for the next deadline? FPL doesn't show them publicly until the deadline passes. Upload a screenshot of your updated team to plan with it now; FPL's real picks take over after the deadline."
+            }
           />
         </div>
       ) : null}

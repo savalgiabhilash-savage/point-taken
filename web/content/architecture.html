@@ -136,9 +136,9 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 3</span>
+    <span>doc rev 4</span>
     <span>updated 2026-09-25</span>
-    <span>code @ fixes C1–C4, H2, H5, H6</span>
+    <span>code @ all fixes except H7</span>
     <span>model rules-v1</span>
     <span>season 2026/27 · next GW6</span>
   </div>
@@ -274,6 +274,7 @@ svg text{font-family:var(--sans)}
       <tr><td>FPL <code>bootstrap-static</code></td><td>Players (price in tenths of £m, status a/d/i/s/u/n, chance of playing, minutes, ownership, FPL xG/xA fields, penalty/set-piece order), teams, events</td><td><code>fpl_client.py</code>, <code>transform.py</code></td></tr>
       <tr><td>FPL <code>fixtures</code></td><td>GW, home/away, FPL difficulty, kickoff, finished</td><td><code>transform.py</code></td></tr>
       <tr><td>FPL <code>entry/{id}</code>, <code>/history</code>, <code>/event/{gw}/picks</code></td><td>User squad, bank, value, rank, chips played</td><td><code>sync_team.py</code>, <code>/api/sync</code></td></tr>
+      <tr><td>FPL <code>entry/{id}/transfers</code>, <code>element-summary/{id}</code></td><td>Purchase prices, used to compute selling prices</td><td><code>sync_team.selling_prices</code> (called by the optimizer)</td></tr>
       <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions</td><td><code>predict.py</code></td></tr>
       <tr><td>Understat 2025/26 (soccerdata)</td><td>Player season xG, xA, minutes, yellow cards. Team match xG for and against.</td><td><code>soccer_stats.py</code>, <code>fdr.py</code></td></tr>
       <tr><td>FBref, World Cup 2026</td><td>Minutes, goals, assists → bounded attacking multiplier</td><td><code>form.py</code></td></tr>
@@ -364,12 +365,13 @@ p_60         = 0.9·p_start</code></pre>
 
   <h3>2. Attacking rates, shrunk to base (empirical Bayes)</h3>
 <pre><code>base[pos]  = minutes-weighted xG/90 and xA/90 over all matched players at that position
-xg90       = (xG_season + 12·base_xg90) / (n90 + 12)      K = 12 "virtual" full matches
-xa90       = (xA_season + 12·base_xa90) / (n90 + 12)
-yellow90   = yellows / n90     (0.1 if unmatched)
-unmatched players → same formula on this season's FPL xG, xA and minutes (yellows = 0);
-                    zero if they haven't played</code></pre>
-  <p>Matched players use Understat 2025/26 totals. Players with no Understat match (promoted clubs, arrivals from abroad, about 40% of the list) use this season's FPL <code>expected_goals</code> and <code>expected_assists</code>, which are shrunk the same way.</p>
+sample     = 0.5 × last season (Understat xG, xA, minutes) + this season (FPL xG, xA, minutes)
+n90        = sample minutes / 90
+xg90       = (sample xG + 12·base_xg90) / (n90 + 12)      K = 12 "virtual" full matches
+xa90       = (sample xA + 12·base_xa90) / (n90 + 12)
+yellow90   = last season's yellow-card rate  (0 if unmatched)
+no data in either season → 0</code></pre>
+  <p>A 90 from last season counts half as much as a 90 from this season, so current form takes over as the season goes on. Players with no Understat match (promoted clubs, arrivals from abroad, about 40% of the list) use this season's FPL numbers alone.</p>
 
   <h3>3. Per-fixture components</h3>
 <pre><code>adj          = 1 + 0.12·(3 − FDR)                        FDR 1 → ×1.24, FDR 5 → ×0.76
@@ -386,7 +388,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <p>Team xG for/against per game comes from the same Understat team ratings as the FDR. Promoted clubs get the weakest attack and leakiest defence in the league. DefCon is a placeholder, not player-specific. Penalty and set-piece flags are stored but not used.</p>
 
   <h3>4. Form and calibration multipliers</h3>
-  <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It is still applied in-season; nothing switches it off.</p>
+  <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It applies only until the player's club has played its first league game.</p>
   <p><b>Calibration</b>: every component is multiplied by the position multiplier from <code>model_calibration</code>, so components still sum to <code>x_pts</code>. The multiplier is written to <code>components.calibration</code>.</p>
 </section>
 
@@ -411,7 +413,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <ul>
     <li>All <code>rules-v1</code> projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
     <li>Pool: players whose status isn't i/s/u/n. The <b>universe</b> is your 15 plus the top 90 other players by summed xPts across <em>all</em> projection GWs.</li>
-    <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ current price of your 15 + bank. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>, where the value is rebuilt from history (section 11).</li>
+    <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ <b>selling price</b> of your 15 + bank. Selling price = purchase price + half of any rise (rounded down), or the current price after a fall. Purchase prices come from the public <code>entry/{id}/transfers</code> (latest transfer in, ignoring Free Hit weeks), or the GW1 price for players kept from your first squad. An owned player "costs" his selling price in the MILP, so the budget is exactly what you could raise. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>, where the value is rebuilt from history (section 11).</li>
     <li>Horizon: the argument, else the user's last saved horizon, else 5. Clamped to the GWs available.</li>
   </ul>
   <h3>Hard constraints (every GW)</h3>
@@ -433,7 +435,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="chips">
   <span class="sec-num">10</span>
   <h2>Chip timing</h2>
-  <p>Each chip is valued as its <b>marginal</b> gain over the squad you would field on the planned transfer path, scanned across every GW in the horizon. The best GW per chip is kept.</p>
+  <p>Each chip comes twice a season: one set for GW1–19, lost if unused by the GW19 deadline, and a fresh set for GW20–38. Each copy is valued as its <b>marginal</b> gain over the squad you would field on the planned transfer path, scanned across the GWs of its own half that fall in the horizon. The best GW per copy is kept.</p>
   <div class="tbl"><table>
     <thead><tr><th>Chip</th><th>Gain at GW g</th><th class="num">Bar</th></tr></thead>
     <tbody>
@@ -443,7 +445,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
       <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">8</td></tr>
     </tbody>
   </table></div>
-  <p>A chip is recommended only if you still hold it and its gain clears the bar. If several do, the one with the largest gain over its bar wins. Otherwise the advice is "hold". DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW. Available chips = the four codes minus any chip name in <code>history.chips</code>.</p>
+  <p>A chip is recommended only if you still hold it and its gain clears the bar. <b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window. If the horizon stops short of GW19, the "hold" advice names the first-half chips that will expire. If several do, the one with the largest gain over its bar wins. Otherwise the advice is "hold". DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW. Available chips = the four codes minus any chip played in the same half as the next deadline.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -453,7 +455,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <ul>
     <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and free transfers for the next deadline, rebuilt from <code>history.current</code>: the first GW played is unlimited, then +1 per GW capped at 5, minus free transfers used (transfers − hit cost ÷ 4). Wildcard and Free Hit weeks keep the banked transfers. Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
     <li><b>Manual sync</b> (<code>POST /api/sync</code>): the same logic for the logged-in user, then dispatches <code>fpl-optimize</code>.</li>
-    <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Saved as <code>gw = 0</code> with bank 0, FT null and all chips, then re-optimized.</li>
+    <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Preseason it's saved as <code>gw = 0</code> with all chips. In-season it's saved as the latest synced GW + 1, with bank, free transfers and chips carried over, so it overrides the synced squad until that deadline, when FPL's real picks replace it. Uploaded rows have no <code>fpl_entry_id</code>. Then re-optimized.</li>
     <li><b>On-demand optimize</b> (<code>POST /api/optimize</code>, signed in): validates horizon 1–38 and dispatches the workflow for that user. The Optimizer page polls <code>optimizer_runs</code> until the new plan lands, in about 1–2 minutes.</li>
     <li><b>Stale plan warning</b>: if the current squad's IDs differ from <code>transfers.based_on</code>, the Optimizer page warns instead of showing old transfers.</li>
   </ul>
@@ -507,6 +509,8 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <tbody>
       <tr><td>MODEL_VERSION</td><td class="num">rules-v1</td><td>model.py</td><td>Stored on every projection</td></tr>
       <tr><td>nailed divisor</td><td class="num">2600 min</td><td>model.py</td><td>Last-season minutes that count as a full-season starter</td></tr>
+      <tr><td>LAST_SEASON_WEIGHT</td><td class="num">0.5</td><td>model.py</td><td>Weight of a last-season 90 vs a this-season 90</td></tr>
+      <tr><td>CHIP_HALF_END</td><td class="num">GW19</td><td>sync_team.py</td><td>Last GW of the first chip set</td></tr>
       <tr><td>MINUTES_K</td><td class="num">4 games</td><td>model.py</td><td>Club games before this season's minutes share outweighs last season</td></tr>
       <tr><td>start / cameo minutes</td><td class="num">82 / 20</td><td>model.py</td><td>Expected minutes if starting or subbed on</td></tr>
       <tr><td>cameo rate</td><td class="num">0.15</td><td>model.py</td><td>P(sub appearance) when not starting</td></tr>
@@ -534,24 +538,17 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. The four critical issues and H2, H5 and H6 were fixed on 2026-09-25; the rest are open.</p>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. All critical and high issues except H7 (a Supabase dashboard setting) were fixed on 2026-09-25 and 26. The medium and low issues are open.</p>
 
   <div class="issues">
+    <div class="issue"><span class="id">H1·3·4·8</span><div><h4><span class="chip low">Fixed</span> Current-season data, chip halves, selling prices, uploads</h4></div>
+      <p>H1: matched players ignored this season's xG and the World Cup factor never switched off (fixed: pooled sample, factor preseason only). H3: chips assumed one set per season (fixed: per-half availability and a GW19 use-it-or-lose-it rule). H4: the budget used current prices (fixed: real selling prices from transfer history). H8: in-season uploads were ignored (fixed: saved as the next GW).</p></div>
     <div class="issue"><span class="id">H2·5·6</span><div><h4><span class="chip low">Fixed</span> Zero attackers, pipeline order, open assistant</h4></div>
       <p>H2: 271 unmatched players projected zero attacking output (fixed: fall back to this season's FPL xG/xA). H5: the optimizer ran before team sync (fixed: sync first). H6: <code>/api/assistant</code> was open to anyone (fixed: signed-in users only).</p></div>
     <div class="issue"><span class="id">C1–4</span><div><h4><span class="chip low">Fixed</span> Critical issues from the first review</h4></div>
       <p>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs). C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season). C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6). C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>).</p></div>
-    <div class="issue"><span class="id">H1</span><div><h4><span class="chip high">High</span> The model mostly ignores current-season data</h4></div>
-      <p>Matched players still use only 2025/26 Understat for xG and xA. FPL's 2026/27 xG/xA, starts and <code>defensive_contribution</code> aren't blended in for them, and the World Cup multiplier still applies mid-season. Minutes do use this season (C2 fix).</p></div>
-    <div class="issue"><span class="id">H3</span><div><h4><span class="chip high">High</span> Chip rules are out of date</h4></div>
-      <p>Since 2025/26 each chip comes twice, once per half-season, and the first set expires at the GW19 deadline. Sync marks a chip used for the whole season after one play, and the planner doesn't know about the expiry, so "hold" can let first-half chips lapse.</p></div>
-    <div class="issue"><span class="id">H4</span><div><h4><span class="chip high">High</span> Budget ignores selling prices</h4></div>
-      <p>Budget = Σ current price + bank. FPL sells at purchase price + half the profit, rounded down, so after price rises the optimizer can suggest transfers you can't afford. Purchase prices are available from public <code>entry/{id}/transfers</code>.</p></div>
     <div class="issue"><span class="id">H7</span><div><h4><span class="chip high">High</span> Unverified emails</h4></div>
       <p><code>mailer_autoconfirm</code> is on, so anyone can register any address. The Docs gate trusts the email, which is safe only while an account with the owner's email already exists. Turn on "Confirm email" in Supabase Auth.</p></div>
-    <div class="issue"><span class="id">H8</span><div><h4><span class="chip high">High</span> In-season screenshot uploads are ignored</h4></div>
-      <p>Uploads save as <code>gw = 0</code>, but every reader takes the highest GW row. Once a synced GW row exists (as it does for "me"), the upload has no effect.</p></div>
-
     <div class="issue"><span class="id">M1</span><div><h4><span class="chip med">Medium</span> "Next 5" totals sum everything</h4></div>
       <p>The Players page's xp5, the assistant's <code>xpts_next5</code> and the optimizer's 90-player candidate ranking sum every projection row (38+ GWs, stale ones included), whatever the horizon. Short-term fixture swings and cheap enablers fall out of the pool.</p></div>
     <div class="issue"><span class="id">M2</span><div><h4><span class="chip med">Medium</span> Heavy Players page query</h4></div>
@@ -599,6 +596,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <li><span class="d">2026-09-25</span><br>Full review (section 16). Added this blueprint and the owner-only Docs tab.</li>
     <li><span class="d">2026-09-25</span><br>Fixed C1–C4: next GW from FPL <code>is_next</code> with stale projections pruned; minutes share per club game blended with last season; prediction snapshots replaced and scored GWs never reopened, calibration from GW6; free transfers rebuilt from entry history.</li>
     <li><span class="d">2026-09-25</span><br>Fixed H2, H5, H6: unmatched players fall back to FPL xG/xA; team sync runs before the optimizer; assistant requires login.</li>
+    <li><span class="d">2026-09-26</span><br>Fixed H1, H3, H4, H8: last season (half weight) pooled with this season's FPL xG/xA; World Cup factor preseason only; chips per half-season with GW19 expiry; budget from real selling prices; in-season screenshot uploads saved as the next GW.</li>
   </ul>
 </section>
 

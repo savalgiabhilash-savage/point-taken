@@ -25,7 +25,9 @@ import highspy
 from dotenv import load_dotenv
 
 from . import db
-from .model import MODEL_VERSION
+from .fpl_client import FplClient
+from .model import LAST_GW, MODEL_VERSION
+from .sync_team import CHIP_HALF_END, selling_prices
 
 BUDGET = 1000  # £100.0m in tenths of a million (used by --fresh)
 SQUAD_QUOTA = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
@@ -394,9 +396,10 @@ def _plan_val_at(squad15, xp_by_gw, gw):
     }
 
 
-def _chip_triple_captain(plan_squads, xp_by_gw, gws):
+def _chip_triple_captain(plan_squads, xp_by_gw, gws, idxs):
     best = None
-    for gi, g in enumerate(gws):
+    for gi in idxs:
+        g = gws[gi]
         v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
         gain = round(v["cap"], 2)  # a TC turns the ×2 captain into ×3 → the extra is one more ×1
         if best is None or gain > best["gain"]:
@@ -405,9 +408,10 @@ def _chip_triple_captain(plan_squads, xp_by_gw, gws):
     return best
 
 
-def _chip_bench_boost(plan_squads, xp_by_gw, gws):
+def _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs):
     best = None
-    for gi, g in enumerate(gws):
+    for gi in idxs:
+        g = gws[gi]
         v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
         gain = round(v["bench"], 2)  # BB scores your 4 bench players too
         if best is None or gain > best["gain"]:
@@ -416,12 +420,13 @@ def _chip_bench_boost(plan_squads, xp_by_gw, gws):
     return best
 
 
-def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws):
+def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs):
     """Marginal value of a free full rebuild vs continuing your planned transfers: the extra points
     the rebuild reaches PLUS any hits it saves. ≈0 when your free transfers already reach the
     optimal squad (e.g. preseason, when transfers are unlimited)."""
     best = None
-    for gi, g in enumerate(gws):
+    for gi in idxs:
+        g = gws[gi]
         window = gws[gi:]
         uni = [{**u, "xp5": sum(xp_by_gw.get(u["fpl_id"], {}).get(w, 0.0) for w in window),
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
@@ -438,11 +443,12 @@ def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws):
     return best
 
 
-def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws):
+def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs):
     """Marginal value of a one-week optimal squad vs the team you'd actually field that GW. Large
     in a Blank GW (when your squad has few players); ≈0 when your squad is already near-optimal."""
     best = None
-    for gi, g in enumerate(gws):
+    for gi in idxs:
+        g = gws[gi]
         uni = [{**u, "xp5": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0),
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
         fh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
@@ -455,18 +461,35 @@ def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws):
 
 
 def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None):
-    chips = [
-        _chip_triple_captain(plan_squads, xp_by_gw, gws),
-        _chip_bench_boost(plan_squads, xp_by_gw, gws),
-        _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws),
-        _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws),
+    # Each chip comes twice: one copy for GW1-19 and one for GW20-38. Value each copy only inside its
+    # own half of the horizon. chips_available describes the half of the next deadline (gws[0]); a
+    # later half in the horizon starts with a fresh full set.
+    evaluators = [
+        lambda idxs: _chip_triple_captain(plan_squads, xp_by_gw, gws, idxs),
+        lambda idxs: _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs),
+        lambda idxs: _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs),
+        lambda idxs: _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs),
     ]
-    # Respect which chips you still hold (preseason: chips_available is None -> all available).
-    avail = set(chips_available) if chips_available else None
+    avail = set(chips_available) if chips_available else None  # None (preseason) -> all available
     gw_flags = gw_flags or {}
+    chips = []
+    for half, (lo, hi) in ((1, (1, CHIP_HALF_END)), (2, (CHIP_HALF_END + 1, LAST_GW))):
+        idxs = [i for i, g in enumerate(gws) if lo <= g <= hi]
+        if not idxs:
+            continue
+        current_half = lo <= gws[0] <= hi
+        for ev in evaluators:
+            c = ev(idxs)
+            c["half"] = half
+            c["available"] = (avail is None or CHIP_CODES[c["chip"]] in avail) if current_half else True
+            c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
+            # Use-it-or-lose-it: a first-half chip still held when the horizon reaches GW19 has no later
+            # window to save it for, so any positive gain beats letting it expire.
+            if half == 1 and current_half and gws[-1] >= CHIP_HALF_END and c["available"]:
+                c["threshold"] = 0.0
+                c["detail"] += f"; expires after GW{CHIP_HALF_END} — best window left before it's lost"
+            chips.append(c)
     for c in chips:
-        c["available"] = avail is None or CHIP_CODES[c["chip"]] in avail
-        c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
         # Only attach Double/Blank-GW language to a gameweek the FIXTURE DATA actually confirms as one.
         # DGWs/BGWs don't exist in the base calendar — they're only created mid-season when matches are
         # rearranged (cup clashes etc.), so the first half has none. We must never imply a specific
@@ -480,10 +503,14 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
 
     # Recommend the chip that most clears its own bar; otherwise hold (the correct default).
     any_special = any(f.get("type") for f in gw_flags.values())
-    playable = [c for c in chips if c["available"] and c["gain"] >= c["threshold"]]
+    playable = [c for c in chips if c["available"] and c["gain"] > 0 and c["gain"] >= c["threshold"]]
     best = max(playable, key=lambda c: c["gain"] - c["threshold"]) if playable else None
     if best:
         reco = f"Play {best['chip']} in GW{best['gw']} (+{best['gain']:.1f} xPts) — {best['detail']}."
+    elif gws[0] <= CHIP_HALF_END and avail is not None and avail and gws[-1] < CHIP_HALF_END:
+        reco = (f"Hold your chips — no window clears the bar over the next {len(gws)} GWs. Your first-half "
+                f"chips ({', '.join(n for n, code in CHIP_CODES.items() if code in avail)}) expire after GW{CHIP_HALF_END}; extend the horizon to "
+                f"GW{CHIP_HALF_END} to see where to use them.")
     elif any_special:
         reco = f"Hold your chips — no window over the next {len(gws)} GWs clears the bar yet."
     else:
@@ -521,7 +548,20 @@ def _current_state(sb, user_id="me"):
         "bank": st["bank"] or 0,
         "free_transfers": st["free_transfers"],
         "chips_available": st.get("chips_available"),
+        "fpl_entry_id": st.get("fpl_entry_id") or _entry_id(sb, user_id),
     }
+
+
+def _entry_id(sb, user_id):
+    """The user's FPL entry — uploaded squads don't carry it, so fall back to any synced row / profile."""
+    rows = (sb.table("user_team_state").select("fpl_entry_id").eq("user_id", user_id)
+            .not_.is_("fpl_entry_id", "null").limit(1).execute().data)
+    if rows:
+        return rows[0]["fpl_entry_id"]
+    if user_id != "me":
+        prof = sb.table("profiles").select("fpl_entry_id").eq("id", user_id).limit(1).execute().data
+        return prof[0]["fpl_entry_id"] if prof else None
+    return None
 
 
 def _print_squad(squad: list[dict], captain: dict | None) -> None:
@@ -633,6 +673,17 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
         .in_("fpl_id", list(current_ids)).execute().data
     )
     current = [_entry(p, short_by_id, xp5_by_id, xpn_by_id, is_current=True) for p in cur_rows]
+    # An owned player "costs" his SELLING price (purchase + half the rise), so the budget below is what
+    # you could actually raise. Players you don't own yet cost their current price.
+    sell = {}
+    if state["fpl_entry_id"] and state["free_transfers"] is not None:
+        try:
+            with FplClient() as client:
+                sell = selling_prices(client, state["fpl_entry_id"], list(current_ids))
+        except Exception as exc:  # noqa: BLE001 — fall back to current prices rather than skip the plan
+            print(f"  selling prices unavailable ({exc}); using current prices")
+    for c in current:
+        c["cost"] = sell.get(c["fpl_id"], c["cost"])
     owned = [{"fpl_id": c["fpl_id"], "web_name": c["web_name"], "position": c["position"],
               "team_short": c["team_short"]} for c in current]
     universe = _bounded_universe(current, pool)

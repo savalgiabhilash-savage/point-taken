@@ -28,6 +28,7 @@ DEFCON_BASE = {"DEF": 0.45, "MID": 0.15, "GK": 0.05, "FWD": 0.03}  # rough P(hit
 PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
 LAST_GW = 38
 MINUTES_K = 4.0  # games of this season before its minutes share outweighs last season's prior
+LAST_SEASON_WEIGHT = 0.5  # a 90 of last season counts half as much as a 90 of this season
 
 # --- minutes -----------------------------------------------------------------
 
@@ -125,6 +126,27 @@ def player_rates(us: dict | None, pos: str, base: dict[str, dict]) -> dict:
             "yellow90": (us.get("yellow_cards", 0) or 0) / n90,
         }
     return {"xg90": 0.0, "xa90": 0.0, "yellow90": 0.1}
+
+
+def _observed(us: dict | None, p: dict) -> dict | None:
+    """The attacking sample fed to player_rates: last season's Understat totals (weighted by
+    LAST_SEASON_WEIGHT) pooled with this season's FPL xG/xA/minutes, so current form counts fully and
+    grows in weight every week. Players with no Understat match (promoted clubs, arrivals from abroad)
+    use this season alone. Cards aren't in the FPL fields, so the yellow-card RATE comes from last
+    season (0 if unmatched). Returns None when there's no data at all (player_rates then gives 0)."""
+    cur_xg, cur_xa, cur_min = p["expected_goals"] or 0.0, p["expected_assists"] or 0.0, p["minutes"] or 0
+    last_min = (us.get("minutes") or 0) if us else 0
+    if last_min <= 0 and cur_min <= 0:
+        return None
+    w = LAST_SEASON_WEIGHT
+    minutes = w * last_min + cur_min
+    yellow_rate = (us.get("yellow_cards", 0) or 0) / last_min if last_min > 0 else 0.0
+    return {
+        "xg": w * (us["xg"] if last_min > 0 else 0.0) + cur_xg,
+        "xa": w * (us["xa"] if last_min > 0 else 0.0) + cur_xa,
+        "minutes": minutes,
+        "yellow_cards": yellow_rate * minutes,
+    }
 
 
 # --- core projection ---------------------------------------------------------
@@ -287,15 +309,11 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     rows = []
     for p in players:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
-        # No Understat match (promoted clubs, arrivals from abroad, ~40% of players): fall back to
-        # this season's FPL xG/xA totals, shrunk to the position base like any other sample. Without
-        # this they'd project zero attacking output. No card data here, so yellows count as 0.
-        obs = us or ({"xg": p["expected_goals"] or 0.0, "xa": p["expected_assists"] or 0.0,
-                      "minutes": p["minutes"] or 0, "yellow_cards": 0} if p["minutes"] else None)
-        rates = player_rates(obs, p["position"], base)
+        rates = player_rates(_observed(us, p), p["position"], base)
         p["nailed"] = nailedness(p["minutes"], team_games.get(p["team_id"], 0), us.get("minutes") if us else None)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
-        fm = form.get(p["fpl_id"], 1.0)
+        # World Cup form is a preseason stand-in; once the club has played, real minutes/xG take over.
+        fm = form.get(p["fpl_id"], 1.0) if team_games.get(p["team_id"], 0) == 0 else 1.0
         for gw in gws:
             fxs = by_team_gw.get((p["team_id"], gw), [])
             if not fxs:

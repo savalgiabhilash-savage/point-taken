@@ -43,6 +43,7 @@ type Chip = {
   detail: string;
   available: boolean;
   threshold?: number;
+  half?: number; // 1 = GW1-19 copy, 2 = GW20-38 copy (each chip comes twice a season)
   gw_type?: string; // "DGW" | "BGW" | "" — set once the season's doubles/blanks are announced
 };
 
@@ -174,7 +175,7 @@ export default async function OptimizerPage() {
   // the banner says "hold". Never highlight the mere max-gain chip when the call is to hold.
   const recommended =
     chips
-      ?.filter((c) => c.available && c.threshold != null && c.gain >= c.threshold)
+      ?.filter((c) => c.available && c.threshold != null && c.gain > 0 && c.gain >= c.threshold)
       .reduce<Chip | null>(
         (b, c) => (c.gain - c.threshold! > (b ? b.gain - b.threshold! : -1e9) ? c : b),
         null,
@@ -380,10 +381,10 @@ export default async function OptimizerPage() {
           {chips && chips.length > 0 ? (
             <ul className="space-y-2">
               {chips.map((c) => {
-                const isBest = recommended != null && c.chip === recommended.chip;
+                const isBest = recommended != null && c.chip === recommended.chip && c.gw === recommended.gw;
                 return (
                   <li
-                    key={c.chip}
+                    key={`${c.chip}-${c.half ?? 1}`}
                     className={`rounded-lg border px-3 py-2 ${
                       isBest ? "border-emerald-500/40 bg-emerald-500/5" : "border-border/50 bg-card"
                     }`}
@@ -391,6 +392,9 @@ export default async function OptimizerPage() {
                     <div className="flex items-center justify-between">
                       <span className={`text-sm font-semibold ${CHIP_STYLE[c.chip] ?? ""}`}>
                         {c.chip}
+                        {c.half === 2 ? (
+                          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">GW20–38 set</span>
+                        ) : null}
                         {!c.available ? (
                           <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">used</span>
                         ) : null}

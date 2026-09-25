@@ -152,16 +152,29 @@ export async function POST(req: Request) {
     );
   }
 
-  // 3) Save as the user's squad (preseason draft, gw 0).
+  // 3) Save as the user's squad. Preseason it's a draft (gw 0). In-season it's saved as the NEXT gameweek
+  //    (latest synced GW + 1): readers take the highest GW, so it overrides the synced squad (e.g. transfers
+  //    made for the next deadline, which FPL doesn't show publicly yet) until the deadline, when the sync
+  //    writes FPL's real picks for that GW over it. Bank, free transfers and chips carry over from the sync.
+  //    Uploaded rows have no fpl_entry_id — that's how the UI tells them apart.
+  const { data: synced } = await supabase
+    .from("user_team_state")
+    .select("gw, bank, free_transfers, chips_available")
+    .eq("user_id", user.id)
+    .not("fpl_entry_id", "is", null)
+    .order("gw", { ascending: false })
+    .limit(1);
+  const last = synced?.[0] as { gw: number; bank: number | null; free_transfers: number | null; chips_available: string[] | null } | undefined;
+  const inSeason = !!last && last.gw > 0;
   const teamValue = picks.reduce((s, pk) => s + (pool.find((p) => p.fpl_id === pk.element)?.now_cost ?? 0), 0);
   const { error } = await supabase.from("user_team_state").upsert(
     {
       user_id: user.id,
-      gw: 0,
-      bank: 0,
+      gw: inSeason ? last.gw + 1 : 0,
+      bank: inSeason ? last.bank : 0,
       team_value: teamValue,
-      free_transfers: null,
-      chips_available: ALL_CHIPS,
+      free_transfers: inSeason ? last.free_transfers : null,
+      chips_available: inSeason ? last.chips_available : ALL_CHIPS,
       picks,
       rank: null,
     },
