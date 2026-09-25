@@ -49,6 +49,46 @@ def team_ratings(season: str = BASELINE_SEASON) -> dict[str, dict]:
     return out
 
 
+LAST_SEASON_WEIGHT = 0.5  # a last-season game counts half as much as a game this season
+LAST_SEASON_GAMES = 38
+
+
+def blend_with_current(last_by_name: dict[str, dict], teams: list[dict], players: list[dict],
+                       fixtures: list[dict]) -> dict[str, dict]:
+    """Update last season's team xG with this season's, so team strength moves in-season.
+
+    This season's numbers come from FPL itself (Understat's current season isn't available through
+    soccerdata): xG for = sum of the club's players' expected_goals; xG against = sum of their
+    expected_goals_conceded / 11, because all 11 players on the pitch accrue every chance conceded.
+    Per game, pooled with last season at LAST_SEASON_WEIGHT. Promoted clubs use this season alone.
+    teams: {fpl_id, name}; players: {team_id, expected_goals, expected_goals_conceded};
+    fixtures: {team_h, team_a, finished}. Returns {fpl_team_name: {xgf_pg, xga_pg, rating}}."""
+    games: dict[int, int] = {}
+    for f in fixtures:
+        if f.get("finished"):
+            for t in (f["team_h"], f["team_a"]):
+                games[t] = games.get(t, 0) + 1
+    xgf: dict[int, float] = {}
+    xgc: dict[int, float] = {}
+    for p in players:
+        t = p["team_id"]
+        xgf[t] = xgf.get(t, 0.0) + float(p.get("expected_goals") or 0)
+        xgc[t] = xgc.get(t, 0.0) + float(p.get("expected_goals_conceded") or 0)
+
+    out: dict[str, dict] = {}
+    for t in teams:
+        last = last_by_name.get(t["name"])
+        g = games.get(t["fpl_id"], 0)
+        w_games = (LAST_SEASON_WEIGHT * LAST_SEASON_GAMES if last else 0.0) + g
+        if w_games == 0:
+            continue  # promoted club preseason: callers apply the weakest-team fallback
+        f_tot = (LAST_SEASON_WEIGHT * LAST_SEASON_GAMES * last["xgf_pg"] if last else 0.0) + xgf.get(t["fpl_id"], 0.0)
+        a_tot = (LAST_SEASON_WEIGHT * LAST_SEASON_GAMES * last["xga_pg"] if last else 0.0) + xgc.get(t["fpl_id"], 0.0) / 11.0
+        out[t["name"]] = {"xgf_pg": f_tot / w_games, "xga_pg": a_tot / w_games,
+                          "rating": (f_tot - a_tot) / w_games}
+    return out
+
+
 def compute_fdr(fpl_teams: list[dict], fixtures: list[dict], ratings: dict[str, dict]) -> list[dict]:
     """fpl_teams: {fpl_id, name}. fixtures: {fpl_id, team_h, team_a}. Returns fixture rows
     with custom_fdr_h / custom_fdr_a."""

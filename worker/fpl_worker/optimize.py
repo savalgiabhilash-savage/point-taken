@@ -38,7 +38,10 @@ BENCH_WEIGHT = 0.1
 HIT_COST = 4
 FT_CAP = 5              # 2026/27: free transfers accumulate up to 5
 DECAY = 0.9            # discount future GWs in the objective (uncertainty grows with distance)
-POOL_SIZE = 90         # candidate players beyond your current squad (keeps the MILP tractable)
+# Candidates beyond your current squad (bounds the MILP), per position: the best by projected points over
+# the plan horizon, plus the best points-per-£ (cheap enablers that free budget for premiums).
+POOL_TOP = {"GK": 8, "DEF": 25, "MID": 25, "FWD": 15}
+POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 # A chip is recommended only if its MARGINAL gain (vs playing normally with your free transfers)
 # clears a per-chip bar — set so ordinary single-gameweek plays don't fire. Chips are saved for
 # Double/Blank gameweeks, where a Bench Boost / Triple Captain haul or a Free Hit swing is large.
@@ -110,11 +113,24 @@ def _entry(p: dict, short_by_id, xp5, xpn, is_current: bool) -> dict:
     }
 
 
-def _bounded_universe(current: list[dict], pool: list[dict], k: int = POOL_SIZE) -> list[dict]:
-    """Your current squad + the top-k other players by horizon xPts. Bounds the MILP size."""
+def _bounded_universe(current: list[dict], pool: list[dict]) -> list[dict]:
+    """Your current squad + per-position candidates ranked on `xp5` (set to the plan horizon's total by
+    _set_horizon_xp): the top POOL_TOP by points and the top POOL_VALUE by points per £."""
     have = {c["fpl_id"] for c in current}
-    extra = sorted((p for p in pool if p["fpl_id"] not in have), key=lambda p: -p["xp5"])[:k]
-    return current + extra
+    extra: dict[int, dict] = {}
+    for pos in SQUAD_QUOTA:
+        cands = [p for p in pool if p["position"] == pos and p["fpl_id"] not in have]
+        for p in sorted(cands, key=lambda p: -p["xp5"])[:POOL_TOP[pos]]:
+            extra[p["fpl_id"]] = p
+        for p in sorted(cands, key=lambda p: -p["xp5"] / max(p["cost"], 1))[:POOL_VALUE[pos]]:
+            extra[p["fpl_id"]] = p
+    return current + list(extra.values())
+
+
+def _set_horizon_xp(entries: list[dict], xp_by_gw: dict, gws: list[int]) -> None:
+    """Point each entry's `xp5` at its total over the plan's gameweeks (not the whole season)."""
+    for e in entries:
+        e["xp5"] = round(sum(xp_by_gw.get(e["fpl_id"], {}).get(g, 0.0) for g in gws), 3)
 
 
 # --- valid best XI (formation-aware), used by the chip evaluators --------------
@@ -348,7 +364,20 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
                     "now_cost": u["cost"],
                     "is_start": round(h.val(start[i][g])) == 1,
                     "is_captain": round(h.val(cap[i][g])) == 1,
+                    "_xp": xp[i][g],
                 })
+        # Vice-captain: the next-best starter (takes the armband if the captain doesn't play).
+        # Bench order: FPL's sub GK sits first; outfield subs ordered by projected points, so the
+        # likeliest-to-score comes on first when a starter misses out.
+        starters = sorted((p for p in out if p["is_start"] and not p["is_captain"]), key=lambda p: -p["_xp"])
+        if starters:
+            starters[0]["is_vice"] = True
+        bench = sorted((p for p in out if not p["is_start"]), key=lambda p: (p["position"] != "GK", -p["_xp"]))
+        for k, p in enumerate(bench, 1):
+            p["bench_order"] = k
+        for p in out:
+            p.setdefault("is_vice", False)
+            del p["_xp"]
         return out
 
     path, xi_by_gw, cap_by_gw, hits_total = [], [], [], 0
@@ -673,6 +702,7 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
         .in_("fpl_id", list(current_ids)).execute().data
     )
     current = [_entry(p, short_by_id, xp5_by_id, xpn_by_id, is_current=True) for p in cur_rows]
+    _set_horizon_xp(current + pool, xp_by_gw, gws)
     # An owned player "costs" his SELLING price (purchase + half the rise), so the budget below is what
     # you could actually raise. Players you don't own yet cost their current price.
     sell = {}

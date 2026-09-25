@@ -95,9 +95,10 @@ def run_crosswalk(sb) -> None:
 
 def run_fdr(sb) -> None:
     print(f"Computing custom FDR from Understat team xG ({soccer_stats.BASELINE_SEASON} = 2025/26) ...")
-    ratings = fdr.team_ratings()
     fpl_teams = sb.table("teams").select("fpl_id, name").execute().data
-    fixtures = sb.table("fixtures").select("fpl_id, team_h, team_a").execute().data
+    fixtures = sb.table("fixtures").select("fpl_id, team_h, team_a, finished").execute().data
+    players = sb.table("players").select("team_id, expected_goals, expected_goals_conceded").execute().data
+    ratings = fdr.blend_with_current(fdr.team_ratings(), fpl_teams, players, fixtures)
 
     rows = fdr.compute_fdr(fpl_teams, fixtures, ratings)
     db.upsert(sb, "fixtures", rows, on_conflict="fpl_id")

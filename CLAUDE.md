@@ -11,7 +11,7 @@ Supabase), transparent rules-based xPts model with empirical-Bayes calibration, 
 HiGHS MILP optimizer (multi-week transfer path + fixture-aware chip timing, user-selectable horizon),
 best-XI predictions + accuracy tracking, Google-News/Claude sentiment, a grounded Claude assistant,
 and multi-user auth (Supabase Auth + RLS) with screenshot team import and on-demand re-optimize.
-Refreshed every 3h by GitHub Actions. See `../FPL-Selector-Plan.md` for the original spec/roadmap.
+Refreshed every 2h by GitHub Actions. See `../FPL-Selector-Plan.md` for the original spec/roadmap.
 
 ## Architecture
 - Frontend: **Next.js 16 (App Router) + TypeScript + Tailwind v4 + shadcn/ui**, on Vercel (`web/`).

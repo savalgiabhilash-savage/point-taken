@@ -1,6 +1,6 @@
 # FPL Selector — data pipeline (fast, no LLM cost).
 # FPL API -> Supabase, then advanced stats, projections, optimizer, team sync.
-# Runs every 3 hours so ownership / price / status / projections stay fresh without a local machine.
+# Runs every 2 hours so ownership / price / status / projections stay fresh without a local machine.
 # The news/sentiment step (which spends Anthropic credits) runs separately in news.yml, twice daily.
 # Requires repo secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, FPL_ENTRY_ID
 name: fpl-data
@@ -9,7 +9,9 @@ on:
   schedule:
     # 20 past every 3rd hour (UTC). Deliberately off the top of the hour — GitHub's scheduler
     # is heavily delayed/skipped at :00 (peak load), so an off-peak minute fires more reliably.
-    - cron: "20 */3 * * *"
+    # Every 2 h: GitHub drops or delays many scheduled runs, so a 3 h cron often ran only ~4x/day.
+    # Hourly would exceed the private repo's 2,000 free Actions minutes/month (~3 min per run).
+    - cron: "20 */2 * * *"
   workflow_dispatch: {} # allow manual runs from the Actions tab / gh CLI
 
 concurrency:

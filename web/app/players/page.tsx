@@ -28,10 +28,20 @@ type ProjRow = {
 const PROJ_COLUMNS =
   "player_id, gw, x_pts, x_appearance_pts, x_goals_pts, x_assist_pts, x_cs_pts, x_saves_pts, x_defcon_pts, x_bonus_pts, x_deductions_pts";
 
-// PostgREST caps a response at 1000 rows; the projections table is larger, so page through it.
+// The table shows the next 5 GWs ("xp5" and the per-GW schedule), so fetch only those — the projections
+// table holds every GW to 38 (~22k rows). PostgREST caps a response at 1000 rows, so page through it.
+const SHOWN_GWS = 5;
 async function fetchAllProjections(
   supabase: ReturnType<typeof createSupabaseServerClient>,
 ): Promise<ProjRow[]> {
+  const { data: first } = await supabase
+    .from("projections")
+    .select("gw")
+    .eq("model_version", MODEL)
+    .order("gw", { ascending: true })
+    .limit(1);
+  const nextGw = (first?.[0]?.gw as number | undefined) ?? null;
+  if (nextGw == null) return [];
   const size = 1000;
   const all: ProjRow[] = [];
   for (let from = 0; ; from += size) {
@@ -39,6 +49,10 @@ async function fetchAllProjections(
       .from("projections")
       .select(PROJ_COLUMNS)
       .eq("model_version", MODEL)
+      .gte("gw", nextGw)
+      .lt("gw", nextGw + SHOWN_GWS)
+      .order("player_id")
+      .order("gw")
       .range(from, from + size - 1);
     const batch = (data ?? []) as ProjRow[];
     all.push(...batch);

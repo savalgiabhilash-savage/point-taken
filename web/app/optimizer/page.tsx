@@ -15,6 +15,8 @@ type OptPlayer = {
   xpn: number;
   is_start: boolean;
   is_captain: boolean;
+  is_vice?: boolean;
+  bench_order?: number; // 1 = sub GK, then outfield subs in the order they come on
 };
 
 type Move = {
@@ -189,21 +191,24 @@ export default async function OptimizerPage() {
     now_cost: p.now_cost,
     status: "a",
     is_captain: p.is_captain,
-    is_vice_captain: false,
+    is_vice_captain: !!p.is_vice,
     xp_next: p.xpn,
     xp_horizon: p.xp5,
     note: p.is_captain
       ? "Captain — the highest projected returns in your XI, so the ×2 goes here."
-      : p.is_start
+      : p.is_vice
+        ? "Vice-captain — the next-highest projection; takes the ×2 if the captain doesn't play."
+        : p.is_start
         ? "Starts: highest projected points for its slot within the squad rules."
         : "Bench: covers a starter; projected below the XI but keeps a legal 15.",
   });
 
   const starters = squad.filter((p) => p.is_start);
-  const bench = squad.filter((p) => !p.is_start);
+  const bench = squad.filter((p) => !p.is_start).sort((a, b) => (a.bench_order ?? 9) - (b.bench_order ?? 9));
   const byPos = (pos: Position) => starters.filter((p) => p.position === pos).map(toSP);
   const cost = squad.reduce((s, p) => s + p.now_cost, 0) / 10;
   const captain = squad.find((p) => p.is_captain);
+  const vice = squad.find((p) => p.is_vice);
   const gain = run.expected_gain as number | null;
 
   const thisWeek = path?.[0] ?? null;
@@ -221,7 +226,7 @@ export default async function OptimizerPage() {
       value: transfers?.planned_pts != null ? `${transfers.planned_pts.toFixed(0)} pts` : "—",
       sub: transfers?.hold_pts != null ? `vs ${transfers.hold_pts.toFixed(0)} holding` : undefined,
     },
-    { label: "Captain (GW)", value: captain?.web_name ?? "—" },
+    { label: "Captain (GW)", value: captain?.web_name ?? "—", sub: vice ? `vice ${vice.web_name}` : undefined },
     {
       label: "This week",
       value: thisWeek ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"}` : "—",

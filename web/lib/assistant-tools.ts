@@ -120,11 +120,15 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
     const p = matches[0];
     const gw = await nextGw(sb);
     const proj = gw != null ? await projForGw(sb, gw) : new Map<number, number>();
-    const { data: allProj } = await sb
-      .from("projections")
-      .select("x_pts")
-      .eq("model_version", MODEL_VERSION)
-      .eq("player_id", p.fpl_id);
+    const { data: allProj } = gw != null
+      ? await sb
+          .from("projections")
+          .select("x_pts")
+          .eq("model_version", MODEL_VERSION)
+          .eq("player_id", p.fpl_id)
+          .gte("gw", gw)
+          .lt("gw", gw + 5)
+      : { data: [] as { x_pts: number | null }[] };
     const xp5 = r1((allProj ?? []).reduce((s, x) => s + (x.x_pts ?? 0), 0));
     const { data: news } = await sb
       .from("news_sentiment")

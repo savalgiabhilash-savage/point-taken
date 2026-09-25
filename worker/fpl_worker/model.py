@@ -1,9 +1,10 @@
 """Rules-based expected-points (xPts) model — Phase 3, spec §3.1.
 
 Transparent by design: every projection is the sum of named components, each stored so the UI
-can explain the headline number. Preseason there is no 2026/27 match data, so attacking output
-uses last-season Understat xG (via the crosswalk) as a prior; minutes use last-season minutes +
-current availability. Blending in live current-season form is a later refinement.
+can explain the headline number. Attacking output pools last-season Understat xG (via the crosswalk,
+half weight) with this season's FPL xG; minutes blend this season's minutes share with last season's;
+defensive contributions use each player's FPL per-90 rate; team strength pools last season's
+Understat team xG with this season's FPL team xG.
 
     python -m fpl_worker.model --dry-run            # compute + print top projections, no DB write
     python -m fpl_worker.model --run --horizon 5    # write projections for the next 5 GWs
@@ -24,7 +25,10 @@ MODEL_VERSION = "rules-v1"
 GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
 ASSIST_PTS = 3
-DEFCON_BASE = {"DEF": 0.45, "MID": 0.15, "GK": 0.05, "FWD": 0.03}  # rough P(hit threshold) placeholder
+DEFCON_PTS = 2
+DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
+DEFCON_K = 3.0  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
+HOME_ATTACK = {True: 1.05, False: 0.95}  # home sides create a little more
 PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
 LAST_GW = 38
 MINUTES_K = 4.0  # games of this season before its minutes share outweighs last season's prior
@@ -71,10 +75,48 @@ def _minutes(player: dict) -> tuple[float, float, float]:
 
 # --- fixture / team helpers --------------------------------------------------
 
-def _attack_adj(fdr_value: float | None) -> float:
-    """custom FDR (1 easy .. 5 hard) -> attacking multiplier (~1.24 .. 0.76)."""
-    f = 3.0 if fdr_value is None else float(fdr_value)
-    return 1.0 + 0.12 * (3.0 - f)
+def _attack_adj(opp: dict, league_xga: float, is_home: bool) -> float:
+    """Attacking multiplier from the OPPONENT'S DEFENCE: their xG conceded per game relative to the
+    league average (a leaky side at 1.6 vs 1.35 avg -> x1.19), times a small home/away tweak."""
+    return (opp["xga_pg"] / league_xga if league_xga else 1.0) * HOME_ATTACK[is_home]
+
+
+def _poisson_at_least(mean: float, k: int) -> float:
+    """P(X >= k) for X ~ Poisson(mean)."""
+    term, cdf = math.exp(-mean), 0.0
+    for i in range(k):
+        cdf += term
+        term *= mean / (i + 1)
+    return max(0.0, 1.0 - cdf)
+
+
+def _expected_half_goals(lam: float) -> float:
+    """E[floor(GC/2)] for GC ~ Poisson(lam): the GK/DEF deduction is -1 per 2 goals conceded, which is
+    less than lam/2 (1 goal conceded costs nothing)."""
+    total, term = 0.0, math.exp(-lam)
+    for k in range(0, 16):
+        if k:
+            term *= lam / k
+        total += (k // 2) * term
+    return total
+
+
+def defcon_rates(elements: list[dict]) -> dict[int, float]:
+    """{fpl_id: DefCon actions per 90}, shrunk toward the position average. From FPL bootstrap, which
+    counts CBIT for defenders and CBIRT for midfielders/forwards: the same count the threshold uses."""
+    pos = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+    agg: dict[str, list[float]] = {}
+    for e in elements:
+        a = agg.setdefault(pos[e["element_type"]], [0.0, 0.0])
+        a[0] += e.get("defensive_contribution") or 0
+        a[1] += e.get("minutes") or 0
+    base = {p: (dc / (m / 90.0) if m else 0.0) for p, (dc, m) in agg.items()}
+    out = {}
+    for e in elements:
+        n90 = (e.get("minutes") or 0) / 90.0
+        b = base[pos[e["element_type"]]]
+        out[e["id"]] = ((e.get("defensive_contribution") or 0) + DEFCON_K * b) / (n90 + DEFCON_K)
+    return out
 
 
 def build_team_ratings_by_id(teams: list[dict], ratings_by_name: dict[str, dict]) -> dict[int, dict]:
@@ -151,7 +193,7 @@ def _observed(us: dict | None, p: dict) -> dict | None:
 
 # --- core projection ---------------------------------------------------------
 
-def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
+def project_fixture(player: dict, rates: dict, is_home: bool, league_xga: float,
                     our: dict, opp: dict, form_mult: float = 1.0) -> dict:
     """One player, one fixture -> component dict of expected points.
 
@@ -161,7 +203,7 @@ def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
     pos = player["position"] or "MID"
     p_start, p_play, exp_min = _minutes(player)
     mins_frac = exp_min / 90.0
-    adj = _attack_adj(fdr_value)
+    adj = _attack_adj(opp, league_xga, is_home)
 
     xg90 = rates["xg90"] * form_mult
     xa90 = rates["xa90"] * form_mult
@@ -185,15 +227,17 @@ def project_fixture(player: dict, rates: dict, is_home: bool, fdr_value: float,
     # saves (GK, rough)
     x_saves_pts = (lam * 2.0 / 3.0) * p_start if pos == "GK" else 0.0
 
-    # defensive contributions (placeholder until FBref tackle/interception data)
-    x_defcon_pts = DEFCON_BASE.get(pos, 0.0) * mins_frac * 2.0
+    # defensive contributions: P(reaching the threshold in a start) from the player's per-90 rate
+    thr = DEFCON_THRESHOLD.get(pos)
+    p_dc = _poisson_at_least(rates.get("dc90", 0.0) * 82 / 90, thr) if thr else 0.0
+    x_defcon_pts = DEFCON_PTS * p_dc * p_start
 
     # bonus proxy from involvement
     involvement = x_goals_pts + x_assist_pts + (x_cs_pts if pos in ("GK", "DEF") else 0.0)
     x_bonus_pts = min(1.5, 0.25 * involvement)
 
     # deductions: goals conceded (GK/DEF -1 per 2) + yellow cards
-    x_conceded = -(lam / 2.0) * p_start if pos in ("GK", "DEF") else 0.0
+    x_conceded = -_expected_half_goals(lam) * p_start if pos in ("GK", "DEF") else 0.0
     x_cards = -(yellow90 * mins_frac)
     x_deductions_pts = x_conceded + x_cards
 
@@ -247,19 +291,18 @@ def _load_form(sb) -> dict[int, float]:
         return {}
 
 
-def next_gameweek() -> int | None:
+def next_gameweek(boot: dict) -> int | None:
     """The next gameweek whose deadline hasn't passed (FPL's is_next). Taken from FPL rather than
     'lowest GW with an unfinished fixture', which would keep projecting a GW already in progress."""
-    with FplClient() as client:
-        events = client.bootstrap_static().get("events", [])
-    return next((e["id"] for e in events if e.get("is_next")), None)
+    return next((e["id"] for e in boot.get("events", []) if e.get("is_next")), None)
 
 
 def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     players = (
         sb.table("players")
         .select("fpl_id, web_name, understat_id, position, team_id, status, "
-                "chance_of_playing_next_round, minutes, now_cost, expected_goals, expected_assists")
+                "chance_of_playing_next_round, minutes, now_cost, expected_goals, expected_assists, "
+                "expected_goals_conceded")
         .execute()
         .data
     )
@@ -279,12 +322,16 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         for pos in ("GK", "DEF", "MID", "FWD"):
             b = base.get(pos, {})
             print(f"  {pos}: xg90={b.get('xg90', 0):.3f} xa90={b.get('xa90', 0):.3f}")
-    ratings = fdr.team_ratings()
+    with FplClient() as client:
+        boot = client.bootstrap_static()
+    dc90 = defcon_rates(boot["elements"])
+    ratings = fdr.blend_with_current(fdr.team_ratings(), teams, players, fixtures)
     team_rt = build_team_ratings_by_id(teams, ratings)
+    league_xga = sum(r["xga_pg"] for r in team_rt.values()) / len(team_rt)
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
     form = _load_form(sb)  # small preseason (World Cup) form nudge; {} until form.py populates it
 
-    next_gw = next_gameweek()
+    next_gw = next_gameweek(boot)
     if next_gw is None:
         print("No upcoming gameweek (season over?).")
         return
@@ -298,7 +345,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             for t in (f["team_h"], f["team_a"]):
                 team_games[t] = team_games.get(t, 0) + 1
 
-    # index fixtures by (team_id, gw) -> list of (is_home, fdr, opp_team_id)
+    # index fixtures by (team_id, gw) -> list of (is_home, fdr, opp_team_id). The custom FDR is only for
+    # display (Fixtures page); the model uses the opponent's xG conceded (see _attack_adj).
     by_team_gw: dict[tuple[int, int], list] = {}
     for f in upcoming:
         if f["gw"] not in gws:
@@ -310,6 +358,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     for p in players:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
         rates = player_rates(_observed(us, p), p["position"], base)
+        rates["dc90"] = dc90.get(p["fpl_id"], 0.0)
         p["nailed"] = nailedness(p["minutes"], team_games.get(p["team_id"], 0), us.get("minutes") if us else None)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
         # World Cup form is a preseason stand-in; once the club has played, real minutes/xG take over.
@@ -320,8 +369,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 continue  # blank GW for this team
             agg: dict[str, float] = {}
             opp_short = []
-            for is_home, fdr_v, opp_id in fxs:
-                comp = project_fixture(p, rates, is_home, fdr_v, our, team_rt.get(opp_id, our), form_mult=fm)
+            for is_home, _fdr, opp_id in fxs:
+                comp = project_fixture(p, rates, is_home, league_xga, our, team_rt.get(opp_id, our), form_mult=fm)
                 for k, v in comp.items():
                     if k in ("p_start", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
                         continue

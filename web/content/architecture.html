@@ -136,9 +136,9 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 4</span>
+    <span>doc rev 5</span>
     <span>updated 2026-09-25</span>
-    <span>code @ all fixes except H7</span>
+    <span>code @ critical, high (exc. H7), medium fixed</span>
     <span>model rules-v1</span>
     <span>season 2026/27 · next GW6</span>
   </div>
@@ -247,7 +247,7 @@ svg text{font-family:var(--sans)}
   <div class="tbl"><table>
     <thead><tr><th>Workflow</th><th>Trigger</th><th>Steps</th></tr></thead>
     <tbody>
-      <tr><td><b>fpl-data</b><br><code>refresh.yml</code></td><td>cron <code>20 */3 * * *</code> (UTC) + manual. In practice GitHub fires it about 4 times a day.</td><td>
+      <tr><td><b>fpl-data</b><br><code>refresh.yml</code></td><td>cron <code>20 */2 * * *</code> (UTC) + manual. GitHub drops or delays some scheduled runs, so expect roughly every 2–4 h. Hourly would exceed the private repo's 2,000 free Actions minutes a month.</td><td>
         <ol>
           <li><code>refresh --refresh</code>: FPL bootstrap-static + fixtures → teams (20), players (~667), fixtures (380)</li>
           <li><code>enrich --all</code>: Understat crosswalk → <code>players.understat_id</code>; custom FDR → <code>fixtures.custom_fdr_h/a</code></li>
@@ -324,7 +324,7 @@ svg text{font-family:var(--sans)}
   </ol>
   <p>Every run clears <code>understat_id</code> first, so dropped matches don't linger.</p>
   <h3>Custom fixture difficulty (<code>fdr.py</code>)</h3>
-  <p>Team rating = (xG for − xG against) per game over 2025/26 Understat. Promoted clubs (Coventry, Hull, Ipswich) get the weakest returning team's rating. For each fixture, difficulty = 1 + 4 × (opponent rating − min) / (max − min), then −0.25 at home and +0.25 away, clamped to 1–5. Current range: Arsenal +1.17 (hardest opponent) down to Sunderland −0.45.</p>
+  <p>Team xG for and against per game pools 2025/26 Understat (38 games at half weight) with this season's FPL numbers: xG for = Σ players' <code>expected_goals</code>, xG against = Σ players' <code>expected_goals_conceded</code> ÷ 11, because all 11 players on the pitch accrue every chance conceded. Team rating = xG for − xG against. Promoted clubs use this season alone, or the weakest returning team's rating before their first game. For each fixture, difficulty = 1 + 4 × (opponent rating − min) / (max − min), then −0.25 at home and +0.25 away, clamped to 1–5. Current range: Arsenal +1.17 (hardest opponent) down to Sunderland −0.45.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -374,7 +374,7 @@ no data in either season → 0</code></pre>
   <p>A 90 from last season counts half as much as a 90 from this season, so current form takes over as the season goes on. Players with no Understat match (promoted clubs, arrivals from abroad, about 40% of the list) use this season's FPL numbers alone.</p>
 
   <h3>3. Per-fixture components</h3>
-<pre><code>adj          = 1 + 0.12·(3 − FDR)                        FDR 1 → ×1.24, FDR 5 → ×0.76
+<pre><code>adj          = opp_xGA_pg / league_avg_xGA_pg × (1.05 home | 0.95 away)
 x_goals_pts  = xg90·form · (E[min]/90) · adj · GOAL_PTS[pos]      GK/DEF 6, MID 5, FWD 4
 x_assist_pts = xa90·form · (E[min]/90) · adj · 3
 
@@ -382,10 +382,11 @@ x_assist_pts = xa90·form · (E[min]/90) · adj · 3
 x_cs_pts     = e^(−λ) · CS_PTS[pos] · p_60                    GK/DEF 4, MID 1, FWD 0
 x_app_pts    = p_play + p_60
 x_saves_pts  = (2/3)·λ·p_start                                GK only
-x_defcon_pts = DEFCON_BASE[pos] · (E[min]/90) · 2             DEF .45, MID .15, GK .05, FWD .03
+dc90         = (DefCon actions + 3·position avg) / (n90 + 3)      this season, FPL
+x_defcon_pts = 2 · P(Poisson(dc90 · 82/90) ≥ T) · p_start       T: DEF 10, MID/FWD 12, GK none
 x_bonus_pts  = min(1.5, 0.25 · (goals + assists [+ CS for GK/DEF]))
-x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></pre>
-  <p>Team xG for/against per game comes from the same Understat team ratings as the FDR. Promoted clubs get the weakest attack and leakiest defence in the league. DefCon is a placeholder, not player-specific. Penalty and set-piece flags are stored but not used.</p>
+x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></pre>
+  <p>Team xG for/against per game comes from the blended team ratings in section 06. The custom FDR is only shown on the Fixtures page; the model uses the opponent's xG conceded directly. DefCon counts come from FPL <code>bootstrap-static</code> (CBIT for defenders, CBIRT for midfielders and forwards). For example, Tarkowski at 10.2 per 90 hits the threshold in about 45% of starts. Penalty and set-piece flags are deliberately unused: both Understat and FPL xG already include penalty xG, so a bonus would double-count.</p>
 
   <h3>4. Form and calibration multipliers</h3>
   <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It applies only until the player's club has played its first league game.</p>
@@ -412,7 +413,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <h3>Inputs</h3>
   <ul>
     <li>All <code>rules-v1</code> projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
-    <li>Pool: players whose status isn't i/s/u/n. The <b>universe</b> is your 15 plus the top 90 other players by summed xPts across <em>all</em> projection GWs.</li>
+    <li>Pool: players whose status isn't i/s/u/n. Every player's total is summed over the <em>plan horizon</em> only. The <b>universe</b> is your 15 plus, per position, the top candidates by that total (GK 8, DEF 25, MID 25, FWD 15) and the best by points per £ (GK 4, DEF 8, MID 8, FWD 5), so cheap enablers stay available.</li>
     <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ <b>selling price</b> of your 15 + bank. Selling price = purchase price + half of any rise (rounded down), or the current price after a fall. Purchase prices come from the public <code>entry/{id}/transfers</code> (latest transfer in, ignoring Free Hit weeks), or the GW1 price for players kept from your first squad. An owned player "costs" his selling price in the MILP, so the budget is exactly what you could raise. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>, where the value is rebuilt from history (section 11).</li>
     <li>Horizon: the argument, else the user's last saved horizon, else 5. Clamped to the GWs available.</li>
   </ul>
@@ -426,7 +427,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <h3>Objective</h3>
 <pre><code>maximise  Σ_g 0.9^g · Σ_i xp[i,g] · (start[i,g] + captain[i,g] + 0.1·bench[i,g])
           − 4 · Σ_g hits[g]</code></pre>
-  <p>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds. Output per GW: transfers in and out, hits, banked FTs, XI points including the captain. Reported "planned points" are undiscounted. "Gain" is plan points minus holding the current 15 with the best XI and captain each week. <code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change.</p>
+  <p>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds. Output per GW: transfers in and out, hits, banked FTs, XI points including the captain. Reported "planned points" are undiscounted. "Gain" is plan points minus holding the current 15 with the best XI and captain each week. <code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change. Each GW's squad also marks a <b>vice-captain</b> (next-best starter) and a <b>bench order</b>: the sub GK first, then outfield subs by projected points.</p>
   <h3>Other modes</h3>
   <p><code>--fresh</code>: best 15 from scratch for £100m. <code>--transfers</code>: single-deadline swap valued over the horizon. Both reuse the single-squad <code>_solve</code>, which the Best XI and chip evaluators also use.</p>
 </section>
@@ -515,10 +516,11 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
       <tr><td>start / cameo minutes</td><td class="num">82 / 20</td><td>model.py</td><td>Expected minutes if starting or subbed on</td></tr>
       <tr><td>cameo rate</td><td class="num">0.15</td><td>model.py</td><td>P(sub appearance) when not starting</td></tr>
       <tr><td>PRIOR_K</td><td class="num">12</td><td>model.py</td><td>Shrinkage strength, in 90s</td></tr>
-      <tr><td>FDR slope</td><td class="num">0.12</td><td>model.py</td><td>Attack multiplier per FDR step</td></tr>
+      <tr><td>HOME_ATTACK</td><td class="num">×1.05 / ×0.95</td><td>model.py</td><td>Attack tweak home / away</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
       <tr><td>bonus cap</td><td class="num">1.5</td><td>model.py</td><td>Maximum bonus proxy</td></tr>
-      <tr><td>DEFCON_BASE</td><td class="num">.45/.15/.05/.03</td><td>model.py</td><td>DEF/MID/GK/FWD placeholder hit rate</td></tr>
+      <tr><td>DEFCON_THRESHOLD · K</td><td class="num">DEF 10 · MID/FWD 12 · 3</td><td>model.py</td><td>Actions for 2 pts · shrinkage in 90s</td></tr>
+      <tr><td>Team blend</td><td class="num">38 games × 0.5</td><td>fdr.py</td><td>Weight of last season in team xG</td></tr>
       <tr><td>HOME_ADVANTAGE</td><td class="num">0.25</td><td>fdr.py</td><td>FDR home/away nudge</td></tr>
       <tr><td>FORM_WEIGHT · CLAMP</td><td class="num">0.12 · 0.90–1.12</td><td>form.py</td><td>World Cup multiplier size</td></tr>
       <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP · FROM_GW</td><td class="num">3 · 2.0 · 0.8–1.2 · 6</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
@@ -526,7 +528,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
       <tr><td>BENCH_WEIGHT</td><td class="num">0.1</td><td>optimize.py</td><td>Bench value in the objective</td></tr>
       <tr><td>HIT_COST · FT_CAP</td><td class="num">4 · 5</td><td>optimize.py</td><td>Points per extra transfer · FT bank limit</td></tr>
       <tr><td>DECAY</td><td class="num">0.9 per GW</td><td>optimize.py</td><td>Future-GW discount</td></tr>
-      <tr><td>POOL_SIZE</td><td class="num">90</td><td>optimize.py</td><td>Non-owned candidates in the plan MILP</td></tr>
+      <tr><td>POOL_TOP · POOL_VALUE</td><td class="num">8/25/25/15 · 4/8/8/5</td><td>optimize.py</td><td>Candidates per GK/DEF/MID/FWD by points · by points per £</td></tr>
       <tr><td>Chip bars</td><td class="num">TC 12 · BB 18 · WC 8 · FH 8</td><td>optimize.py</td><td>Marginal xPts needed to recommend</td></tr>
       <tr><td>Crosswalk thresholds</td><td class="num">85/6 · 91 · 92/8</td><td>crosswalk.py</td><td>Team pass/margin · structured · global/margin</td></tr>
       <tr><td>News targeting</td><td class="num">own ≥ 5% · 200 · 21 d</td><td>news_job.py</td><td>Threshold · cap · headline age</td></tr>
@@ -538,7 +540,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. All critical and high issues except H7 (a Supabase dashboard setting) were fixed on 2026-09-25 and 26. The medium and low issues are open.</p>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. All critical, high and medium issues except H7 (a Supabase dashboard setting) are fixed. The low issues are open.</p>
 
   <div class="issues">
     <div class="issue"><span class="id">H1·3·4·8</span><div><h4><span class="chip low">Fixed</span> Current-season data, chip halves, selling prices, uploads</h4></div>
@@ -549,16 +551,10 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
       <p>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs). C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season). C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6). C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>).</p></div>
     <div class="issue"><span class="id">H7</span><div><h4><span class="chip high">High</span> Unverified emails</h4></div>
       <p><code>mailer_autoconfirm</code> is on, so anyone can register any address. The Docs gate trusts the email, which is safe only while an account with the owner's email already exists. Turn on "Confirm email" in Supabase Auth.</p></div>
-    <div class="issue"><span class="id">M1</span><div><h4><span class="chip med">Medium</span> "Next 5" totals sum everything</h4></div>
-      <p>The Players page's xp5, the assistant's <code>xpts_next5</code> and the optimizer's 90-player candidate ranking sum every projection row (38+ GWs, stale ones included), whatever the horizon. Short-term fixture swings and cheap enablers fall out of the pool.</p></div>
-    <div class="issue"><span class="id">M2</span><div><h4><span class="chip med">Medium</span> Heavy Players page query</h4></div>
-      <p>The Players page reads every projection row (about 22k, GW6–38) in 1,000-row pages on each load. Only the next few GWs are shown.</p></div>
-    <div class="issue"><span class="id">M3</span><div><h4><span class="chip med">Medium</span> Crude component proxies</h4></div>
-      <p>DefCon is a flat position rate (0.9 pts/90 for every defender). Goals-conceded uses λ/2 rather than E[⌊GC/2⌋]. Attacking FDR uses the opponent's overall xG difference rather than its defence. Team strength never updates in-season. Penalty and set-piece flags are unused.</p></div>
-    <div class="issue"><span class="id">M4</span><div><h4><span class="chip med">Medium</span> Decision gaps</h4></div>
-      <p>No vice-captain, no autosub or bench-order value, no price-change awareness, and no effective ownership or rank-goal captaincy (in the original plan). <code>minutes_risk_adj</code> from news is never used.</p></div>
-    <div class="issue"><span class="id">M5</span><div><h4><span class="chip med">Medium</span> Scheduler drift</h4></div>
-      <p>The cron is set for every 3 h but runs about 4 times a day, often 5–6 h apart, so prices and injury news can be that stale before a deadline.</p></div>
+    <div class="issue"><span class="id">M1–5</span><div><h4><span class="chip low">Fixed</span> Medium issues</h4></div>
+      <p>M1: "next 5" totals and the optimizer's candidate ranking summed the whole season (fixed: next 5 GWs / plan horizon, per-position pool with value picks). M2: the Players page loaded ~22k rows (fixed: next 5 GWs only). M3: crude proxies (fixed: DefCon from each player's FPL rate, exact goals-conceded deduction, attack adjusted by the opponent's xG conceded, team strength updated in-season; penalty flags left unused on purpose). M4: no vice-captain or bench order (fixed). M5: runs about 4x a day (cron now every 2 h).</p></div>
+    <div class="issue"><span class="id">—</span><div><h4><span class="chip low">By design</span> Not bugs</h4></div>
+      <p>The news <code>minutes_risk_adj</code> stays out of xPts until sentiment is backtested (project rule). Price-change awareness and effective-ownership captaincy are new features, listed under Improvement ideas.</p></div>
     <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Low</span> Smaller issues</h4></div>
       <p>The assistant's <code>get_player</code> takes the first <code>ilike</code> match (there are two Palmers), and its news lookup has no ordering. The assistant prompt hardcodes "preseason / early season". The "me" demo exposes the owner's squad to logged-out visitors. The README and <code>docs/RECOMMENDATION-ENGINE.md</code> are out of date (the latter says minutes are last season's).</p></div>
   </div>
@@ -574,7 +570,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <li><b>Live-season blend</b>: weight this season's FPL xG, xA, starts and DefCon per 90 by recency, with last season as the prior and <code>PRIOR_K</code> tuned by the backtest.</li>
     <li><b>Transfer explainer</b>: for each suggested move, show the xPts delta per GW, the price and selling-price effect, and fixture swings, with an "is the −4 worth it" breakdown.</li>
     <li><b>What-if planner</b>: pin or ban players and force or forbid transfers in a given GW, then re-solve.</li>
-    <li><b>Captaincy with effective ownership</b> and a rank-goal toggle (protect or chase), plus a vice-captain.</li>
+    <li><b>Captaincy with effective ownership</b> and a rank-goal toggle (protect or chase).</li>
     <li><b>Price-change model</b> from net transfers, to time buys before rises and sells before falls.</li>
     <li><b>Deadline alerts</b>: push or email with the plan, flagged injuries in the XI, and captain.</li>
     <li><b>Odds</b> (The Odds API free tier) for clean-sheet and anytime-scorer calibration.</li>
@@ -597,6 +593,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <li><span class="d">2026-09-25</span><br>Fixed C1–C4: next GW from FPL <code>is_next</code> with stale projections pruned; minutes share per club game blended with last season; prediction snapshots replaced and scored GWs never reopened, calibration from GW6; free transfers rebuilt from entry history.</li>
     <li><span class="d">2026-09-25</span><br>Fixed H2, H5, H6: unmatched players fall back to FPL xG/xA; team sync runs before the optimizer; assistant requires login.</li>
     <li><span class="d">2026-09-26</span><br>Fixed H1, H3, H4, H8: last season (half weight) pooled with this season's FPL xG/xA; World Cup factor preseason only; chips per half-season with GW19 expiry; budget from real selling prices; in-season screenshot uploads saved as the next GW.</li>
+    <li><span class="d">2026-09-26</span><br>Fixed M1–M5: horizon-based candidate pool with value picks; Players page fetches 5 GWs; DefCon from FPL per-90 rates; exact goals-conceded deduction; attack adjusted by opponent xG conceded; in-season team strength; vice-captain and bench order; cron every 2 h.</li>
   </ul>
 </section>
 
