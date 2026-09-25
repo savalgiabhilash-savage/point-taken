@@ -31,6 +31,10 @@ UNCAPPED_BUDGET = 100_000   # effectively unlimited (a real 15 costs < £200m = 
 CALIB_SHRINK_K = 3.0        # shrink the multiplier toward 1.0 by this many "virtual" gameweeks
 CALIB_MIN_PRED = 2.0        # only calibrate over players the model actually backs (xp >= 2)
 CALIB_CLAMP = (0.8, 1.2)    # never let calibration swing a projection more than ±20%
+# Earlier logs are unusable for calibration: they were snapshotted weeks before the deadline (players
+# who later left scored 0) and projected with the broken current-season minutes model. Calibrate only on
+# gameweeks logged after those fixes.
+CALIB_FROM_GW = 6
 
 
 def _now() -> str:
@@ -60,11 +64,16 @@ def score_finished(sb, client: FplClient) -> None:
     if not finished:
         print("  scoring: no finished gameweeks yet")
         return
+    # A GW needs scoring if either its per-player log or its published Best XI is still unscored.
     pending = (
         sb.table("prediction_log").select("gw").eq("scored", False)
         .in_("gw", list(finished)).execute().data
     )
-    gws = sorted({r["gw"] for r in pending})
+    pending_xi = (
+        sb.table("gw_predictions").select("gw").eq("scored", False)
+        .in_("gw", list(finished)).execute().data
+    )
+    gws = sorted({r["gw"] for r in pending + pending_xi})
     if not gws:
         print("  scoring: nothing new to score")
         return
@@ -100,8 +109,13 @@ def score_finished(sb, client: FplClient) -> None:
 def update_calibration(sb) -> None:
     rows = _all(sb, "prediction_log", "position, predicted_xp, actual_pts, gw",
                 eq=("scored", True), gte=("predicted_xp", CALIB_MIN_PRED))
+    rows = [r for r in rows if r["gw"] >= CALIB_FROM_GW]
     if not rows:
-        print("  calibration: no scored data yet — projections stay uncalibrated (×1.0)")
+        # Reset to identity so a multiplier learned from unusable data doesn't linger.
+        sb.table("model_calibration").update(
+            {"n_gws": 0, "sum_pred": 0, "sum_actual": 0, "multiplier": 1.0, "updated_at": _now()}
+        ).neq("position", "").execute()
+        print(f"  calibration: no scored data from GW{CALIB_FROM_GW} yet — projections uncalibrated (×1.0)")
         return
     agg: dict[str, dict] = defaultdict(lambda: {"pred": 0.0, "actual": 0.0, "gws": set()})
     for r in rows:
@@ -127,6 +141,10 @@ def update_calibration(sb) -> None:
 # --- 3. best XI + snapshot ----------------------------------------------------
 
 def log_best_squads(sb, pool, xp_by_gw, gw) -> None:
+    # Never reopen a gameweek that has already been scored.
+    if sb.table("gw_predictions").select("gw").eq("gw", gw).eq("scored", True).limit(1).execute().data:
+        print(f"  best XI GW{gw}: already scored — not overwriting")
+        return
     for variant, budget in (("capped", BUDGET), ("uncapped", UNCAPPED_BUDGET)):
         squad, predicted = _best_for_gw(pool, xp_by_gw, gw, budget)
         cost = sum(p["now_cost"] for p in squad) / 10
@@ -142,6 +160,11 @@ def snapshot_predictions(sb, pool, xp_by_gw, gw) -> None:
     rows = [{"gw": gw, "player_id": p["fpl_id"], "position": p["position"],
              "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3)}
             for p in pool if gw in xp_by_gw.get(p["fpl_id"], {})]
+    # Replace the unscored snapshot for this GW rather than upserting over it, so players who have
+    # since dropped out of the pool (injured, left the league) don't keep a stale prediction.
+    # The GW only changes at the deadline (model uses FPL's is_next), so the last pre-deadline run is
+    # the snapshot that gets scored.
+    sb.table("prediction_log").delete().eq("gw", gw).eq("scored", False).execute()
     db.upsert(sb, "prediction_log", rows, on_conflict="gw,player_id")
     print(f"  snapshotted {len(rows)} player predictions for GW{gw}")
 

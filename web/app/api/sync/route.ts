@@ -7,6 +7,27 @@ export const maxDuration = 30;
 const FPL = "https://fantasy.premierleague.com/api";
 const UA = "Mozilla/5.0 fpl-selector (personal FPL tool)";
 const ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"];
+const FT_CAP = 5;
+
+type HistoryEvent = { event: number; event_transfers?: number; event_transfers_cost?: number };
+
+// Free transfers for the next deadline, rebuilt from the entry history (mirrors worker sync_team.py).
+// entry_history.event_transfers is transfers MADE, not available. First GW played is unlimited; +1 per GW
+// after, capped at 5; hits (cost/4) don't use free ones; Wildcard / Free Hit keep your banked transfers.
+function freeTransfersNext(history: { current?: HistoryEvent[]; chips?: { event: number; name: string }[] }): number {
+  const chipGws = new Set((history.chips ?? []).filter((c) => c.name === "wildcard" || c.name === "freehit").map((c) => c.event));
+  const events = [...(history.current ?? [])].sort((a, b) => a.event - b.event);
+  if (!events.length) return 1;
+  let ft = 1;
+  for (const e of events.slice(1)) {
+    if (!chipGws.has(e.event)) {
+      const usedFree = (e.event_transfers ?? 0) - Math.floor((e.event_transfers_cost ?? 0) / 4);
+      ft = Math.max(0, ft - usedFree);
+    }
+    ft = Math.min(FT_CAP, ft + 1);
+  }
+  return ft;
+}
 
 async function fpl(path: string) {
   const res = await fetch(`${FPL}/${path}`, { headers: { "User-Agent": UA, Accept: "application/json" } });
@@ -80,7 +101,7 @@ export async function POST() {
         gw: currentEvent,
         bank: eh.bank ?? null,
         team_value: eh.value ?? null,
-        free_transfers: eh.event_transfers ?? null,
+        free_transfers: freeTransfersNext(history),
         chips_available: chipsAvailable,
         picks: picksData.picks,
         rank: eh.overall_rank ?? null,

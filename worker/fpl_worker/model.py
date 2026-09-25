@@ -17,6 +17,7 @@ import math
 from dotenv import load_dotenv
 
 from . import db, fdr, soccer_stats
+from .fpl_client import FplClient
 
 MODEL_VERSION = "rules-v1"
 
@@ -25,6 +26,8 @@ CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
 ASSIST_PTS = 3
 DEFCON_BASE = {"DEF": 0.45, "MID": 0.15, "GK": 0.05, "FWD": 0.03}  # rough P(hit threshold) placeholder
 PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
+LAST_GW = 38
+MINUTES_K = 4.0  # games of this season before its minutes share outweighs last season's prior
 
 # --- minutes -----------------------------------------------------------------
 
@@ -36,12 +39,29 @@ def _availability(status: str | None, chance: int | None) -> float:
     return 0.5 if status == "d" else 1.0  # 'd' doubtful, else available
 
 
+def nailedness(cur_minutes: int | None, team_games: int, last_minutes: float | None) -> float:
+    """How nailed-on a player is (0..1): a blend of this season's minutes share and last season's.
+
+    `cur_minutes` is FPL's players.minutes — THIS season's total, so it must be divided by the games
+    the club has actually played (not a full season). `last_minutes` is last season's Understat
+    minutes (None if the player isn't matched). This season's share gets weight
+    team_games / (team_games + MINUTES_K), so after 4 games it counts as much as last season, and
+    by mid-season it dominates. Unmatched players (promoted clubs, arrivals from abroad) have no
+    prior, so they rely on this season alone."""
+    prior = min(1.0, last_minutes / 2600) if last_minutes else None  # ~29 full games = nailed
+    if team_games <= 0:
+        return prior or 0.0
+    current = min(1.0, (cur_minutes or 0) / (90.0 * team_games))
+    if prior is None:
+        return current
+    w = team_games / (team_games + MINUTES_K)
+    return w * current + (1.0 - w) * prior
+
+
 def _minutes(player: dict) -> tuple[float, float, float]:
-    """Return (p_start, p_play, exp_minutes)."""
+    """Return (p_start, p_play, exp_minutes). `player["nailed"]` comes from nailedness()."""
     avail = _availability(player["status"], player["chance_of_playing_next_round"])
-    mins_last = player["minutes"] or 0
-    nailed = min(1.0, mins_last / 2600)  # last-season minutes -> starter prior (~29 full games)
-    p_start = avail * nailed
+    p_start = avail * player["nailed"]
     p_cameo = (1.0 - p_start) * (0.15 if avail > 0 else 0.0)
     p_play = min(1.0, p_start + p_cameo)
     exp_minutes = p_start * 82 + p_cameo * 20
@@ -205,6 +225,14 @@ def _load_form(sb) -> dict[int, float]:
         return {}
 
 
+def next_gameweek() -> int | None:
+    """The next gameweek whose deadline hasn't passed (FPL's is_next). Taken from FPL rather than
+    'lowest GW with an unfinished fixture', which would keep projecting a GW already in progress."""
+    with FplClient() as client:
+        events = client.bootstrap_static().get("events", [])
+    return next((e["id"] for e in events if e.get("is_next")), None)
+
+
 def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     players = (
         sb.table("players")
@@ -234,12 +262,19 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
     form = _load_form(sb)  # small preseason (World Cup) form nudge; {} until form.py populates it
 
-    upcoming = [f for f in fixtures if not f["finished"] and f["gw"] is not None]
-    if not upcoming:
-        print("No upcoming fixtures found.")
+    next_gw = next_gameweek()
+    if next_gw is None:
+        print("No upcoming gameweek (season over?).")
         return
-    next_gw = min(f["gw"] for f in upcoming)
-    gws = list(range(next_gw, next_gw + horizon))
+    gws = list(range(next_gw, min(next_gw + horizon, LAST_GW + 1)))
+    upcoming = [f for f in fixtures if not f["finished"] and f["gw"] is not None]
+
+    # Games each club has played so far this season — the denominator for this season's minutes share.
+    team_games: dict[int, int] = {}
+    for f in fixtures:
+        if f["finished"]:
+            for t in (f["team_h"], f["team_a"]):
+                team_games[t] = team_games.get(t, 0) + 1
 
     # index fixtures by (team_id, gw) -> list of (is_home, fdr, opp_team_id)
     by_team_gw: dict[tuple[int, int], list] = {}
@@ -253,6 +288,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     for p in players:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
         rates = player_rates(us, p["position"], base)
+        p["nailed"] = nailedness(p["minutes"], team_games.get(p["team_id"], 0), us.get("minutes") if us else None)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
         fm = form.get(p["fpl_id"], 1.0)
         for gw in gws:
@@ -304,7 +340,10 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         return
 
     payload = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    # Replace this model's rows wholesale: rewrite the window AND drop gameweeks that have started, so
+    # every reader's "lowest GW in projections" is always the real next gameweek.
     sb.table("projections").delete().eq("model_version", MODEL_VERSION).in_("gw", gws).execute()
+    sb.table("projections").delete().eq("model_version", MODEL_VERSION).lt("gw", next_gw).execute()
     db.upsert(sb, "projections", payload, on_conflict="player_id,gw,model_version")
     print(f"Wrote {len(payload)} projections for GW{next_gw}-{gws[-1]} (model {MODEL_VERSION}).")
 

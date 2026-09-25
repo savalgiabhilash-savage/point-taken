@@ -136,9 +136,9 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 1</span>
+    <span>doc rev 2</span>
     <span>updated 2026-09-25</span>
-    <span>code @ 0c4106a + docs tab</span>
+    <span>code @ critical fixes C1–C4</span>
     <span>model rules-v1</span>
     <span>season 2026/27 · next GW6</span>
   </div>
@@ -330,7 +330,7 @@ svg text{font-family:var(--sans)}
 <section id="model">
   <span class="sec-num">07</span>
   <h2>The xPts model (<code>model.py</code>, rules-v1)</h2>
-  <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is the lowest GW among unfinished fixtures, and the pipeline writes 38 GWs from there.</p>
+  <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38. Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline.</p>
   <figure>
     <div class="fig">
       <svg viewBox="0 0 740 150" width="740" height="150" role="img" aria-label="xPts is minutes times rates times fixture, summed over eight components">
@@ -351,13 +351,16 @@ svg text{font-family:var(--sans)}
              = chance/100   if chance_of_playing_next_round is set
              = 0.5          if status = d
              = 1.0          otherwise
-nailed       = min(1, players.minutes / 2600)
+prior        = min(1, last_season_understat_minutes / 2600)     (none if unmatched)
+current      = min(1, minutes_this_season / (90 × club_games_played))
+w            = club_games / (club_games + 4)
+nailed       = w·current + (1 − w)·prior      (current only if no prior; prior only before GW1)
 p_start      = availability × nailed
 p_cameo      = (1 − p_start) × 0.15      (0 if unavailable)
 p_play       = min(1, p_start + p_cameo)
 E[minutes]   = 82·p_start + 20·p_cameo
 p_60         = 0.9·p_start</code></pre>
-  <div class="note warn"><strong>What this does today:</strong> <code>players.minutes</code> comes from FPL <code>bootstrap-static</code>, which holds this season's minutes, not last season's. After 5 GWs no player has more than 450, so <code>nailed</code> ≤ 0.17 and every projection is about one fifth of a realistic value. See issue C2.</div>
+  <p><code>players.minutes</code> is FPL's this-season total, so it is divided by the games the club has actually played. After 4 games this season counts as much as last season, and it dominates by mid-season.</p>
 
   <h3>2. Attacking rates, shrunk to base (empirical Bayes)</h3>
 <pre><code>base[pos]  = minutes-weighted xG/90 and xA/90 over all matched players at that position
@@ -392,11 +395,11 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <h2>Predictions &amp; calibration (<code>predict.py</code>)</h2>
   <ol>
     <li><b>Score.</b> For GWs FPL marks finished that still have unscored <code>prediction_log</code> rows, fetch <code>event/{gw}/live</code>, fill in actual points and minutes, and score each Best XI (starters + captain doubled).</li>
-    <li><b>Calibrate.</b> Over scored rows with predicted xPts ≥ 2, per position: <code>raw = clamp(Σactual / Σpredicted, 0.5, 2)</code>, <code>mult = clamp((n·raw + 3) / (n + 3), 0.8, 1.2)</code> where n = GWs scored. The next model run applies it.</li>
-    <li><b>Best XI.</b> For the next GW, solve the single-squad MILP twice, with a £100.0m budget ("capped") and with no budget ("uncapped"). Upsert into <code>gw_predictions</code>.</li>
-    <li><b>Snapshot.</b> Upsert every pool player's predicted xPts for that GW into <code>prediction_log</code>.</li>
+    <li><b>Calibrate.</b> Over scored rows from GW6 on (<code>CALIB_FROM_GW</code>; earlier logs are unusable) with predicted xPts ≥ 2, per position: <code>raw = clamp(Σactual / Σpredicted, 0.5, 2)</code>, <code>mult = clamp((n·raw + 3) / (n + 3), 0.8, 1.2)</code> where n = GWs scored. The next model run applies it. With no usable data, every multiplier is reset to ×1.0.</li>
+    <li><b>Best XI.</b> For the next GW, solve the single-squad MILP twice, with a £100.0m budget ("capped") and with no budget ("uncapped"). Upsert into <code>gw_predictions</code>, unless that GW is already scored.</li>
+    <li><b>Snapshot.</b> Replace the unscored <code>prediction_log</code> rows for that GW with every pool player's predicted xPts. The GW only advances at the deadline, so the last pre-deadline run is the snapshot that gets scored.</li>
   </ol>
-  <div class="note warn"><strong>Current state:</strong> <code>gw_predictions</code> holds only GW1, and step 3 resets it to unscored on every run, so the accuracy table never appears. Calibration is ×0.875 for GK, DEF and MID, based on one GW where every row with predicted xPts ≥ 2 scored 0. See C3.</div>
+  <p>A GW is scored if either its per-player log or its published Best XI is still unscored. The GW1 Best XI (predicted 5.2 under the old minutes bug) is kept as an honest record.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -407,7 +410,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <ul>
     <li>All <code>rules-v1</code> projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
     <li>Pool: players whose status isn't i/s/u/n. The <b>universe</b> is your 15 plus the top 90 other players by summed xPts across <em>all</em> projection GWs.</li>
-    <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ current price of your 15 + bank. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>.</li>
+    <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ current price of your 15 + bank. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>, where the value is rebuilt from history (section 11).</li>
     <li>Horizon: the argument, else the user's last saved horizon, else 5. Clamped to the GWs available.</li>
   </ul>
   <h3>Hard constraints (every GW)</h3>
@@ -447,7 +450,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <span class="sec-num">11</span>
   <h2>Team sync &amp; personalisation</h2>
   <ul>
-    <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and <code>free_transfers = entry_history.event_transfers</code>. Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
+    <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and free transfers for the next deadline, rebuilt from <code>history.current</code>: the first GW played is unlimited, then +1 per GW capped at 5, minus free transfers used (transfers − hit cost ÷ 4). Wildcard and Free Hit weeks keep the banked transfers. Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
     <li><b>Manual sync</b> (<code>POST /api/sync</code>): the same logic for the logged-in user, then dispatches <code>fpl-optimize</code>.</li>
     <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Saved as <code>gw = 0</code> with bank 0, FT null and all chips, then re-optimized.</li>
     <li><b>On-demand optimize</b> (<code>POST /api/optimize</code>, signed in): validates horizon 1–38 and dispatches the workflow for that user. The Optimizer page polls <code>optimizer_runs</code> until the new plan lands, in about 1–2 minutes.</li>
@@ -502,7 +505,8 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <thead><tr><th>Name</th><th class="num">Value</th><th>Where</th><th>Meaning</th></tr></thead>
     <tbody>
       <tr><td>MODEL_VERSION</td><td class="num">rules-v1</td><td>model.py</td><td>Stored on every projection</td></tr>
-      <tr><td>nailed divisor</td><td class="num">2600 min</td><td>model.py</td><td>Minutes that count as a full-season starter</td></tr>
+      <tr><td>nailed divisor</td><td class="num">2600 min</td><td>model.py</td><td>Last-season minutes that count as a full-season starter</td></tr>
+      <tr><td>MINUTES_K</td><td class="num">4 games</td><td>model.py</td><td>Club games before this season's minutes share outweighs last season</td></tr>
       <tr><td>start / cameo minutes</td><td class="num">82 / 20</td><td>model.py</td><td>Expected minutes if starting or subbed on</td></tr>
       <tr><td>cameo rate</td><td class="num">0.15</td><td>model.py</td><td>P(sub appearance) when not starting</td></tr>
       <tr><td>PRIOR_K</td><td class="num">12</td><td>model.py</td><td>Shrinkage strength, in 90s</td></tr>
@@ -512,7 +516,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
       <tr><td>DEFCON_BASE</td><td class="num">.45/.15/.05/.03</td><td>model.py</td><td>DEF/MID/GK/FWD placeholder hit rate</td></tr>
       <tr><td>HOME_ADVANTAGE</td><td class="num">0.25</td><td>fdr.py</td><td>FDR home/away nudge</td></tr>
       <tr><td>FORM_WEIGHT · CLAMP</td><td class="num">0.12 · 0.90–1.12</td><td>form.py</td><td>World Cup multiplier size</td></tr>
-      <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP</td><td class="num">3 · 2.0 · 0.8–1.2</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
+      <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP · FROM_GW</td><td class="num">3 · 2.0 · 0.8–1.2 · 6</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
       <tr><td>BUDGET</td><td class="num">1000 (£100.0m)</td><td>optimize.py</td><td>Fresh squad and capped Best XI</td></tr>
       <tr><td>BENCH_WEIGHT</td><td class="num">0.1</td><td>optimize.py</td><td>Bench value in the objective</td></tr>
       <tr><td>HIT_COST · FT_CAP</td><td class="num">4 · 5</td><td>optimize.py</td><td>Points per extra transfer · FT bank limit</td></tr>
@@ -529,18 +533,11 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. Critical issues change every recommendation the app makes today.</p>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. The four critical issues were fixed on 2026-09-25; the rest are open.</p>
 
   <div class="issues">
-    <div class="issue"><span class="id">C1</span><div><h4><span class="chip crit">Critical</span> The app is anchored to GW1</h4></div>
-      <p>The model deletes only the GWs it is rewriting (now 6–43), so GW1–5 projections stay forever. The optimizer, Best XI, Players, My Team and assistant all use the lowest GW in <code>projections</code>. Live: <b>Best XI shows "GW1" and the optimizer plan is dated GW1 on 25 Sep</b>, with plans that include finished GWs. Fix: delete rows with <code>gw &lt; next_gw</code>, and take the next GW from bootstrap <code>events[].is_next</code>.</p></div>
-    <div class="issue"><span class="id">C2</span><div><h4><span class="chip crit">Critical</span> Projections are about 5× too low</h4></div>
-      <p><code>nailed = minutes/2600</code> uses this season's FPL minutes. At GW6 the top projection is 1.33 xPts (Haaland's GW1 value was 0.5). Appearance and clean-sheet points collapse, and rankings mostly reward whoever has played the most minutes so far. Fix: base P(start) on this season's starts per match played, blended with last season's minutes as a prior.</p></div>
-    <div class="issue"><span class="id">C3</span><div><h4><span class="chip crit">Critical</span> The accuracy and calibration loop learns from bad data</h4></div>
-      <p><code>log_best_squads</code> upserts <code>scored=false</code> each run, so GW1 never shows in the scorecard. <code>prediction_log</code> for GW1 is an Aug 9 snapshot. Players who later left or got injured (Chalobah, Reijnders and Vicario with status u; Van den Berg and Minteh with status i) were never overwritten, scored 0, and are the only rows above the 2-xPts filter. Result: ×0.875 applied to GK, DEF and MID. Fix: freeze snapshots at the deadline, only log players with a fixture, never re-open scored GWs, and reset <code>model_calibration</code>.</p></div>
-    <div class="issue"><span class="id">C4</span><div><h4><span class="chip crit">Critical</span> Free transfers are the wrong field</h4></div>
-      <p><code>free_transfers = event_transfers</code>, which is the number of transfers <em>made</em> that GW, in both <code>sync_team.py</code> and <code>/api/sync</code>. The optimizer then uses <code>max(1, value)</code>, so hit and roll decisions are wrong. Fix: rebuild the FT count from <code>history.current</code> (transfers and cost per GW, +1 per GW, cap 5, reset by WC/FH).</p></div>
-
+    <div class="issue"><span class="id">C1–4</span><div><h4><span class="chip low">Fixed</span> Critical issues from the first review</h4></div>
+      <p>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs). C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season). C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6). C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>).</p></div>
     <div class="issue"><span class="id">H1</span><div><h4><span class="chip high">High</span> The model ignores current-season data</h4></div>
       <p>Understat is pinned to 2025/26, FPL's own 2026/27 xG/xA per 90, starts and <code>defensive_contribution</code> are stored or available but unused, and the World Cup multiplier still applies mid-season. Form and role changes don't register.</p></div>
     <div class="issue"><span class="id">H2</span><div><h4><span class="chip high">High</span> 271 of 667 players have zero attacking output</h4></div>
@@ -560,8 +557,8 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 
     <div class="issue"><span class="id">M1</span><div><h4><span class="chip med">Medium</span> "Next 5" totals sum everything</h4></div>
       <p>The Players page's xp5, the assistant's <code>xpts_next5</code> and the optimizer's 90-player candidate ranking sum every projection row (38+ GWs, stale ones included), whatever the horizon. Short-term fixture swings and cheap enablers fall out of the pool.</p></div>
-    <div class="issue"><span class="id">M2</span><div><h4><span class="chip med">Medium</span> Next GW is taken from unfinished fixtures</h4></div>
-      <p>During a live GW the model keeps projecting that GW, minus fixtures already played, and the Best XI and prediction snapshot are overwritten after the deadline. Also, the horizon runs to GW43, and the Players page reads about 25k rows in 1,000-row pages on each load.</p></div>
+    <div class="issue"><span class="id">M2</span><div><h4><span class="chip med">Medium</span> Heavy Players page query</h4></div>
+      <p>The Players page reads every projection row (about 22k, GW6–38) in 1,000-row pages on each load. Only the next few GWs are shown.</p></div>
     <div class="issue"><span class="id">M3</span><div><h4><span class="chip med">Medium</span> Crude component proxies</h4></div>
       <p>DefCon is a flat position rate (0.9 pts/90 for every defender). Goals-conceded uses λ/2 rather than E[⌊GC/2⌋]. Attacking FDR uses the opponent's overall xG difference rather than its defence. Team strength never updates in-season. Penalty and set-piece flags are unused.</p></div>
     <div class="issue"><span class="id">M4</span><div><h4><span class="chip med">Medium</span> Decision gaps</h4></div>
@@ -603,6 +600,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <li><span class="d">2026-08-12</span><br>Chips no longer imply a DGW or BGW that doesn't exist.</li>
     <li><span class="d">2026-08-16</span><br>Expo mobile app, increment 1 (Players and My Team) and dev-build setup. World Cup 2026 form factor. Screenshot name matching for ı, ø, ł and similar letters.</li>
     <li><span class="d">2026-09-25</span><br>Full review (section 16). Added this blueprint and the owner-only Docs tab.</li>
+    <li><span class="d">2026-09-25</span><br>Fixed C1–C4: next GW from FPL <code>is_next</code> with stale projections pruned; minutes share per club game blended with last season; prediction snapshots replaced and scored GWs never reopened, calibration from GW6; free transfers rebuilt from entry history.</li>
   </ul>
 </section>
 

@@ -17,6 +17,27 @@ from . import db
 from .fpl_client import FplClient
 
 ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"]
+FT_CAP = 5
+
+
+def free_transfers_next(history: dict) -> int:
+    """Free transfers available for the NEXT deadline, rebuilt from the entry history (the public API
+    doesn't expose it; entry_history.event_transfers is the number of transfers MADE, not available).
+
+    Rules (2024/25+): the first GW you play is unlimited; after each GW you gain +1, capped at 5.
+    Transfers beyond your free ones cost 4 pts each (event_transfers_cost), so free ones used =
+    transfers − cost/4. Playing a Wildcard or Free Hit keeps your banked free transfers."""
+    chip_gws = {c["event"] for c in history.get("chips", []) if c.get("name") in ("wildcard", "freehit")}
+    events = sorted(history.get("current", []), key=lambda e: e["event"])
+    if not events:
+        return 1
+    ft = 1  # after your first gameweek (its transfers were unlimited)
+    for e in events[1:]:
+        if e["event"] not in chip_gws:
+            used_free = e.get("event_transfers", 0) - (e.get("event_transfers_cost", 0) // 4)
+            ft = max(0, ft - used_free)
+        ft = min(FT_CAP, ft + 1)
+    return ft
 
 
 def _sync_one(sb, client: FplClient, entry_id: int, user_id: str) -> None:
@@ -56,7 +77,7 @@ def _sync_one(sb, client: FplClient, entry_id: int, user_id: str) -> None:
         "gw": current_event,
         "bank": eh.get("bank"),
         "team_value": eh.get("value"),
-        "free_transfers": eh.get("event_transfers"),
+        "free_transfers": free_transfers_next(history),
         "chips_available": chips,
         "rank": eh.get("overall_rank"),
         "picks": picks_data.get("picks"),
