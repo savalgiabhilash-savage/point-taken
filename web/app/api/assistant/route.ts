@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS, runTool } from "@/lib/assistant-tools";
-import { currentUserId } from "@/lib/current-user";
+import { createServerSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,6 +26,11 @@ function badKey(): string {
 }
 
 export async function POST(req: Request) {
+  // Signed-in users only: every call spends Anthropic credits, so the endpoint must not be open.
+  const { data: auth } = await (await createServerSupabase()).auth.getUser();
+  if (!auth.user) return Response.json({ error: "Log in to use the assistant." }, { status: 401 });
+  const userId = auth.user.id;
+
   const apiKey = badKey();
   if (!apiKey) {
     return Response.json(
@@ -45,7 +50,6 @@ export async function POST(req: Request) {
   );
   if (!incoming.length) return Response.json({ error: "No message provided." }, { status: 400 });
 
-  const userId = await currentUserId();
   const client = new Anthropic({ apiKey });
   const messages: Anthropic.MessageParam[] = incoming.map((m) => ({
     role: m.role as "user" | "assistant",

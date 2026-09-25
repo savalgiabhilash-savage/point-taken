@@ -237,7 +237,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     players = (
         sb.table("players")
         .select("fpl_id, web_name, understat_id, position, team_id, status, "
-                "chance_of_playing_next_round, minutes, now_cost")
+                "chance_of_playing_next_round, minutes, now_cost, expected_goals, expected_assists")
         .execute()
         .data
     )
@@ -287,7 +287,12 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     rows = []
     for p in players:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
-        rates = player_rates(us, p["position"], base)
+        # No Understat match (promoted clubs, arrivals from abroad, ~40% of players): fall back to
+        # this season's FPL xG/xA totals, shrunk to the position base like any other sample. Without
+        # this they'd project zero attacking output. No card data here, so yellows count as 0.
+        obs = us or ({"xg": p["expected_goals"] or 0.0, "xa": p["expected_assists"] or 0.0,
+                      "minutes": p["minutes"] or 0, "yellow_cards": 0} if p["minutes"] else None)
+        rates = player_rates(obs, p["position"], base)
         p["nailed"] = nailedness(p["minutes"], team_games.get(p["team_id"], 0), us.get("minutes") if us else None)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
         fm = form.get(p["fpl_id"], 1.0)

@@ -136,9 +136,9 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 2</span>
+    <span>doc rev 3</span>
     <span>updated 2026-09-25</span>
-    <span>code @ critical fixes C1–C4</span>
+    <span>code @ fixes C1–C4, H2, H5, H6</span>
     <span>model rules-v1</span>
     <span>season 2026/27 · next GW6</span>
   </div>
@@ -182,7 +182,7 @@ svg text{font-family:var(--sans)}
         <text x="266" y="58" class="d-t">Python worker (uv)</text>
         <text x="266" y="74" class="d-s">GitHub Actions (cron + dispatch)</text>
         <text x="266" y="100" class="d-s">refresh → enrich → model</text>
-        <text x="266" y="118" class="d-s">→ predict → optimize → sync_team</text>
+        <text x="266" y="118" class="d-s">→ predict → sync_team → optimize</text>
         <text x="266" y="144" class="d-s">news_job (Claude Haiku 4.5)</text>
         <text x="266" y="170" class="d-s">HiGHS MILP optimizer</text>
         <text x="266" y="196" class="d-s">writes with service-role key</text>
@@ -253,8 +253,8 @@ svg text{font-family:var(--sans)}
           <li><code>enrich --all</code>: Understat crosswalk → <code>players.understat_id</code>; custom FDR → <code>fixtures.custom_fdr_h/a</code></li>
           <li><code>model --run --horizon 38</code>: projections for next GW onward</li>
           <li><code>predict --run</code>: score finished GWs, update calibration, log Best XI + per-player snapshot</li>
-          <li><code>optimize --plan</code>: multi-week plan for "me" and every profile with an FPL entry</li>
           <li><code>sync_team</code>: pull every user's FPL squad into <code>user_team_state</code></li>
+          <li><code>optimize --plan</code>: multi-week plan for "me" and every profile with an FPL entry, using the squad just synced</li>
         </ol></td></tr>
       <tr><td><b>fpl-news</b><br><code>news.yml</code></td><td>cron <code>30 6,18 * * *</code> + manual</td><td><code>news_job --run</code>. Skipped if <code>ANTHROPIC_API_KEY</code> is unset. Runs separately because each run spends Anthropic credits.</td></tr>
       <tr><td><b>fpl-optimize</b><br><code>optimize.yml</code></td><td><code>workflow_dispatch</code> from the web app (inputs <code>horizon</code>, <code>user_id</code>)</td><td><code>optimize --plan [--horizon N] [--user id]</code>. Concurrency is per user, and a newer dispatch cancels an older one.</td></tr>
@@ -367,8 +367,9 @@ p_60         = 0.9·p_start</code></pre>
 xg90       = (xG_season + 12·base_xg90) / (n90 + 12)      K = 12 "virtual" full matches
 xa90       = (xA_season + 12·base_xa90) / (n90 + 12)
 yellow90   = yellows / n90     (0.1 if unmatched)
-unmatched players → xg90 = xa90 = 0</code></pre>
-  <p>Inputs are Understat 2025/26 totals. FPL's current-season <code>expected_goals_per_90</code> and similar fields are stored in <code>players</code> but the model doesn't use them yet.</p>
+unmatched players → same formula on this season's FPL xG, xA and minutes (yellows = 0);
+                    zero if they haven't played</code></pre>
+  <p>Matched players use Understat 2025/26 totals. Players with no Understat match (promoted clubs, arrivals from abroad, about 40% of the list) use this season's FPL <code>expected_goals</code> and <code>expected_assists</code>, which are shrunk the same way.</p>
 
   <h3>3. Per-fixture components</h3>
 <pre><code>adj          = 1 + 0.12·(3 − FDR)                        FDR 1 → ×1.24, FDR 5 → ×0.76
@@ -470,7 +471,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="assistant">
   <span class="sec-num">13</span>
   <h2>Assistant (<code>/api/assistant</code>)</h2>
-  <p>Claude Haiku 4.5 with up to 6 tool rounds. The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan. The user is the logged-in account, or "me".</p>
+  <p>Claude Haiku 4.5 with up to 6 tool rounds. The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan. Signed-in users only: logged-out requests get 401, because every call spends Anthropic credits. There is no rate limit per user.</p>
   <div class="tbl"><table>
     <thead><tr><th>Tool</th><th>Returns</th></tr></thead>
     <tbody>
@@ -491,7 +492,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
   <ul>
     <li>Server components read Supabase with the anon key. Personal pages scope reads to <code>currentUserId()</code> (auth uid, or "me" when logged out).</li>
     <li>The middleware refreshes the Supabase session cookie on every non-asset request.</li>
-    <li>Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
+    <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
     <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
     <li>The mobile app (<code>mobile/</code>) reads the same tables. So far it has Players and My Team.</li>
   </ul>
@@ -533,23 +534,19 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. The four critical issues were fixed on 2026-09-25; the rest are open.</p>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. The four critical issues and H2, H5 and H6 were fixed on 2026-09-25; the rest are open.</p>
 
   <div class="issues">
+    <div class="issue"><span class="id">H2·5·6</span><div><h4><span class="chip low">Fixed</span> Zero attackers, pipeline order, open assistant</h4></div>
+      <p>H2: 271 unmatched players projected zero attacking output (fixed: fall back to this season's FPL xG/xA). H5: the optimizer ran before team sync (fixed: sync first). H6: <code>/api/assistant</code> was open to anyone (fixed: signed-in users only).</p></div>
     <div class="issue"><span class="id">C1–4</span><div><h4><span class="chip low">Fixed</span> Critical issues from the first review</h4></div>
       <p>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs). C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season). C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6). C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>).</p></div>
-    <div class="issue"><span class="id">H1</span><div><h4><span class="chip high">High</span> The model ignores current-season data</h4></div>
-      <p>Understat is pinned to 2025/26, FPL's own 2026/27 xG/xA per 90, starts and <code>defensive_contribution</code> are stored or available but unused, and the World Cup multiplier still applies mid-season. Form and role changes don't register.</p></div>
-    <div class="issue"><span class="id">H2</span><div><h4><span class="chip high">High</span> 271 of 667 players have zero attacking output</h4></div>
-      <p>Unmatched players get xG/90 = 0. That covers every player at the three promoted clubs and most signings from outside the PL, so they are never recommended as attackers. Fix: fall back to FPL xG/xA per 90.</p></div>
+    <div class="issue"><span class="id">H1</span><div><h4><span class="chip high">High</span> The model mostly ignores current-season data</h4></div>
+      <p>Matched players still use only 2025/26 Understat for xG and xA. FPL's 2026/27 xG/xA, starts and <code>defensive_contribution</code> aren't blended in for them, and the World Cup multiplier still applies mid-season. Minutes do use this season (C2 fix).</p></div>
     <div class="issue"><span class="id">H3</span><div><h4><span class="chip high">High</span> Chip rules are out of date</h4></div>
       <p>Since 2025/26 each chip comes twice, once per half-season, and the first set expires at the GW19 deadline. Sync marks a chip used for the whole season after one play, and the planner doesn't know about the expiry, so "hold" can let first-half chips lapse.</p></div>
     <div class="issue"><span class="id">H4</span><div><h4><span class="chip high">High</span> Budget ignores selling prices</h4></div>
       <p>Budget = Σ current price + bank. FPL sells at purchase price + half the profit, rounded down, so after price rises the optimizer can suggest transfers you can't afford. Purchase prices are available from public <code>entry/{id}/transfers</code>.</p></div>
-    <div class="issue"><span class="id">H5</span><div><h4><span class="chip high">High</span> Pipeline order: optimize runs before sync</h4></div>
-      <p>In <code>fpl-data</code>, optimize (step 5) runs before sync_team (step 6), so each scheduled plan uses the previous team snapshot.</p></div>
-    <div class="issue"><span class="id">H6</span><div><h4><span class="chip high">High</span> Open, unmetered assistant endpoint</h4></div>
-      <p><code>POST /api/assistant</code> needs no login and has no rate limit, so anyone can spend the Anthropic credits.</p></div>
     <div class="issue"><span class="id">H7</span><div><h4><span class="chip high">High</span> Unverified emails</h4></div>
       <p><code>mailer_autoconfirm</code> is on, so anyone can register any address. The Docs gate trusts the email, which is safe only while an account with the owner's email already exists. Turn on "Confirm email" in Supabase Auth.</p></div>
     <div class="issue"><span class="id">H8</span><div><h4><span class="chip high">High</span> In-season screenshot uploads are ignored</h4></div>
@@ -601,6 +598,7 @@ x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></p
     <li><span class="d">2026-08-16</span><br>Expo mobile app, increment 1 (Players and My Team) and dev-build setup. World Cup 2026 form factor. Screenshot name matching for ı, ø, ł and similar letters.</li>
     <li><span class="d">2026-09-25</span><br>Full review (section 16). Added this blueprint and the owner-only Docs tab.</li>
     <li><span class="d">2026-09-25</span><br>Fixed C1–C4: next GW from FPL <code>is_next</code> with stale projections pruned; minutes share per club game blended with last season; prediction snapshots replaced and scored GWs never reopened, calibration from GW6; free transfers rebuilt from entry history.</li>
+    <li><span class="d">2026-09-25</span><br>Fixed H2, H5, H6: unmatched players fall back to FPL xG/xA; team sync runs before the optimizer; assistant requires login.</li>
   </ul>
 </section>
 
