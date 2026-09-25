@@ -1,7 +1,10 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createBrowserSupabase } from "@/lib/supabase/client";
+import { isOwnerEmail } from "@/lib/owner";
 
 const ITEMS = [
   { href: "/players", label: "Players" },
@@ -15,9 +18,18 @@ const ITEMS = [
 
 export function Nav() {
   const path = usePathname();
+  // The Docs tab is shown only to the owner; /docs itself is gated server-side.
+  const [owner, setOwner] = React.useState(false);
+  React.useEffect(() => {
+    const sb = createBrowserSupabase();
+    sb.auth.getUser().then(({ data }) => setOwner(isOwnerEmail(data.user?.email)));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, session) => setOwner(isOwnerEmail(session?.user?.email)));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  const items = owner ? [...ITEMS, { href: "/docs", label: "Docs" }] : ITEMS;
   return (
     <nav className="flex items-center gap-1 text-sm">
-      {ITEMS.map((it) => {
+      {items.map((it) => {
         const active = path === it.href;
         return (
           <Link

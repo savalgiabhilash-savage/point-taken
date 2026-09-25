@@ -43,6 +43,16 @@ FPL API (bootstrap-static, fixtures, element-summary, entry, event/live) · socc
 - Never hardcode secrets; use env vars (`worker/.env`, `web/.env.local` — both gitignored).
   Service-role key is server-side only. Enable RLS before any multi-user work.
 
+## Blueprint doc (keep current — required)
+`web/content/architecture.html` documents the whole app (architecture, pipeline, xPts model, optimizer,
+chips, parameters, known issues, history). It is served at `/docs` (owner-only:
+savalgiabhilash@gmail.com, gate in `web/lib/current-user.ts`) and published as the Claude artifact
+https://claude.ai/artifact/MrVLaHc9qV1Ck19fXY58EA.
+- Any change to behaviour in `worker/`, `web/`, `mobile/`, `supabase/` or `.github/workflows/` must update
+  the affected sections in the same commit (formulas, parameters, steps, tables, routes, known issues).
+- Bump "doc rev" + date in its header and add a History entry.
+- Then republish: Artifact tool, publish that file with `url` = the artifact URL above.
+
 ## Run it
 - Worker: `uv run --directory worker python -m fpl_worker.refresh --refresh`
   (dry run: add `--dry-run`; offline from cache: `--dry-run --from-cache`).

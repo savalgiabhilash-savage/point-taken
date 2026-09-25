@@ -1,4 +1,5 @@
 import { createServerSupabase } from "@/lib/supabase/server";
+import { isOwnerEmail } from "@/lib/owner";
 
 /**
  * The user_id to scope personal data (team, optimizer) to: the logged-in user's uuid, or the
@@ -12,5 +13,16 @@ export async function currentUserId(): Promise<string> {
     return data.user?.id ?? "me";
   } catch {
     return "me";
+  }
+}
+
+/** True only for the signed-in owner account (gates the Docs tab and its content route). */
+export async function isOwner(): Promise<boolean> {
+  try {
+    const sb = await createServerSupabase();
+    const { data } = await sb.auth.getUser();
+    return isOwnerEmail(data.user?.email);
+  } catch {
+    return false;
   }
 }

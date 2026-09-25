@@ -1,0 +1,621 @@
+<title>FPL Selector Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F4F7F5; --surface:#FFFFFF; --sunk:#EAF0EC; --ink:#13201A; --muted:#56675F; --line:#D6E0DA;
+  --accent:#0B7A55; --accent-soft:#DDF2E8;
+  --crit:#B42318; --crit-soft:#FDE8E6; --high:#B54708; --high-soft:#FEF0E1; --med:#7A5E00; --med-soft:#FBF3D2;
+  --low:#56675F; --low-soft:#EAF0EC;
+  --sans:"DM Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0B110E; --surface:#111915; --sunk:#0E1512; --ink:#E4ECE7; --muted:#8FA199; --line:#213029;
+    --accent:#3DD69B; --accent-soft:#12301F;
+    --crit:#F97066; --crit-soft:#3A1512; --high:#FDB022; --high-soft:#35240A; --med:#E9D16B; --med-soft:#2E2A10;
+    --low:#8FA199; --low-soft:#18221D;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0B110E; --surface:#111915; --sunk:#0E1512; --ink:#E4ECE7; --muted:#8FA199; --line:#213029;
+  --accent:#3DD69B; --accent-soft:#12301F;
+  --crit:#F97066; --crit-soft:#3A1512; --high:#FDB022; --high-soft:#35240A; --med:#E9D16B; --med-soft:#2E2A10;
+  --low:#8FA199; --low-soft:#18221D;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px;max-width:1160px;margin:0 auto;padding-inline:24px;padding-block:40px 80px}
+nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start;max-height:calc(100vh - 48px);overflow:auto;font-size:13px}
+nav.toc .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:2px;counter-reset:toc}
+nav.toc a{display:block;padding:4px 10px;border-radius:6px;color:var(--muted);text-decoration:none}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--ink);background:var(--sunk);outline:none}
+main{min-width:0;max-width:780px}
+header.top{padding-bottom:28px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.eyebrow{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-size:34px;line-height:1.15;letter-spacing:-.02em;margin:8px 0 12px;font-weight:700;text-wrap:balance}
+h2{font-size:23px;line-height:1.25;letter-spacing:-.01em;margin:0 0 12px;font-weight:700;text-wrap:balance}
+h3{font-size:16px;margin:28px 0 8px;font-weight:600}
+p{margin:0 0 12px}
+.lede{font-size:16.5px;color:var(--muted);max-width:66ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.meta span{font:12px var(--mono);padding:3px 8px;border:1px solid var(--line);border-radius:5px;color:var(--muted);background:var(--surface)}
+section{padding-top:40px;scroll-margin-top:16px}
+.sec-num{font:500 12px var(--mono);color:var(--muted);display:block;margin-bottom:4px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+code{background:var(--sunk);padding:1px 5px;border-radius:4px}
+pre{font:13px/1.55 var(--mono);background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:0 0 14px}
+pre code{background:none;padding:0}
+ul,ol{margin:0 0 12px;padding-left:20px}
+li{margin:3px 0}
+a{color:var(--accent)}
+.tbl{overflow-x:auto;margin:0 0 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--sunk)}
+tr:last-child td{border-bottom:none}
+td.num{font-variant-numeric:tabular-nums;font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+.note{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:12px 14px;margin:0 0 16px;font-size:14px}
+.note.warn{border-color:color-mix(in srgb,var(--crit) 40%,var(--line));background:var(--crit-soft)}
+.note strong{font-weight:600}
+figure{margin:8px 0 20px}
+figure .fig{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:12px}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:8px}
+svg text{font-family:var(--sans)}
+.d-box{fill:var(--surface);stroke:var(--line);stroke-width:1.2}
+.d-acc{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.2}
+.d-sunk{fill:var(--sunk);stroke:var(--line);stroke-width:1}
+.d-t{fill:var(--ink);font-size:13px;font-weight:600}
+.d-s{fill:var(--muted);font-size:11px}
+.d-line{stroke:var(--muted);stroke-width:1.2;fill:none}
+.d-arrow{fill:var(--muted)}
+.chip{display:inline-block;font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:4px;white-space:nowrap}
+.chip.crit{color:var(--crit);background:var(--crit-soft)}
+.chip.high{color:var(--high);background:var(--high-soft)}
+.chip.med{color:var(--med);background:var(--med-soft)}
+.chip.low{color:var(--low);background:var(--low-soft)}
+.issue{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.issue:last-child{border-bottom:none}
+.issue .id{font:500 12px var(--mono);color:var(--muted);padding-top:2px}
+.issue h4{margin:0;font-size:14.5px;font-weight:600}
+.issue p{grid-column:2;margin:2px 0 0;font-size:14px;color:var(--muted)}
+.issue p b{color:var(--ink);font-weight:600}
+.issues{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 16px;margin-bottom:18px}
+.timeline{list-style:none;padding:0;margin:0;border-left:2px solid var(--line)}
+.timeline li{padding:0 0 12px 16px;position:relative}
+.timeline li::before{content:"";position:absolute;left:-6px;top:8px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.timeline .d{font:12px var(--mono);color:var(--muted)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
+.card{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:12px 14px;font-size:14px}
+.card b{display:block;font-size:13px;margin-bottom:2px}
+.card span{color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:880px){
+  .wrap{grid-template-columns:minmax(0,1fr);gap:0;padding-inline:16px;padding-block:24px 64px}
+  nav.toc{position:static;max-height:none;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface);margin-bottom:8px}
+  nav.toc ol{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  h1{font-size:28px}
+}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#pipeline">Pipeline &amp; schedules</a></li>
+    <li><a href="#data">Data sources</a></li>
+    <li><a href="#schema">Database</a></li>
+    <li><a href="#crosswalk">Crosswalk &amp; FDR</a></li>
+    <li><a href="#model">xPts model</a></li>
+    <li><a href="#calibration">Predictions &amp; calibration</a></li>
+    <li><a href="#optimizer">Optimizer</a></li>
+    <li><a href="#chips">Chip timing</a></li>
+    <li><a href="#team">Team sync</a></li>
+    <li><a href="#news">News &amp; sentiment</a></li>
+    <li><a href="#assistant">Assistant</a></li>
+    <li><a href="#web">Web app &amp; auth</a></li>
+    <li><a href="#params">Parameters</a></li>
+    <li><a href="#issues">Known issues</a></li>
+    <li><a href="#ideas">Improvement ideas</a></li>
+    <li><a href="#history">History</a></li>
+    <li><a href="#maintenance">Keeping this current</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">Owner reference · private</div>
+  <h1>FPL Selector Blueprint</h1>
+  <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
+  <div class="meta">
+    <span>doc rev 1</span>
+    <span>updated 2026-09-25</span>
+    <span>code @ 0c4106a + docs tab</span>
+    <span>model rules-v1</span>
+    <span>season 2026/27 · next GW6</span>
+  </div>
+</header>
+
+<!-- ===================================================================== -->
+<section id="overview">
+  <span class="sec-num">01</span>
+  <h2>Overview</h2>
+  <p>FPL Selector is a personal Fantasy Premier League assistant. It pulls official FPL data and last-season Understat xG, projects expected points (xPts) for every player in every remaining gameweek with a transparent rules-based model, then runs a mixed-integer optimizer over <em>your</em> squad to recommend transfers, captain, hits and chip timing. A news layer and a grounded Claude chat assistant sit on top.</p>
+  <div class="cols">
+    <div class="card"><b>Players</b><span>Sortable table of every player with next-GW xPts, multi-GW sum, component breakdown drawer and news chip.</span></div>
+    <div class="card"><b>Fixtures</b><span>8-GW ticker coloured by the custom 1–5 FDR.</span></div>
+    <div class="card"><b>My Team</b><span>Your 15 on a pitch, synced from FPL or read from a screenshot.</span></div>
+    <div class="card"><b>Optimizer</b><span>Multi-week transfer path, hits, captain and chip windows over a horizon you choose.</span></div>
+    <div class="card"><b>Best XI</b><span>Best single-GW squad (£100m and uncapped), scored afterwards to calibrate the model.</span></div>
+    <div class="card"><b>Assistant</b><span>Claude chat that can only cite numbers returned by its data tools.</span></div>
+    <div class="card"><b>Guide · Settings</b><span>User help page; FPL entry ID and manual sync.</span></div>
+    <div class="card"><b>Docs</b><span>This page. Visible only to the owner account.</span></div>
+  </div>
+  <p>Design principles (from <code>CLAUDE.md</code>): every xPts number is a sum of stored, named components; minutes come first; underlying stats are fixture-adjusted and shrunk toward base rates; recommendations reason about the real team state (bank, free transfers, chips); sentiment stays advisory until backtested.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="architecture">
+  <span class="sec-num">02</span>
+  <h2>Architecture</h2>
+  <p>Three deployables share one Supabase Postgres. The Python worker is the only thing that talks to the FPL API, Understat and Google News; the web app and mobile app only read Supabase (plus the few server routes listed below).</p>
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 760 420" width="760" height="420" role="img" aria-label="System architecture diagram">
+        <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="d-arrow"/></marker></defs>
+        <!-- sources -->
+        <text x="20" y="22" class="d-s" style="letter-spacing:.08em">EXTERNAL SOURCES</text>
+        <rect x="20" y="34" width="170" height="46" rx="8" class="d-box"/><text x="34" y="54" class="d-t">FPL API</text><text x="34" y="70" class="d-s">bootstrap · fixtures · entry · live</text>
+        <rect x="20" y="92" width="170" height="46" rx="8" class="d-box"/><text x="34" y="112" class="d-t">Understat 2025/26</text><text x="34" y="128" class="d-s">player + team xG (soccerdata)</text>
+        <rect x="20" y="150" width="170" height="46" rx="8" class="d-box"/><text x="34" y="170" class="d-t">Google News RSS</text><text x="34" y="186" class="d-s">per-player headlines</text>
+        <rect x="20" y="208" width="170" height="46" rx="8" class="d-box"/><text x="34" y="228" class="d-t">FBref WC 2026</text><text x="34" y="244" class="d-s">one-off form factor (local)</text>
+        <!-- worker -->
+        <rect x="250" y="34" width="220" height="220" rx="10" class="d-acc"/>
+        <text x="266" y="58" class="d-t">Python worker (uv)</text>
+        <text x="266" y="74" class="d-s">GitHub Actions (cron + dispatch)</text>
+        <text x="266" y="100" class="d-s">refresh → enrich → model</text>
+        <text x="266" y="118" class="d-s">→ predict → optimize → sync_team</text>
+        <text x="266" y="144" class="d-s">news_job (Claude Haiku 4.5)</text>
+        <text x="266" y="170" class="d-s">HiGHS MILP optimizer</text>
+        <text x="266" y="196" class="d-s">writes with service-role key</text>
+        <text x="266" y="222" class="d-s">(bypasses RLS)</text>
+        <!-- supabase -->
+        <rect x="530" y="34" width="210" height="220" rx="10" class="d-box"/>
+        <text x="546" y="58" class="d-t">Supabase</text>
+        <text x="546" y="74" class="d-s">Postgres + Auth + RLS</text>
+        <text x="546" y="100" class="d-s">players · teams · fixtures</text>
+        <text x="546" y="118" class="d-s">projections · preseason_form</text>
+        <text x="546" y="136" class="d-s">gw_predictions · prediction_log</text>
+        <text x="546" y="154" class="d-s">model_calibration · news_sentiment</text>
+        <text x="546" y="172" class="d-s">user_team_state · optimizer_runs</text>
+        <text x="546" y="190" class="d-s">profiles</text>
+        <!-- clients -->
+        <rect x="250" y="310" width="220" height="90" rx="10" class="d-box"/>
+        <text x="266" y="334" class="d-t">Next.js 16 web (Vercel)</text>
+        <text x="266" y="352" class="d-s">server components read via anon key</text>
+        <text x="266" y="370" class="d-s">/api: assistant · sync · team-upload</text>
+        <text x="266" y="388" class="d-s">· optimize (dispatches workflow)</text>
+        <rect x="530" y="310" width="210" height="90" rx="10" class="d-box"/>
+        <text x="546" y="334" class="d-t">Expo mobile app</text>
+        <text x="546" y="352" class="d-s">SDK 57 dev build</text>
+        <text x="546" y="370" class="d-s">Players + My Team (read-only)</text>
+        <rect x="20" y="310" width="170" height="90" rx="10" class="d-sunk"/>
+        <text x="34" y="334" class="d-t">Claude API</text>
+        <text x="34" y="352" class="d-s">Haiku 4.5: sentiment,</text>
+        <text x="34" y="370" class="d-s">assistant, screenshot</text>
+        <text x="34" y="388" class="d-s">reader</text>
+        <!-- arrows -->
+        <path d="M190 57 H250" class="d-line" marker-end="url(#ar)"/>
+        <path d="M190 115 H250" class="d-line" marker-end="url(#ar)"/>
+        <path d="M190 173 H250" class="d-line" marker-end="url(#ar)"/>
+        <path d="M190 231 H250" class="d-line" marker-end="url(#ar)"/>
+        <path d="M470 144 H530" class="d-line" marker-end="url(#ar)"/>
+        <path d="M635 254 V310" class="d-line" marker-end="url(#ar)"/>
+        <path d="M600 254 L420 310" class="d-line" marker-end="url(#ar)"/>
+        <path d="M250 355 H190" class="d-line" marker-end="url(#ar)"/>
+        <path d="M360 310 V254" class="d-line" marker-end="url(#ar)" stroke-dasharray="4 3"/>
+        <text x="366" y="290" class="d-s">workflow_dispatch</text>
+      </svg>
+    </div>
+    <figcaption>Solid arrows are data flow. The dashed arrow is the web app asking GitHub Actions to re-run the optimizer for one user.</figcaption>
+  </figure>
+  <div class="tbl"><table>
+    <thead><tr><th>Part</th><th>Stack</th><th>Location</th></tr></thead>
+    <tbody>
+      <tr><td>Worker</td><td>Python 3.12, uv, httpx, supabase-py, soccerdata, pandas, rapidfuzz, highspy, anthropic</td><td><code>worker/fpl_worker/</code></td></tr>
+      <tr><td>Web</td><td>Next.js 16 App Router, React 19, TypeScript, Tailwind v4, shadcn/ui, TanStack Table, @supabase/ssr, @anthropic-ai/sdk</td><td><code>web/</code> → Vercel <code>fpl-selector.vercel.app</code></td></tr>
+      <tr><td>Mobile</td><td>Expo SDK 57, expo-router, React Native 0.86, supabase-js</td><td><code>mobile/</code></td></tr>
+      <tr><td>Database</td><td>Supabase Postgres, Auth (email + password), RLS</td><td><code>supabase/migrations/0001–0006</code></td></tr>
+      <tr><td>Scheduler</td><td>GitHub Actions (repo <code>savalgiabhilash-savage/fpl-selector</code>)</td><td><code>.github/workflows/</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>Secrets: worker uses <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>FPL_ENTRY_ID</code>, <code>ANTHROPIC_API_KEY</code> (Actions secrets / <code>worker/.env</code>). Web uses <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GITHUB_DISPATCH_TOKEN</code> (Vercel env / <code>web/.env.local</code>). Every env read strips a UTF-8 BOM because Windows pipes added one when the values were stored.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="pipeline">
+  <span class="sec-num">03</span>
+  <h2>Pipeline &amp; schedules</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Workflow</th><th>Trigger</th><th>Steps</th></tr></thead>
+    <tbody>
+      <tr><td><b>fpl-data</b><br><code>refresh.yml</code></td><td>cron <code>20 */3 * * *</code> (UTC) + manual. In practice GitHub fires it about 4 times a day.</td><td>
+        <ol>
+          <li><code>refresh --refresh</code>: FPL bootstrap-static + fixtures → teams (20), players (~667), fixtures (380)</li>
+          <li><code>enrich --all</code>: Understat crosswalk → <code>players.understat_id</code>; custom FDR → <code>fixtures.custom_fdr_h/a</code></li>
+          <li><code>model --run --horizon 38</code>: projections for next GW onward</li>
+          <li><code>predict --run</code>: score finished GWs, update calibration, log Best XI + per-player snapshot</li>
+          <li><code>optimize --plan</code>: multi-week plan for "me" and every profile with an FPL entry</li>
+          <li><code>sync_team</code>: pull every user's FPL squad into <code>user_team_state</code></li>
+        </ol></td></tr>
+      <tr><td><b>fpl-news</b><br><code>news.yml</code></td><td>cron <code>30 6,18 * * *</code> + manual</td><td><code>news_job --run</code>. Skipped if <code>ANTHROPIC_API_KEY</code> is unset. Runs separately because each run spends Anthropic credits.</td></tr>
+      <tr><td><b>fpl-optimize</b><br><code>optimize.yml</code></td><td><code>workflow_dispatch</code> from the web app (inputs <code>horizon</code>, <code>user_id</code>)</td><td><code>optimize --plan [--horizon N] [--user id]</code>. Concurrency is per user, and a newer dispatch cancels an older one.</td></tr>
+    </tbody>
+  </table></div>
+  <p>Not scheduled: <code>form --run</code> (World Cup form factor, scrapes FBref via headless Chrome, run once locally) and <code>crosswalk</code> review CSVs written to <code>worker/reports/</code>.</p>
+  <p>Local commands: <code>uv run --directory worker python -m fpl_worker.refresh --refresh</code>, add <code>--dry-run</code> or <code>--dry-run --from-cache</code> to test. Every module has <code>--dry-run</code>. Web: <code>cd web &amp;&amp; npm run dev</code>.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="data">
+  <span class="sec-num">04</span>
+  <h2>Data sources</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Source</th><th>What is used</th><th>Module</th></tr></thead>
+    <tbody>
+      <tr><td>FPL <code>bootstrap-static</code></td><td>Players (price in tenths of £m, status a/d/i/s/u/n, chance of playing, minutes, ownership, FPL xG/xA fields, penalty/set-piece order), teams, events</td><td><code>fpl_client.py</code>, <code>transform.py</code></td></tr>
+      <tr><td>FPL <code>fixtures</code></td><td>GW, home/away, FPL difficulty, kickoff, finished</td><td><code>transform.py</code></td></tr>
+      <tr><td>FPL <code>entry/{id}</code>, <code>/history</code>, <code>/event/{gw}/picks</code></td><td>User squad, bank, value, rank, chips played</td><td><code>sync_team.py</code>, <code>/api/sync</code></td></tr>
+      <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions</td><td><code>predict.py</code></td></tr>
+      <tr><td>Understat 2025/26 (soccerdata)</td><td>Player season xG, xA, minutes, yellow cards. Team match xG for and against.</td><td><code>soccer_stats.py</code>, <code>fdr.py</code></td></tr>
+      <tr><td>FBref, World Cup 2026</td><td>Minutes, goals, assists → bounded attacking multiplier</td><td><code>form.py</code></td></tr>
+      <tr><td>Google News RSS</td><td>Up to 5 headlines per player from the last 21 days</td><td><code>news.py</code></td></tr>
+      <tr><td>Claude Haiku 4.5</td><td>Sentiment classification, chat assistant, screenshot squad reader</td><td><code>sentiment.py</code>, <code>/api/assistant</code>, <code>/api/team-upload</code></td></tr>
+    </tbody>
+  </table></div>
+  <p>The FPL client sends a browser-like User-Agent, throttles to 1 request per second, retries 4 times with exponential backoff on 5xx and network errors, and caches raw JSON under <code>.cache/</code>. Not yet used, though planned in the original spec: The Odds API, PhysioRoom injury lookahead, vaastav/olbauday historical datasets.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="schema">
+  <span class="sec-num">05</span>
+  <h2>Database</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Table</th><th>Key</th><th>Written by</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td>teams</td><td class="num">fpl_id</td><td>refresh</td><td>Name, short name, FPL strengths</td></tr>
+      <tr><td>players</td><td class="num">fpl_id</td><td>refresh, enrich</td><td>FPL fields + <code>understat_id</code> + penalty/set-piece flags</td></tr>
+      <tr><td>fixtures</td><td class="num">fpl_id</td><td>refresh, enrich</td><td>GW, teams, FPL + custom FDR, finished</td></tr>
+      <tr><td>projections</td><td class="num">player_id, gw, model_version</td><td>model</td><td>x_pts + 8 component columns + <code>components</code> jsonb (opponents, n_fixtures, form, calibration)</td></tr>
+      <tr><td>preseason_form</td><td class="num">player_id</td><td>form (one-off)</td><td>World Cup multiplier and match detail</td></tr>
+      <tr><td>gw_predictions</td><td class="num">gw, variant</td><td>predict</td><td>Best XI (capped/uncapped), predicted vs actual</td></tr>
+      <tr><td>prediction_log</td><td class="num">gw, player_id</td><td>predict</td><td>Per-player predicted xPts, actual points and minutes</td></tr>
+      <tr><td>model_calibration</td><td class="num">position</td><td>predict</td><td>Per-position multiplier, n_gws, sums</td></tr>
+      <tr><td>news_sentiment</td><td class="num">id</td><td>news_job</td><td>Sentiment, topics, summary, minutes_risk_adj, source URL. Replaced in full each run.</td></tr>
+      <tr><td>profiles</td><td class="num">id (auth uid)</td><td>web</td><td>FPL entry ID per account</td></tr>
+      <tr><td>user_team_state</td><td class="num">user_id, gw</td><td>sync_team, web</td><td>Picks jsonb, bank, value, free_transfers, chips_available, rank. <code>gw = 0</code> means an uploaded or preseason squad.</td></tr>
+      <tr><td>optimizer_runs</td><td class="num">id</td><td>optimize</td><td>One row per user: suggested squad, transfers (path, chips, plan points, <code>based_on</code>), captain, gain, horizon</td></tr>
+    </tbody>
+  </table></div>
+  <p>Created but unused: <code>player_gw_stats</code>, <code>prices</code>, <code>crosswalk</code>, <code>fixtures.is_dgw/is_bgw</code>, <code>projections.p_start/exp_minutes/fixture_adj/sentiment_adj</code>.</p>
+  <p><b>Row-level security</b> (<code>0005_rls.sql</code>): shared FPL and model tables are public-read and writable only by the service role. <code>user_team_state</code> and <code>optimizer_runs</code> are readable when <code>user_id = 'me'</code> or matches <code>auth.uid()</code>, and writable only for your own uid. <code>profiles</code> is own-row only. The worker's service-role key bypasses RLS.</p>
+  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>). Logged-out visitors see it as a demo.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="crosswalk">
+  <span class="sec-num">06</span>
+  <h2>Crosswalk &amp; custom FDR</h2>
+  <h3>FPL ↔ Understat player matching (<code>crosswalk.py</code>)</h3>
+  <p>No shared ID exists, so names are fuzzy-matched after ASCII-folding.</p>
+  <ol>
+    <li><b>Team pass.</b> Candidates are restricted to the player's club, with five team names mapped (Man City, Man Utd, Newcastle, Nott'm Forest, Spurs). Score = max of <code>token_sort_ratio</code> on full name and web name, and <code>partial_ratio</code> on web name when it has 5+ letters. A surname match plus a compatible first name raises the score to 91. Accept if the score is ≥ 85 and beats the runner-up by ≥ 6.</li>
+    <li><b>Global pass</b> (summer transfers): full-name <code>token_sort_ratio</code> ≥ 92 against all Understat players, margin ≥ 8.</li>
+    <li>Anything else goes to <code>reports/crosswalk_review.csv</code>. The last run matched 396 players (51 via the global pass) and left 271 unmatched: 162 low score, 108 at promoted clubs, 1 ambiguous.</li>
+  </ol>
+  <p>Every run clears <code>understat_id</code> first, so dropped matches don't linger.</p>
+  <h3>Custom fixture difficulty (<code>fdr.py</code>)</h3>
+  <p>Team rating = (xG for − xG against) per game over 2025/26 Understat. Promoted clubs (Coventry, Hull, Ipswich) get the weakest returning team's rating. For each fixture, difficulty = 1 + 4 × (opponent rating − min) / (max − min), then −0.25 at home and +0.25 away, clamped to 1–5. Current range: Arsenal +1.17 (hardest opponent) down to Sunderland −0.45.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="model">
+  <span class="sec-num">07</span>
+  <h2>The xPts model (<code>model.py</code>, rules-v1)</h2>
+  <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is the lowest GW among unfinished fixtures, and the pipeline writes 38 GWs from there.</p>
+  <figure>
+    <div class="fig">
+      <svg viewBox="0 0 740 150" width="740" height="150" role="img" aria-label="xPts is minutes times rates times fixture, summed over eight components">
+        <defs><marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="d-arrow"/></marker></defs>
+        <rect x="10" y="20" width="150" height="56" rx="8" class="d-acc"/><text x="24" y="44" class="d-t">Minutes</text><text x="24" y="62" class="d-s">p_start, p_play, E[min]</text>
+        <rect x="190" y="20" width="150" height="56" rx="8" class="d-box"/><text x="204" y="44" class="d-t">Per-90 rates</text><text x="204" y="62" class="d-s">xG, xA shrunk to base</text>
+        <rect x="370" y="20" width="150" height="56" rx="8" class="d-box"/><text x="384" y="44" class="d-t">Fixture</text><text x="384" y="62" class="d-s">FDR adj, λ conceded</text>
+        <rect x="550" y="20" width="180" height="56" rx="8" class="d-box"/><text x="564" y="44" class="d-t">× form × calibration</text><text x="564" y="62" class="d-s">WC 0.90–1.12 · pos 0.8–1.2</text>
+        <path d="M160 48 H190" class="d-line" marker-end="url(#ar2)"/><path d="M340 48 H370" class="d-line" marker-end="url(#ar2)"/><path d="M520 48 H550" class="d-line" marker-end="url(#ar2)"/>
+        <rect x="10" y="100" width="720" height="36" rx="8" class="d-sunk"/>
+        <text x="24" y="123" class="d-s" style="font-size:12px">x_pts = appearance + goals + assists + clean sheet + saves + DefCon + bonus + deductions</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h3>1. Minutes</h3>
+<pre><code>availability = 0            if status in {i, s, u, n}
+             = chance/100   if chance_of_playing_next_round is set
+             = 0.5          if status = d
+             = 1.0          otherwise
+nailed       = min(1, players.minutes / 2600)
+p_start      = availability × nailed
+p_cameo      = (1 − p_start) × 0.15      (0 if unavailable)
+p_play       = min(1, p_start + p_cameo)
+E[minutes]   = 82·p_start + 20·p_cameo
+p_60         = 0.9·p_start</code></pre>
+  <div class="note warn"><strong>What this does today:</strong> <code>players.minutes</code> comes from FPL <code>bootstrap-static</code>, which holds this season's minutes, not last season's. After 5 GWs no player has more than 450, so <code>nailed</code> ≤ 0.17 and every projection is about one fifth of a realistic value. See issue C2.</div>
+
+  <h3>2. Attacking rates, shrunk to base (empirical Bayes)</h3>
+<pre><code>base[pos]  = minutes-weighted xG/90 and xA/90 over all matched players at that position
+xg90       = (xG_season + 12·base_xg90) / (n90 + 12)      K = 12 "virtual" full matches
+xa90       = (xA_season + 12·base_xa90) / (n90 + 12)
+yellow90   = yellows / n90     (0.1 if unmatched)
+unmatched players → xg90 = xa90 = 0</code></pre>
+  <p>Inputs are Understat 2025/26 totals. FPL's current-season <code>expected_goals_per_90</code> and similar fields are stored in <code>players</code> but the model doesn't use them yet.</p>
+
+  <h3>3. Per-fixture components</h3>
+<pre><code>adj          = 1 + 0.12·(3 − FDR)                        FDR 1 → ×1.24, FDR 5 → ×0.76
+x_goals_pts  = xg90·form · (E[min]/90) · adj · GOAL_PTS[pos]      GK/DEF 6, MID 5, FWD 4
+x_assist_pts = xa90·form · (E[min]/90) · adj · 3
+
+λ            = (0.5·opp_xGF_pg + 0.5·own_xGA_pg) × (0.9 home | 1.1 away)
+x_cs_pts     = e^(−λ) · CS_PTS[pos] · p_60                    GK/DEF 4, MID 1, FWD 0
+x_app_pts    = p_play + p_60
+x_saves_pts  = (2/3)·λ·p_start                                GK only
+x_defcon_pts = DEFCON_BASE[pos] · (E[min]/90) · 2             DEF .45, MID .15, GK .05, FWD .03
+x_bonus_pts  = min(1.5, 0.25 · (goals + assists [+ CS for GK/DEF]))
+x_deductions = −(λ/2)·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></pre>
+  <p>Team xG for/against per game comes from the same Understat team ratings as the FDR. Promoted clubs get the weakest attack and leakiest defence in the league. DefCon is a placeholder, not player-specific. Penalty and set-piece flags are stored but not used.</p>
+
+  <h3>4. Form and calibration multipliers</h3>
+  <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It is still applied in-season; nothing switches it off.</p>
+  <p><b>Calibration</b>: every component is multiplied by the position multiplier from <code>model_calibration</code>, so components still sum to <code>x_pts</code>. The multiplier is written to <code>components.calibration</code>.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="calibration">
+  <span class="sec-num">08</span>
+  <h2>Predictions &amp; calibration (<code>predict.py</code>)</h2>
+  <ol>
+    <li><b>Score.</b> For GWs FPL marks finished that still have unscored <code>prediction_log</code> rows, fetch <code>event/{gw}/live</code>, fill in actual points and minutes, and score each Best XI (starters + captain doubled).</li>
+    <li><b>Calibrate.</b> Over scored rows with predicted xPts ≥ 2, per position: <code>raw = clamp(Σactual / Σpredicted, 0.5, 2)</code>, <code>mult = clamp((n·raw + 3) / (n + 3), 0.8, 1.2)</code> where n = GWs scored. The next model run applies it.</li>
+    <li><b>Best XI.</b> For the next GW, solve the single-squad MILP twice, with a £100.0m budget ("capped") and with no budget ("uncapped"). Upsert into <code>gw_predictions</code>.</li>
+    <li><b>Snapshot.</b> Upsert every pool player's predicted xPts for that GW into <code>prediction_log</code>.</li>
+  </ol>
+  <div class="note warn"><strong>Current state:</strong> <code>gw_predictions</code> holds only GW1, and step 3 resets it to unscored on every run, so the accuracy table never appears. Calibration is ×0.875 for GK, DEF and MID, based on one GW where every row with predicted xPts ≥ 2 scored 0. See C3.</div>
+</section>
+
+<!-- ===================================================================== -->
+<section id="optimizer">
+  <span class="sec-num">09</span>
+  <h2>Optimizer (<code>optimize.py</code>, HiGHS MILP)</h2>
+  <h3>Inputs</h3>
+  <ul>
+    <li>All <code>rules-v1</code> projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
+    <li>Pool: players whose status isn't i/s/u/n. The <b>universe</b> is your 15 plus the top 90 other players by summed xPts across <em>all</em> projection GWs.</li>
+    <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ current price of your 15 + bank. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>.</li>
+    <li>Horizon: the argument, else the user's last saved horizon, else 5. Clamped to the GWs available.</li>
+  </ul>
+  <h3>Hard constraints (every GW)</h3>
+  <ul>
+    <li>15 players: 2 GK, 5 DEF, 5 MID, 3 FWD. At most 3 per club. Squad cost ≤ budget.</li>
+    <li>11 starters: 1 GK, 3–5 DEF, 2–5 MID, 1–3 FWD. One captain, who must start.</li>
+    <li>Squad transitions: <code>own[g] − own[g−1] = buy[g] − sell[g]</code>, starting from your current 15.</li>
+    <li>Free transfers: <code>hits[g] ≥ buys[g] − free[g]</code>. <code>free[0] ≤ FT</code>; after that, <code>free[g] ≤ free[g−1] − used + 1</code>, capped at 5. Preseason, the first GW is unlimited and the next starts at 1.</li>
+  </ul>
+  <h3>Objective</h3>
+<pre><code>maximise  Σ_g 0.9^g · Σ_i xp[i,g] · (start[i,g] + captain[i,g] + 0.1·bench[i,g])
+          − 4 · Σ_g hits[g]</code></pre>
+  <p>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds. Output per GW: transfers in and out, hits, banked FTs, XI points including the captain. Reported "planned points" are undiscounted. "Gain" is plan points minus holding the current 15 with the best XI and captain each week. <code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change.</p>
+  <h3>Other modes</h3>
+  <p><code>--fresh</code>: best 15 from scratch for £100m. <code>--transfers</code>: single-deadline swap valued over the horizon. Both reuse the single-squad <code>_solve</code>, which the Best XI and chip evaluators also use.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="chips">
+  <span class="sec-num">10</span>
+  <h2>Chip timing</h2>
+  <p>Each chip is valued as its <b>marginal</b> gain over the squad you would field on the planned transfer path, scanned across every GW in the horizon. The best GW per chip is kept.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Chip</th><th>Gain at GW g</th><th class="num">Bar</th></tr></thead>
+    <tbody>
+      <tr><td>Triple Captain</td><td>Captain's xPts that GW (one extra ×1)</td><td class="num">12</td></tr>
+      <tr><td>Bench Boost</td><td>Sum of the 4 bench players' xPts</td><td class="num">18</td></tr>
+      <tr><td>Wildcard</td><td>Fresh optimal 15 for GWs g…end − planned path over the same window + 4 × hits the path takes from g</td><td class="num">8</td></tr>
+      <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">8</td></tr>
+    </tbody>
+  </table></div>
+  <p>A chip is recommended only if you still hold it and its gain clears the bar. If several do, the one with the largest gain over its bar wins. Otherwise the advice is "hold". DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW. Available chips = the four codes minus any chip name in <code>history.chips</code>.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="team">
+  <span class="sec-num">11</span>
+  <h2>Team sync &amp; personalisation</h2>
+  <ul>
+    <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and <code>free_transfers = entry_history.event_transfers</code>. Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
+    <li><b>Manual sync</b> (<code>POST /api/sync</code>): the same logic for the logged-in user, then dispatches <code>fpl-optimize</code>.</li>
+    <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Saved as <code>gw = 0</code> with bank 0, FT null and all chips, then re-optimized.</li>
+    <li><b>On-demand optimize</b> (<code>POST /api/optimize</code>, signed in): validates horizon 1–38 and dispatches the workflow for that user. The Optimizer page polls <code>optimizer_runs</code> until the new plan lands, in about 1–2 minutes.</li>
+    <li><b>Stale plan warning</b>: if the current squad's IDs differ from <code>transfers.based_on</code>, the Optimizer page warns instead of showing old transfers.</li>
+  </ul>
+</section>
+
+<!-- ===================================================================== -->
+<section id="news">
+  <span class="sec-num">12</span>
+  <h2>News &amp; sentiment (advisory)</h2>
+  <p>Targets: players with an FPL flag (status not "a", or a chance-of-playing value) plus anyone owned by ≥ 5%, flagged players first, capped at 200. For each: Google News query <code>"web_name" Club football (injury OR fitness OR lineup OR transfer OR Premier League)</code>, up to 5 headlines from the last 21 days, then Claude Haiku 4.5 with a forced <code>record_sentiment</code> tool. It returns sentiment, topics (injury-risk, return-from-injury, rotation, suspension, form-buzz, transfer, off-pitch, none), <code>minutes_risk_adj</code> in [−1, 0], and a one-line summary. Results tagged "none" are dropped. The table is replaced in full each run (97 rows on the last run).</p>
+  <p>The signal is shown in the Players table and the assistant's player lookup. It does <b>not</b> change xPts or the optimizer.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="assistant">
+  <span class="sec-num">13</span>
+  <h2>Assistant (<code>/api/assistant</code>)</h2>
+  <p>Claude Haiku 4.5 with up to 6 tool rounds. The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan. The user is the logged-in account, or "me".</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Tool</th><th>Returns</th></tr></thead>
+    <tbody>
+      <tr><td>list_top_players</td><td>Top N by next-GW xPts, filterable by position, max price and minimum ownership</td></tr>
+      <tr><td>get_player</td><td>First <code>ilike</code> name match: price, ownership, status, next-GW xPts, "next 5" (actually the sum of every projection row), news</td></tr>
+      <tr><td>get_my_team</td><td>Latest squad with next-GW xPts, bank, free transfers</td></tr>
+      <tr><td>get_optimizer_plan</td><td>Captain, this week's transfers, path, chip windows, gain</td></tr>
+      <tr><td>get_best_xi</td><td>Latest unscored Best XI, capped or uncapped</td></tr>
+    </tbody>
+  </table></div>
+  <p>"Next GW" everywhere in the web app is the lowest GW in <code>projections</code>.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section id="web">
+  <span class="sec-num">14</span>
+  <h2>Web app &amp; auth</h2>
+  <ul>
+    <li>Server components read Supabase with the anon key. Personal pages scope reads to <code>currentUserId()</code> (auth uid, or "me" when logged out).</li>
+    <li>The middleware refreshes the Supabase session cookie on every non-asset request.</li>
+    <li>Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
+    <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
+    <li>The mobile app (<code>mobile/</code>) reads the same tables. So far it has Players and My Team.</li>
+  </ul>
+</section>
+
+<!-- ===================================================================== -->
+<section id="params">
+  <span class="sec-num">15</span>
+  <h2>Parameters</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Name</th><th class="num">Value</th><th>Where</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>MODEL_VERSION</td><td class="num">rules-v1</td><td>model.py</td><td>Stored on every projection</td></tr>
+      <tr><td>nailed divisor</td><td class="num">2600 min</td><td>model.py</td><td>Minutes that count as a full-season starter</td></tr>
+      <tr><td>start / cameo minutes</td><td class="num">82 / 20</td><td>model.py</td><td>Expected minutes if starting or subbed on</td></tr>
+      <tr><td>cameo rate</td><td class="num">0.15</td><td>model.py</td><td>P(sub appearance) when not starting</td></tr>
+      <tr><td>PRIOR_K</td><td class="num">12</td><td>model.py</td><td>Shrinkage strength, in 90s</td></tr>
+      <tr><td>FDR slope</td><td class="num">0.12</td><td>model.py</td><td>Attack multiplier per FDR step</td></tr>
+      <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
+      <tr><td>bonus cap</td><td class="num">1.5</td><td>model.py</td><td>Maximum bonus proxy</td></tr>
+      <tr><td>DEFCON_BASE</td><td class="num">.45/.15/.05/.03</td><td>model.py</td><td>DEF/MID/GK/FWD placeholder hit rate</td></tr>
+      <tr><td>HOME_ADVANTAGE</td><td class="num">0.25</td><td>fdr.py</td><td>FDR home/away nudge</td></tr>
+      <tr><td>FORM_WEIGHT · CLAMP</td><td class="num">0.12 · 0.90–1.12</td><td>form.py</td><td>World Cup multiplier size</td></tr>
+      <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP</td><td class="num">3 · 2.0 · 0.8–1.2</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
+      <tr><td>BUDGET</td><td class="num">1000 (£100.0m)</td><td>optimize.py</td><td>Fresh squad and capped Best XI</td></tr>
+      <tr><td>BENCH_WEIGHT</td><td class="num">0.1</td><td>optimize.py</td><td>Bench value in the objective</td></tr>
+      <tr><td>HIT_COST · FT_CAP</td><td class="num">4 · 5</td><td>optimize.py</td><td>Points per extra transfer · FT bank limit</td></tr>
+      <tr><td>DECAY</td><td class="num">0.9 per GW</td><td>optimize.py</td><td>Future-GW discount</td></tr>
+      <tr><td>POOL_SIZE</td><td class="num">90</td><td>optimize.py</td><td>Non-owned candidates in the plan MILP</td></tr>
+      <tr><td>Chip bars</td><td class="num">TC 12 · BB 18 · WC 8 · FH 8</td><td>optimize.py</td><td>Marginal xPts needed to recommend</td></tr>
+      <tr><td>Crosswalk thresholds</td><td class="num">85/6 · 91 · 92/8</td><td>crosswalk.py</td><td>Team pass/margin · structured · global/margin</td></tr>
+      <tr><td>News targeting</td><td class="num">own ≥ 5% · 200 · 21 d</td><td>news_job.py</td><td>Threshold · cap · headline age</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ===================================================================== -->
+<section id="issues">
+  <span class="sec-num">16</span>
+  <h2>Known issues (review of 2026-09-25)</h2>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. Critical issues change every recommendation the app makes today.</p>
+
+  <div class="issues">
+    <div class="issue"><span class="id">C1</span><div><h4><span class="chip crit">Critical</span> The app is anchored to GW1</h4></div>
+      <p>The model deletes only the GWs it is rewriting (now 6–43), so GW1–5 projections stay forever. The optimizer, Best XI, Players, My Team and assistant all use the lowest GW in <code>projections</code>. Live: <b>Best XI shows "GW1" and the optimizer plan is dated GW1 on 25 Sep</b>, with plans that include finished GWs. Fix: delete rows with <code>gw &lt; next_gw</code>, and take the next GW from bootstrap <code>events[].is_next</code>.</p></div>
+    <div class="issue"><span class="id">C2</span><div><h4><span class="chip crit">Critical</span> Projections are about 5× too low</h4></div>
+      <p><code>nailed = minutes/2600</code> uses this season's FPL minutes. At GW6 the top projection is 1.33 xPts (Haaland's GW1 value was 0.5). Appearance and clean-sheet points collapse, and rankings mostly reward whoever has played the most minutes so far. Fix: base P(start) on this season's starts per match played, blended with last season's minutes as a prior.</p></div>
+    <div class="issue"><span class="id">C3</span><div><h4><span class="chip crit">Critical</span> The accuracy and calibration loop learns from bad data</h4></div>
+      <p><code>log_best_squads</code> upserts <code>scored=false</code> each run, so GW1 never shows in the scorecard. <code>prediction_log</code> for GW1 is an Aug 9 snapshot. Players who later left or got injured (Chalobah, Reijnders and Vicario with status u; Van den Berg and Minteh with status i) were never overwritten, scored 0, and are the only rows above the 2-xPts filter. Result: ×0.875 applied to GK, DEF and MID. Fix: freeze snapshots at the deadline, only log players with a fixture, never re-open scored GWs, and reset <code>model_calibration</code>.</p></div>
+    <div class="issue"><span class="id">C4</span><div><h4><span class="chip crit">Critical</span> Free transfers are the wrong field</h4></div>
+      <p><code>free_transfers = event_transfers</code>, which is the number of transfers <em>made</em> that GW, in both <code>sync_team.py</code> and <code>/api/sync</code>. The optimizer then uses <code>max(1, value)</code>, so hit and roll decisions are wrong. Fix: rebuild the FT count from <code>history.current</code> (transfers and cost per GW, +1 per GW, cap 5, reset by WC/FH).</p></div>
+
+    <div class="issue"><span class="id">H1</span><div><h4><span class="chip high">High</span> The model ignores current-season data</h4></div>
+      <p>Understat is pinned to 2025/26, FPL's own 2026/27 xG/xA per 90, starts and <code>defensive_contribution</code> are stored or available but unused, and the World Cup multiplier still applies mid-season. Form and role changes don't register.</p></div>
+    <div class="issue"><span class="id">H2</span><div><h4><span class="chip high">High</span> 271 of 667 players have zero attacking output</h4></div>
+      <p>Unmatched players get xG/90 = 0. That covers every player at the three promoted clubs and most signings from outside the PL, so they are never recommended as attackers. Fix: fall back to FPL xG/xA per 90.</p></div>
+    <div class="issue"><span class="id">H3</span><div><h4><span class="chip high">High</span> Chip rules are out of date</h4></div>
+      <p>Since 2025/26 each chip comes twice, once per half-season, and the first set expires at the GW19 deadline. Sync marks a chip used for the whole season after one play, and the planner doesn't know about the expiry, so "hold" can let first-half chips lapse.</p></div>
+    <div class="issue"><span class="id">H4</span><div><h4><span class="chip high">High</span> Budget ignores selling prices</h4></div>
+      <p>Budget = Σ current price + bank. FPL sells at purchase price + half the profit, rounded down, so after price rises the optimizer can suggest transfers you can't afford. Purchase prices are available from public <code>entry/{id}/transfers</code>.</p></div>
+    <div class="issue"><span class="id">H5</span><div><h4><span class="chip high">High</span> Pipeline order: optimize runs before sync</h4></div>
+      <p>In <code>fpl-data</code>, optimize (step 5) runs before sync_team (step 6), so each scheduled plan uses the previous team snapshot.</p></div>
+    <div class="issue"><span class="id">H6</span><div><h4><span class="chip high">High</span> Open, unmetered assistant endpoint</h4></div>
+      <p><code>POST /api/assistant</code> needs no login and has no rate limit, so anyone can spend the Anthropic credits.</p></div>
+    <div class="issue"><span class="id">H7</span><div><h4><span class="chip high">High</span> Unverified emails</h4></div>
+      <p><code>mailer_autoconfirm</code> is on, so anyone can register any address. The Docs gate trusts the email, which is safe only while an account with the owner's email already exists. Turn on "Confirm email" in Supabase Auth.</p></div>
+    <div class="issue"><span class="id">H8</span><div><h4><span class="chip high">High</span> In-season screenshot uploads are ignored</h4></div>
+      <p>Uploads save as <code>gw = 0</code>, but every reader takes the highest GW row. Once a synced GW row exists (as it does for "me"), the upload has no effect.</p></div>
+
+    <div class="issue"><span class="id">M1</span><div><h4><span class="chip med">Medium</span> "Next 5" totals sum everything</h4></div>
+      <p>The Players page's xp5, the assistant's <code>xpts_next5</code> and the optimizer's 90-player candidate ranking sum every projection row (38+ GWs, stale ones included), whatever the horizon. Short-term fixture swings and cheap enablers fall out of the pool.</p></div>
+    <div class="issue"><span class="id">M2</span><div><h4><span class="chip med">Medium</span> Next GW is taken from unfinished fixtures</h4></div>
+      <p>During a live GW the model keeps projecting that GW, minus fixtures already played, and the Best XI and prediction snapshot are overwritten after the deadline. Also, the horizon runs to GW43, and the Players page reads about 25k rows in 1,000-row pages on each load.</p></div>
+    <div class="issue"><span class="id">M3</span><div><h4><span class="chip med">Medium</span> Crude component proxies</h4></div>
+      <p>DefCon is a flat position rate (0.9 pts/90 for every defender). Goals-conceded uses λ/2 rather than E[⌊GC/2⌋]. Attacking FDR uses the opponent's overall xG difference rather than its defence. Team strength never updates in-season. Penalty and set-piece flags are unused.</p></div>
+    <div class="issue"><span class="id">M4</span><div><h4><span class="chip med">Medium</span> Decision gaps</h4></div>
+      <p>No vice-captain, no autosub or bench-order value, no price-change awareness, and no effective ownership or rank-goal captaincy (in the original plan). <code>minutes_risk_adj</code> from news is never used.</p></div>
+    <div class="issue"><span class="id">M5</span><div><h4><span class="chip med">Medium</span> Scheduler drift</h4></div>
+      <p>The cron is set for every 3 h but runs about 4 times a day, often 5–6 h apart, so prices and injury news can be that stale before a deadline.</p></div>
+    <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Low</span> Smaller issues</h4></div>
+      <p>The assistant's <code>get_player</code> takes the first <code>ilike</code> match (there are two Palmers), and its news lookup has no ordering. The assistant prompt hardcodes "preseason / early season". The "me" demo exposes the owner's squad to logged-out visitors. The README and <code>docs/RECOMMENDATION-ENGINE.md</code> are out of date (the latter says minutes are last season's).</p></div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section id="ideas">
+  <span class="sec-num">17</span>
+  <h2>Improvement ideas</h2>
+  <p>Ranked by value for buy/sell decisions, after the critical fixes above.</p>
+  <ol>
+    <li><b>Backtest harness</b> on vaastav 2023–26 GW data: replay the model and optimizer week by week and report MAE, rank correlation and points gained. This is the gate for every model change.</li>
+    <li><b>Live-season blend</b>: weight this season's FPL xG, xA, starts and DefCon per 90 by recency, with last season as the prior and <code>PRIOR_K</code> tuned by the backtest.</li>
+    <li><b>Transfer explainer</b>: for each suggested move, show the xPts delta per GW, the price and selling-price effect, and fixture swings, with an "is the −4 worth it" breakdown.</li>
+    <li><b>What-if planner</b>: pin or ban players and force or forbid transfers in a given GW, then re-solve.</li>
+    <li><b>Captaincy with effective ownership</b> and a rank-goal toggle (protect or chase), plus a vice-captain.</li>
+    <li><b>Price-change model</b> from net transfers, to time buys before rises and sells before falls.</li>
+    <li><b>Deadline alerts</b>: push or email with the plan, flagged injuries in the XI, and captain.</li>
+    <li><b>Odds</b> (The Odds API free tier) for clean-sheet and anytime-scorer calibration.</li>
+    <li><b>Uncertainty bands</b> (P10/P90 per player) so differentials and captain gambles can be judged on variance.</li>
+    <li><b>Mini-league view</b>: rivals' squads and differentials.</li>
+  </ol>
+</section>
+
+<!-- ===================================================================== -->
+<section id="history">
+  <span class="sec-num">18</span>
+  <h2>History</h2>
+  <ul class="timeline">
+    <li><span class="d">2026-08-09</span><br>Initial build: FPL → Supabase pipeline, Players explorer, Understat crosswalk, custom FDR, rules-v1 model (Phases 0–3), xPts breakdown drawer and fixture ticker (4), news and sentiment (7), Guide tab, multi-week and chip optimizer (5), marginal chip valuation fix, split data/news schedules.</li>
+    <li><span class="d">2026-08-09</span><br>Best XI with accuracy tracking and calibration. Grounded assistant (8). Supabase Auth, profiles, on-demand sync, RLS, per-user worker (9.1–9.4). Transfer-path OUT→IN pairing fix. DGW/BGW-aware chips. Screenshot upload. Auto re-optimize with a stale-plan warning.</li>
+    <li><span class="d">2026-08-11</span><br>User-selectable plan horizon (1 to GWs left), "Optimize my squad" button, plan rationale, clearer GitHub dispatch errors.</li>
+    <li><span class="d">2026-08-12</span><br>Chips no longer imply a DGW or BGW that doesn't exist.</li>
+    <li><span class="d">2026-08-16</span><br>Expo mobile app, increment 1 (Players and My Team) and dev-build setup. World Cup 2026 form factor. Screenshot name matching for ı, ø, ł and similar letters.</li>
+    <li><span class="d">2026-09-25</span><br>Full review (section 16). Added this blueprint and the owner-only Docs tab.</li>
+  </ul>
+</section>
+
+<!-- ===================================================================== -->
+<section id="maintenance">
+  <span class="sec-num">19</span>
+  <h2>Keeping this current</h2>
+  <p>This file, <code>web/content/architecture.html</code>, is the single source for both the in-app Docs tab and the Claude artifact. The rule in <code>fpl-selector/CLAUDE.md</code>:</p>
+  <ol>
+    <li>Any commit that changes behaviour in <code>worker/</code>, <code>web/</code>, <code>mobile/</code>, <code>supabase/</code> or <code>.github/workflows/</code> updates the affected sections here in the same commit. That includes formulas, parameters, pipeline steps, tables, routes and known issues (move fixed ones out).</li>
+    <li>Bump the doc revision and date in the header, and add a History entry.</li>
+    <li>Republish the Claude artifact from this file (Artifact tool, publish with the saved artifact URL). The in-app tab updates on the next Vercel deploy.</li>
+  </ol>
+</section>
+</main>
+</div>
