@@ -4,8 +4,7 @@
 -- 0005 let anyone read user_team_state / optimizer_runs rows where user_id = 'me' so logged-out visitors
 -- saw a demo. The web app now asks logged-out visitors to log in instead, so personal rows become
 -- own-rows only. The worker (service role) still writes 'me' and is unaffected.
--- NOTE: the Expo app's My Team tab reads 'me' without signing in; it shows nothing after this until the
--- app gets sign-in.
+-- The Expo app's My Team tab signs in and reads the user's own rows, so it is unaffected.
 
 do $$
 declare t text;

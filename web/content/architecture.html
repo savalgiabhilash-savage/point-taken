@@ -136,7 +136,7 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 7</span>
+    <span>doc rev 8</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v1</span>
@@ -206,7 +206,7 @@ svg text{font-family:var(--sans)}
         <rect x="530" y="310" width="210" height="90" rx="10" class="d-box"/>
         <text x="546" y="334" class="d-t">Expo mobile app</text>
         <text x="546" y="352" class="d-s">SDK 57 dev build</text>
-        <text x="546" y="370" class="d-s">Players + My Team (read-only)</text>
+        <text x="546" y="370" class="d-s">Players + My Team (sign-in)</text>
         <rect x="20" y="310" width="170" height="90" rx="10" class="d-sunk"/>
         <text x="34" y="334" class="d-t">Claude API</text>
         <text x="34" y="352" class="d-s">Haiku 4.5: sentiment,</text>
@@ -308,7 +308,7 @@ svg text{font-family:var(--sans)}
   </table></div>
   <p>Created but unused: <code>player_gw_stats</code>, <code>prices</code>, <code>crosswalk</code>, <code>fixtures.is_dgw/is_bgw</code>, <code>projections.p_start/exp_minutes/fixture_adj/sentiment_adj</code>.</p>
   <p><b>Row-level security</b> (<code>0005_rls.sql</code>): shared FPL and model tables are public-read and writable only by the service role. <code>user_team_state</code> and <code>optimizer_runs</code> are readable when <code>user_id = 'me'</code> or matches <code>auth.uid()</code>, and writable only for your own uid. <code>profiles</code> is own-row only. The worker's service-role key bypasses RLS.</p>
-  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>), still synced and optimized by the worker. Migration <code>0007_private_demo_squad.sql</code> removes its public read, making personal rows own-rows only. The Expo app's My Team tab, which reads "me" without signing in, shows nothing until the app gets sign-in.</p>
+  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>), still synced and optimized by the worker. Migration <code>0007_private_demo_squad.sql</code> removes its public read, making personal rows own-rows only. The Expo app's My Team tab signs in and reads the user's own rows, so it doesn't depend on "me".</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -497,7 +497,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
     <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
-    <li>The mobile app (<code>mobile/</code>) reads the same tables. So far it has Players and My Team.</li>
+    <li>The mobile app (<code>mobile/</code>) reads the same tables. Players is public. My Team signs in with the same email and password accounts as the website (<code>supabase.auth.signInWithPassword</code>), keeps the session in AsyncStorage, refreshes its token only while the app is in the foreground, and shows the signed-in user's own squad. Accounts are created on the website.</li>
   </ul>
 </section>
 
@@ -596,6 +596,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-26</span><br>Fixed M1–M5: horizon-based candidate pool with value picks; Players page fetches 5 GWs; DefCon from FPL per-90 rates; exact goals-conceded deduction; attack adjusted by opponent xG conceded; in-season team strength; vice-captain and bench order; cron every 2 h.</li>
     <li><span class="d">2026-09-27</span><br>Fixed L1: assistant name disambiguation and newest news; no hardcoded season phase; login required for My Team and Optimizer, plus migration 0007 to make personal rows private; README refreshed; old engine doc removed.</li>
     <li><span class="d">2026-09-27</span><br>Renamed <code>middleware.ts</code> to <code>proxy.ts</code> (Next 16 file convention); behaviour unchanged.</li>
+    <li><span class="d">2026-09-27</span><br>Mobile app: sign-in on My Team (same Supabase accounts), showing the user's own squad instead of the public demo.</li>
   </ul>
 </section>
 

@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, useColorScheme, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SignInForm } from '@/components/sign-in-form';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, Colors, Spacing } from '@/constants/theme';
+import { useSession } from '@/hooks/use-session';
 import { MODEL_VERSION, supabase } from '@/lib/supabase';
 
-// Increment 1 shows the shared "me" demo squad (public via RLS). A later increment swaps this for the
-// signed-in user's own team once auth lands.
-const DEMO_USER = 'me';
+// Shows the signed-in user's own squad (RLS returns only their rows); signed out, a sign-in form.
 const POS_ORDER: Record<string, number> = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
 const POS_COLOR: Record<string, string> = { GK: '#f59e0b', DEF: '#10b981', MID: '#0ea5e9', FWD: '#f43f5e' };
 
@@ -28,24 +28,33 @@ type P = {
 export default function TeamScreen() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const c = Colors[scheme];
+  const session = useSession();
+  const userId = session?.user.id ?? null;
   const [squad, setSquad] = useState<P[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!userId) {
+      setSquad([]);
+      setMsg(null);
+      setLoading(false);
+      return;
+    }
     let active = true;
+    setLoading(true);
     (async () => {
       try {
         const { data: st } = await supabase
           .from('user_team_state')
           .select('*')
-          .eq('user_id', DEMO_USER)
+          .eq('user_id', userId)
           .order('gw', { ascending: false })
           .limit(1);
         const team = st?.[0] as { picks?: Record<string, unknown>[] } | undefined;
         if (!team?.picks?.length) {
           if (active) {
-            setMsg('No team synced yet.');
+            setMsg('No team synced yet. Add your FPL entry ID in Settings on fpl-selector.vercel.app and sync.');
             setLoading(false);
           }
           return;
@@ -102,7 +111,7 @@ export default function TeamScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [userId]);
 
   const starters = squad.filter((p) => p.starter);
   const bench = squad.filter((p) => !p.starter);
@@ -145,13 +154,28 @@ export default function TeamScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        <ThemedText type="title" style={styles.h1}>
-          My Team
-        </ThemedText>
-        <ThemedText type="small" style={[styles.sub, { color: c.textSecondary }]}>
-          {squad.length ? `Projected XI (captain doubled): ${xi.toFixed(1)} pts` : 'Demo squad'}
-        </ThemedText>
-        {loading ? (
+        <View style={styles.header}>
+          <ThemedText type="title" style={styles.h1}>
+            My Team
+          </ThemedText>
+          {session ? (
+            <Pressable onPress={() => supabase.auth.signOut()} hitSlop={8}>
+              <ThemedText type="small" style={{ color: c.textSecondary }}>
+                Sign out
+              </ThemedText>
+            </Pressable>
+          ) : null}
+        </View>
+        {session ? (
+          <ThemedText type="small" style={[styles.sub, { color: c.textSecondary }]}>
+            {squad.length ? `Projected XI (captain doubled): ${xi.toFixed(1)} pts` : session.user.email}
+          </ThemedText>
+        ) : null}
+        {session === undefined ? (
+          <ActivityIndicator style={styles.loading} />
+        ) : session === null ? (
+          <SignInForm />
+        ) : loading ? (
           <ActivityIndicator style={styles.loading} />
         ) : msg ? (
           <ThemedText style={{ marginTop: Spacing.three, color: c.textSecondary }}>{msg}</ThemedText>
@@ -169,6 +193,7 @@ export default function TeamScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1, paddingHorizontal: Spacing.three },
+  header: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   h1: { marginTop: Spacing.two },
   sub: { marginBottom: Spacing.three },
   loading: { marginTop: Spacing.five },
