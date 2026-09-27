@@ -46,6 +46,9 @@ jobs:
 
       # 2) Advanced stats: Understat crosswalk + custom FDR (slow-moving baseline).
       - name: Enrich (crosswalk + FDR)
+        # Only feeds the Fixtures-page difficulty display; projections don't depend on it, so an
+        # Understat outage mustn't stop the rest of the pipeline.
+        continue-on-error: true
         run: uv run python -m fpl_worker.enrich --all
 
       # 3) Rules-based xPts projections (reflect updated availability).

@@ -6,7 +6,7 @@ was known before g's deadline — the previous season's totals plus this season'
 and its prediction for g is compared with the points actually scored. FPL's own expected points at
 the time (`xP` in the dataset) are scored the same way as the benchmark to beat.
 
-It calls the production model functions (minutes_profile, player_rates, project_fixture, DefCon)
+It calls the production model functions (minutes_profile, form_model.form_profile, project_fixture, DefCon)
 and the team goals model (team_model.fit / blend, with that season's market-average odds from
 football-data.co.uk), so any change to model.py / team_model.py is measured automatically.
 
@@ -17,7 +17,7 @@ Known differences from live running (read the results with these in mind):
   * No injury/suspension flags exist in the dataset, so every player is treated as available.
     FPL's xP does know about injuries — so the "played" subset (minutes > 0) is also reported,
     which compares the two on points given that the player appeared.
-  * "Last season" attacking and team data come from FPL's xG (Opta) instead of Understat.
+  * "Last season" comes from the same FPL dataset the live model now reads (fpl_history).
   * Odds are football-data.co.uk's market averages, collected shortly before each round — about the
     same time the live pipeline reads the upcoming round's odds.
   * No calibration multiplier and no World Cup form factor (identity).
@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -43,81 +42,20 @@ import pandas as pd
 
 from datetime import datetime
 
-from . import model, team_model
+from . import form_model, fpl_history, model, team_model
 
-BASE_URL = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/master/data"
-CACHE = Path(".cache") / "vaastav"
+CACHE = fpl_history.CACHE
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
 DEFAULT_SEASONS = ["2023-24", "2024-25", "2025-26"]
-POSITIONS = {"GK": "GK", "GKP": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD"}  # drops "AM" rows
 ELEMENT_TYPE = {"GK": 1, "DEF": 2, "MID": 3, "FWD": 4}
 DEFCON_FROM_SEASON = "2025-26"
 TOP_K = 20
 XP_VALID_RATIO = 0.6  # a season's mean xP must be at least 60% of mean actual points to be a usable benchmark
 
-
-# --- data ---------------------------------------------------------------------
-
-def _csv(season: str, path: str) -> pd.DataFrame:
-    """Download a dataset file once, then read it from the local cache."""
-    local = CACHE / season / path.replace("/", "_")
-    if not local.exists():
-        local.parent.mkdir(parents=True, exist_ok=True)
-        pd.read_csv(f"{BASE_URL}/{season}/{path}").to_csv(local, index=False)
-    return pd.read_csv(local)
-
-
-def _prev(season: str) -> str:
-    a, b = season.split("-")
-    return f"{int(a) - 1}-{int(b) - 1:02d}"
-
-
-def load_season(season: str) -> pd.DataFrame:
-    """Per-player, per-fixture rows with a stable cross-season `code` and a clean position."""
-    gw = _csv(season, "gws/merged_gw.csv")
-    raw = _csv(season, "players_raw.csv")[["id", "code"]].rename(columns={"id": "element"})
-    df = gw.merge(raw, on="element", how="left")
-    df["pos"] = df["position"].map(POSITIONS)
-    df = df[df["pos"].notna()].copy()
-    for col in ("expected_goals", "expected_assists", "expected_goals_conceded", "defensive_contribution",
-                "yellow_cards", "starts", "minutes", "total_points", "xP"):
-        if col not in df:
-            df[col] = 0.0
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-    df["was_home"] = df["was_home"].astype(str).str.lower().eq("true")
-    return df
-
-
-def teams(season: str) -> pd.DataFrame:
-    return _csv(season, "teams.csv")[["id", "name"]]
-
-
-# --- priors from the previous season -----------------------------------------
-
-def last_season_priors(prev: pd.DataFrame) -> dict:
-    """Player totals by code from the previous season — the backtest's stand-in for the live model's
-    Understat 2025/26 baseline."""
-    players = (
-        prev.groupby("code")[["expected_goals", "expected_assists", "minutes", "yellow_cards"]].sum()
-        .rename(columns={"expected_goals": "xg", "expected_assists": "xa"})
-    )
-    return {str(c): r._asdict() for c, r in zip(players.index, players.itertuples(index=False))}
-
-
-def season_matches(df: pd.DataFrame, id_to_name: dict[int, str]) -> list[dict]:
-    """Each match's xG per side (sum of that side's players' expected_goals), kickoff date and round —
-    the input the team goals model fits on (live: Understat last season + FPL this season)."""
-    side = df.groupby(["fixture", "was_home"]).agg(
-        team=("team", "first"), opp=("opponent_team", "first"), xg=("expected_goals", "sum"),
-        kickoff=("kickoff_time", "first"), round=("round", "first")).reset_index()
-    home = side[side["was_home"]].set_index("fixture")
-    away = side[~side["was_home"]].set_index("fixture")
-    out = []
-    for f in home.index.intersection(away.index):
-        h, a = home.loc[f], away.loc[f]
-        out.append({"home": h["team"], "away": a["team"], "hxg": h["xg"], "axg": a["xg"], "round": int(h["round"]),
-                    "date": datetime.fromisoformat(str(h["kickoff"]).replace("Z", "+00:00"))})
-    return out
+# Data loading lives in fpl_history (shared with the live model); these aliases keep older callers working.
+load_season = fpl_history.load_season
+teams = fpl_history.teams
+_prev = fpl_history.prev_season
 
 
 def season_odds(season: str, names: list[str]) -> dict:
@@ -132,32 +70,25 @@ def season_odds(season: str, names: list[str]) -> dict:
 
 # --- one gameweek -------------------------------------------------------------
 
-def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], last_players: dict,
+def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], profiles: dict,
                base: dict, tm: dict) -> pd.DataFrame:
     """Model predictions for every player-row of GW g, using only rows from GWs before g."""
     past = df[df["round"] < g]
     now = df[df["round"] == g]
     id_to_name = {t["fpl_id"]: t["name"] for t in team_list}
 
-    # This season so far, per player (by element) and per club.
-    cur = past.groupby("element")[["minutes", "expected_goals", "expected_assists", "defensive_contribution"]].sum()
     # Team goals model fitted on last season + this season's matches before GW g, dated at g's first kickoff.
     ref = min(datetime.fromisoformat(str(k).replace("Z", "+00:00")) for k in now["kickoff_time"])
     fitted = [m for m in tm["cur"] if m["round"] < g]
     strengths = team_model.fit(tm["prev"] + fitted, ref, tm["teams"], tm["promoted"])
 
-    # Recent per-GW minutes/starts (last MINUTES_WINDOW GWs), exactly what the live model reads from
-    # event/{gw}/live. A player only has rows for GWs his club played, so blanks aren't "dropped".
-    recent = past[past["round"] >= g - model.MINUTES_WINDOW]
-    per_gw = recent.groupby(["element", "round"]).agg(
-        games=("fixture", "size"), starts=("starts", "sum"), minutes=("minutes", "sum")).reset_index()
-    history: dict[int, list[dict]] = defaultdict(list)
-    for h in per_gw.itertuples(index=False):
-        history[h.element].append({"age": (g - 1) - h.round, "games": h.games, "starts": h.starts, "minutes": h.minutes})
+    # This season's per-GW history per player — the same shape the live model builds from event/{gw}/live.
+    history = fpl_history.entries_before(past, g - 1)
 
     # DefCon per-90 (2025/26 rules onward), from this season's counts so far.
     dc90: dict[int, float] = {}
     if season >= DEFCON_FROM_SEASON:
+        cur = past.groupby("element")[["minutes", "defensive_contribution"]].sum()
         els = [{"id": int(e), "element_type": ELEMENT_TYPE[p], "minutes": cur.loc[e, "minutes"] if e in cur.index else 0,
                 "defensive_contribution": cur.loc[e, "defensive_contribution"] if e in cur.index else 0}
                for e, p in now.groupby("element")["pos"].first().items()]
@@ -165,24 +96,21 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], las
 
     out = []
     for r in now.itertuples(index=False):
-        e = r.element
-        c = cur.loc[e] if e in cur.index else None
-        last = last_players.get(str(r.code)) if pd.notna(r.code) else None
-        player = {
-            "position": r.pos, "status": "a", "chance_of_playing_next_round": None,
-            "minutes": float(c["minutes"]) if c is not None else 0.0,
-            "expected_goals": float(c["expected_goals"]) if c is not None else 0.0,
-            "expected_assists": float(c["expected_assists"]) if c is not None else 0.0,
-        }
-        player["mprof"] = model.minutes_profile(history.get(e, []), last["minutes"] if last else None)
-        rates = model.player_rates(model._observed(last, player), r.pos, base)
-        rates["dc90"] = dc90.get(int(e), 0.0)
+        e = int(r.element)
+        last = profiles.get(str(int(r.code))) if pd.notna(r.code) else None
+        hist = history.get(e, [])
+        prof = form_model.form_profile(hist, last, base[r.pos])
+        prof["dc90"] = dc90.get(e, 0.0)
+        player = {"position": r.pos, "status": "a", "chance_of_playing_next_round": None,
+                  "mprof": model.minutes_profile([h for h in hist if h["age"] < model.MINUTES_WINDOW],
+                                                 last["minutes"] if last else None)}
         opp = id_to_name[int(r.opponent_team)]
         h, a = (r.team, opp) if r.was_home else (opp, r.team)
         lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, h, a), tm["odds"].get((h, a)))
         lam_for, lam_against = (lam_h, lam_a) if r.was_home else (lam_a, lam_h)
-        comp = model.project_fixture(player, rates, lam_for, lam_against,
-                                     team_model.average_goals_for(strengths, r.team))
+        comp = model.project_fixture(player, prof, lam_for, lam_against,
+                                     team_model.average_goals_for(strengths, r.team),
+                                     team_model.average_goals_against(strengths, r.team), bool(r.was_home))
         out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"],
                     "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP})
     rows = pd.DataFrame(out)
@@ -195,30 +123,24 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], las
 def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
     df = load_season(season)
     prev = load_season(_prev(season))
-    last_players = last_season_priors(prev)
+    profiles = fpl_history.last_season_profiles(prev)
+    base = form_model.base_rates(profiles)
     team_list = [{"fpl_id": int(r.id), "name": r.name} for r in teams(season).itertuples(index=False)]
     names = [t["name"] for t in team_list]
     prev_names = list(teams(_prev(season))["name"])
-    id_to_name = {t["fpl_id"]: t["name"] for t in team_list}
-    prev_id_to_name = {int(r.id): r.name for r in teams(_prev(season)).itertuples(index=False)}
     tm = {
-        "prev": season_matches(prev, prev_id_to_name),
-        "cur": season_matches(df, id_to_name),
+        "prev": fpl_history.season_matches(prev),
+        "cur": fpl_history.season_matches(df),
         "teams": sorted(set(names) | set(prev_names)),
         "promoted": set(names) - set(prev_names),
         "odds": season_odds(season, names),
     }
-    # Position base rates (the shrinkage prior) from last season, as the live model does.
-    # (compute_base_rates keys players by understat_id; here the stable FPL `code` plays that role)
-    prior_players = [{"understat_id": str(code), "position": pos}
-                     for code, pos in prev.groupby("code")["pos"].first().items()]
-    base = model.compute_base_rates(prior_players, last_players)
 
     frames = []
     for g in sorted(df["round"].unique()):
         if g < from_gw:
             continue
-        frames.append(predict_gw(df, int(g), season, team_list, last_players, base, tm))
+        frames.append(predict_gw(df, int(g), season, team_list, profiles, base, tm))
     res = pd.concat(frames, ignore_index=True)
     res["season"] = season
     ratio = res["xP"].mean() / res["actual"].mean()

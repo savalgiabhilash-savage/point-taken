@@ -35,8 +35,12 @@ type Why = {
   fpl_avail: number;
   news_adj: number;
   avail: number;
-  xg90: number;
-  xa90: number;
+  xg_share?: number;
+  xa_share?: number;
+  bonus90?: number;
+  home_mult?: { home: number; away: number };
+  xg90?: number; // older projections (before the role-share model)
+  xa90?: number;
   dc90: number;
   season: { xg: number; xa: number; min: number };
   last: { xg: number; xa: number; min: number } | null;
@@ -198,13 +202,21 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
 
   // 4. Form
   if (why) {
-    const fb: string[] = [
-      `Goal threat used: ${f2(why.xg90)} xG per 90 · creativity ${f2(why.xa90)} xA per 90`,
-      `This season: ${f1(why.season.xg)} xG, ${f1(why.season.xa)} xA in ${why.season.min} min`,
-    ];
-    if (why.last) fb.push(`Last season: ${f1(why.last.xg)} xG, ${f1(why.last.xa)} xA in ${why.last.min} min (counted at half weight)`);
+    const fb: string[] = [];
+    if (why.xg_share != null) {
+      fb.push(`Takes ${pct(why.xg_share)} of his team's chances (xG) while he's on the pitch`);
+      fb.push(`Creates ${pct(why.xa_share ?? 0)} of his team's xG as assists (xA)`);
+      fb.push("Measured against what his team created in each game, so an easy or hard fixture doesn't inflate or hide it");
+    } else if (why.xg90 != null) {
+      fb.push(`Goal threat used: ${f2(why.xg90)} xG per 90 · creativity ${f2(why.xa90 ?? 0)} xA per 90`);
+    }
+    fb.push(`This season: ${f1(why.season.xg)} xG, ${f1(why.season.xa)} xA in ${why.season.min} min`);
+    if (why.last) fb.push(`Last season: ${f1(why.last.xg)} xG, ${f1(why.last.xa)} xA in ${why.last.min} min (counts less than this season)`);
     else fb.push("No last-season Premier League data (new to the league or promoted)");
-    fb.push("Rates are pulled toward the average for his position, more so when minutes are few");
+    fb.push("Pulled toward the average for his position, more so when minutes are few");
+    if (why.home_mult && (Math.abs(why.home_mult.home - 1) >= 0.03 || Math.abs(why.home_mult.away - 1) >= 0.03))
+      fb.push(`Home/away: ×${f2(why.home_mult.home)} at home, ×${f2(why.home_mult.away)} away (his own split)`);
+    if (why.bonus90 != null) fb.push(`Bonus: ${f2(why.bonus90)} bonus points per 90 from his own record`);
     if (c.form != null && c.form !== 1) fb.push(`Preseason World Cup form: ×${c.form}`);
     if ((p.position === "DEF" || p.position === "MID" || p.position === "FWD") && why.dc90 > 0)
       fb.push(`Defensive actions: ${f1(why.dc90)} per 90${c.p_dc != null ? ` → ${pct(c.p_dc)} chance of the DefCon bonus per start` : ""}`);

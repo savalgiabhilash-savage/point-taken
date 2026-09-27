@@ -112,6 +112,11 @@ def average_goals_for(s: dict, team: str) -> float:
     return math.exp(s["mu"] + s["home"] / 2 + s["att"][team])
 
 
+def average_goals_against(s: dict, team: str) -> float:
+    """A team's expected goals conceded to an average opponent, half home / half away."""
+    return math.exp(s["mu"] + s["home"] / 2 + s["def"][team])
+
+
 # --- odds -----------------------------------------------------------------------------------------
 
 def _poisson(k: int, lam: float) -> float:
