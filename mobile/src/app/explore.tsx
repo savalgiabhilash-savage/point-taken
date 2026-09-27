@@ -35,15 +35,10 @@ export default function TeamScreen() {
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!userId) {
-      setSquad([]);
-      setMsg(null);
-      setLoading(false);
-      return;
-    }
+    if (!userId) return; // signed out: the sign-in form shows instead (state is reset in signOut)
     let active = true;
-    setLoading(true);
     (async () => {
+      setLoading(true);
       try {
         const { data: st } = await supabase
           .from('user_team_state')
@@ -113,6 +108,12 @@ export default function TeamScreen() {
     };
   }, [userId]);
 
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setSquad([]);
+    setMsg(null);
+  };
+
   const starters = squad.filter((p) => p.starter);
   const bench = squad.filter((p) => !p.starter);
   const xi = starters.reduce((s, p) => s + p.xpn, 0) + (starters.find((p) => p.captain)?.xpn ?? 0);
@@ -159,7 +160,7 @@ export default function TeamScreen() {
             My Team
           </ThemedText>
           {session ? (
-            <Pressable onPress={() => supabase.auth.signOut()} hitSlop={8}>
+            <Pressable onPress={signOut} hitSlop={8}>
               <ThemedText type="small" style={{ color: c.textSecondary }}>
                 Sign out
               </ThemedText>
