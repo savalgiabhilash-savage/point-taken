@@ -136,10 +136,10 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 10</span>
+    <span>doc rev 11</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
-    <span>model rules-v1</span>
+    <span>model rules-v2</span>
     <span>season 2026/27 · next GW6</span>
   </div>
 </header>
@@ -275,7 +275,7 @@ svg text{font-family:var(--sans)}
       <tr><td>FPL <code>fixtures</code></td><td>GW, home/away, FPL difficulty, kickoff, finished</td><td><code>transform.py</code></td></tr>
       <tr><td>FPL <code>entry/{id}</code>, <code>/history</code>, <code>/event/{gw}/picks</code></td><td>User squad, bank, value, rank, chips played</td><td><code>sync_team.py</code>, <code>/api/sync</code></td></tr>
       <tr><td>FPL <code>entry/{id}/transfers</code>, <code>element-summary/{id}</code></td><td>Purchase prices, used to compute selling prices</td><td><code>sync_team.selling_prices</code> (called by the optimizer)</td></tr>
-      <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions</td><td><code>predict.py</code></td></tr>
+      <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions; recent per-GW starts and minutes for the minutes model</td><td><code>predict.py</code>, <code>model.recent_minutes_history</code></td></tr>
       <tr><td>Understat 2025/26 (soccerdata)</td><td>Player season xG, xA, minutes, yellow cards. Team match xG for and against.</td><td><code>soccer_stats.py</code>, <code>fdr.py</code></td></tr>
       <tr><td>FBref, World Cup 2026</td><td>Minutes, goals, assists → bounded attacking multiplier</td><td><code>form.py</code></td></tr>
       <tr><td>Google News RSS</td><td>Up to 5 headlines per player from the last 21 days</td><td><code>news.py</code></td></tr>
@@ -330,7 +330,7 @@ svg text{font-family:var(--sans)}
 <!-- ===================================================================== -->
 <section id="model">
   <span class="sec-num">07</span>
-  <h2>The xPts model (<code>model.py</code>, rules-v1)</h2>
+  <h2>The xPts model (<code>model.py</code>, rules-v2)</h2>
   <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38. Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline.</p>
   <figure>
     <div class="fig">
@@ -352,16 +352,20 @@ svg text{font-family:var(--sans)}
              = chance/100   if chance_of_playing_next_round is set
              = 0.5          if status = d
              = 1.0          otherwise
-prior        = min(1, last_season_understat_minutes / 2600)     (none if unmatched)
-current      = min(1, minutes_this_season / (90 × club_games_played))
-w            = club_games / (club_games + 4)
-nailed       = w·current + (1 − w)·prior      (current only if no prior; prior only before GW1)
-p_start      = availability × nailed
-p_cameo      = (1 − p_start) × 0.15      (0 if unavailable)
+history      = last 8 finished GWs in which the player's club played: {games, starts, minutes}
+w(GW)        = 0.5 ^ (GWs ago / 3)                                  recent games count most
+prior        = min(1, last_season_understat_minutes / 2600)          (none if unmatched)
+start_rate   = (Σw·starts + 0.5·prior) / (Σw·games + 0.5)             prior alone before any game
+p60_start    = share of full-start GWs with 60+ min     }  each shrunk toward its default
+start_mins   = average minutes in those starts          }  (0.88, 85, 0.15, 20 min)
+cameo_rate   = share of non-start GWs with a sub cameo  }  by 3 virtual games
+cameo_mins   = average cameo minutes                    }
+p_start      = availability × start_rate
+p_cameo      = (1 − p_start) × cameo_rate      (0 if unavailable)
 p_play       = min(1, p_start + p_cameo)
-E[minutes]   = 82·p_start + 20·p_cameo
-p_60         = 0.9·p_start</code></pre>
-  <p><code>players.minutes</code> is FPL's this-season total, so it is divided by the games the club has actually played. After 4 games this season counts as much as last season, and it dominates by mid-season.</p>
+E[minutes]   = p_start·start_mins + p_cameo·cameo_mins
+p_60         = p_start · p60_start</code></pre>
+  <p>Live, the history comes from FPL's <code>event/{gw}/live</code> (one call per GW, 8 per run); in the backtest, from the dataset rows. Only GWs where the player's current club played count, so a club blank isn't read as being dropped. The half-life (3 GWs) and prior strength (0.5 games) were tuned on 2023/24 and confirmed on the held-out 2024/25 and 2025/26.</p>
 
   <h3>2. Attacking rates, shrunk to base (empirical Bayes)</h3>
 <pre><code>base[pos]  = minutes-weighted xG/90 and xA/90 over all matched players at that position
@@ -412,7 +416,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <h2>Optimizer (<code>optimize.py</code>, HiGHS MILP)</h2>
   <h3>Inputs</h3>
   <ul>
-    <li>All <code>rules-v1</code> projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
+    <li>All current-version (<code>rules-v2</code>) projections, giving <code>xp_by_gw[player][gw]</code>. The plan's GWs are the first <em>horizon</em> distinct GWs in the table.</li>
     <li>Pool: players whose status isn't i/s/u/n. Every player's total is summed over the <em>plan horizon</em> only. The <b>universe</b> is your 15 plus, per position, the top candidates by that total (GK 8, DEF 25, MID 25, FWD 15) and the best by points per £ (GK 4, DEF 8, MID 8, FWD 5), so cheap enablers stay available.</li>
     <li>Team state: the latest <code>user_team_state</code> row by GW. Budget = Σ <b>selling price</b> of your 15 + bank. Selling price = purchase price + half of any rise (rounded down), or the current price after a fall. Purchase prices come from the public <code>entry/{id}/transfers</code> (latest transfer in, ignoring Free Hit weeks), or the GW1 price for players kept from your first squad. An owned player "costs" his selling price in the MILP, so the budget is exactly what you could raise. Free transfers: <code>null</code> means unlimited (preseason), otherwise <code>max(1, value)</code>, where the value is rebuilt from history (section 11).</li>
     <li>Horizon: the argument, else the user's last saved horizon, else 5. Clamped to the GWs available.</li>
@@ -508,13 +512,12 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <div class="tbl"><table>
     <thead><tr><th>Name</th><th class="num">Value</th><th>Where</th><th>Meaning</th></tr></thead>
     <tbody>
-      <tr><td>MODEL_VERSION</td><td class="num">rules-v1</td><td>model.py</td><td>Stored on every projection</td></tr>
+      <tr><td>MODEL_VERSION</td><td class="num">rules-v2</td><td>model.py (+ web/mobile constants)</td><td>Stored on every projection; older versions are deleted each run</td></tr>
       <tr><td>nailed divisor</td><td class="num">2600 min</td><td>model.py</td><td>Last-season minutes that count as a full-season starter</td></tr>
       <tr><td>LAST_SEASON_WEIGHT</td><td class="num">0.5</td><td>model.py</td><td>Weight of a last-season 90 vs a this-season 90</td></tr>
       <tr><td>CHIP_HALF_END</td><td class="num">GW19</td><td>sync_team.py</td><td>Last GW of the first chip set</td></tr>
-      <tr><td>MINUTES_K</td><td class="num">4 games</td><td>model.py</td><td>Club games before this season's minutes share outweighs last season</td></tr>
-      <tr><td>start / cameo minutes</td><td class="num">82 / 20</td><td>model.py</td><td>Expected minutes if starting or subbed on</td></tr>
-      <tr><td>cameo rate</td><td class="num">0.15</td><td>model.py</td><td>P(sub appearance) when not starting</td></tr>
+      <tr><td>MINUTES_WINDOW · HALF_LIFE · PRIOR_GAMES</td><td class="num">8 GWs · 3 GWs · 0.5</td><td>model.py</td><td>Minutes history length, recency decay, weight of last season</td></tr>
+      <tr><td>Minutes-shape defaults · SHAPE_K</td><td class="num">85 min · 0.88 · 0.15 · 20 min · 3</td><td>model.py</td><td>Start minutes, P(60|start), cameo rate, cameo minutes; shrinkage</td></tr>
       <tr><td>PRIOR_K</td><td class="num">12</td><td>model.py</td><td>Shrinkage strength, in 90s</td></tr>
       <tr><td>HOME_ATTACK</td><td class="num">×1.05 / ×0.95</td><td>model.py</td><td>Attack tweak home / away</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
@@ -589,23 +592,24 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <p><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags.</p>
   <p><b>Left out:</b> bookmaker odds, predicted line-ups, European and cup fixture congestion, penalty order as its own term, news sentiment (advisory by design), price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
 
-  <h3>Backtest baseline (step 0 done, 2026-09-27)</h3>
+  <h3>Backtest results</h3>
   <p><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26. It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark. Results go to <code>worker/reports/</code>. It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it.</p>
   <div class="tbl"><table>
-    <thead><tr><th>rules-v1</th><th class="num">Model</th><th class="num">FPL xP</th><th>Reading</th></tr></thead>
+    <thead><tr><th>Head-to-head (2023/24 + 2024/25)</th><th class="num">rules-v1</th><th class="num">rules-v2</th><th class="num">FPL xP</th></tr></thead>
     <tbody>
-      <tr><td>MAE, all player-GWs</td><td class="num">1.115</td><td class="num">0.858</td><td>Model's average error is about 30% larger</td></tr>
-      <tr><td>MAE, players who played</td><td class="num">1.886</td><td class="num">1.730</td><td>Gap narrows once minutes are known</td></tr>
-      <tr><td>Rank correlation per GW</td><td class="num">0.621</td><td class="num">0.745</td><td>Model orders players less well</td></tr>
-      <tr><td>Avg pts of top-20 picks</td><td class="num">4.64</td><td class="num">7.03</td><td>Oracle (hindsight) 11.07</td></tr>
-      <tr><td>Avg pts of captain pick</td><td class="num">6.46</td><td class="num">11.20</td><td>Both mostly pick Salah or Haaland; the gap is in the other weeks</td></tr>
-      <tr><td>Top-20 picks who didn't play</td><td class="num">10%</td><td class="num">6%</td><td>Minutes misses: step 1's target</td></tr>
-      <tr><td>Bias (mean pred − actual)</td><td class="num">+0.02</td><td class="num">−0.09</td><td>Model is well calibrated by decile</td></tr>
-      <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">—</td><td>Baseline for the minutes model</td></tr>
+      <tr><td>MAE, all player-GWs</td><td class="num">1.115</td><td class="num">1.034</td><td class="num">0.858</td></tr>
+      <tr><td>MAE, players who played</td><td class="num">1.886</td><td class="num">1.926</td><td class="num">1.730</td></tr>
+      <tr><td>Rank correlation per GW</td><td class="num">0.621</td><td class="num">0.671</td><td class="num">0.745</td></tr>
+      <tr><td>Avg pts of top-20 picks (oracle 11.07)</td><td class="num">4.64</td><td class="num">4.92</td><td class="num">7.03</td></tr>
+      <tr><td>Avg pts of captain pick</td><td class="num">6.46</td><td class="num">6.67</td><td class="num">11.20</td></tr>
+      <tr><td>Top-20 picks who didn't play</td><td class="num">10%</td><td class="num">7%</td><td class="num">6%</td></tr>
+      <tr><td>Bias (mean pred − actual)</td><td class="num">+0.02</td><td class="num">+0.02</td><td class="num">−0.09</td></tr>
+      <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">0.097</td><td class="num">—</td></tr>
     </tbody>
   </table></div>
   <p>Head-to-head covers 2023/24 and 2024/25 (55,661 player-GWs). The dataset's <code>xP</code> is broken for 2025/26 (it averages 34% of actual points), so the harness drops it there automatically. Three differences favour <code>xP</code>. The dataset has no injury flags, so the replay treats everyone as available. "Last season" uses FPL xG instead of Understat. And when <code>xP</code> was recorded isn't documented, so it may include team news the replay can't see. For a clean head-to-head from now on, log FPL's <code>ep_next</code> next to each live prediction (needs a <code>prediction_log</code> column).</p>
-  <p><b>What the baseline says to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares). Those are steps 1–3.</p>
+  <p><b>rules-v2 (minutes model, step 1):</b> over all three seasons, MAE 1.117 → 1.035 (−7.3%), rank correlation 0.633 → 0.680, P(start) Brier 0.114 → 0.097 (−15%), top-20 no-shows 10% → 7%, top-20 points 4.55 → 4.77. It improves on every season, including the held-out 2024/25 and 2025/26. The one metric that got worse, MAE among players who played (+2%), is conditioned on the outcome; the model's job is the unconditional forecast. Still behind FPL <code>xP</code>, which has injury news the replay lacks.</p>
+  <p><b>What the rules-v1 baseline said to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares). Those are steps 1–3.</p>
 
   <h3>The plan, in order</h3>
   <p>Each step ships only if the backtest shows it improves accuracy. The ordering puts the biggest expected error reduction for the effort first.</p>
@@ -613,7 +617,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <thead><tr><th>#</th><th>Step</th><th>What changes</th><th>Why it matters</th></tr></thead>
     <tbody>
       <tr><td class="num">0</td><td><b>Measure first</b></td><td>A backtest harness on the vaastav dataset (every GW of 2022/23–2025/26, with FPL's own <code>xP</code> at the time and actual points). Replay the model using only data available before each deadline. Report MAE and RMSE per position, rank correlation among likely starters, top-50 hit rate, calibration by decile, Brier score for P(start) and P(60+), and decision scores (captain and Best XI points vs actual). Log per-component predictions live (goals, assists, CS, saves, bonus, DefCon, minutes) against <code>event/{gw}/live</code>.</td><td>Without this, no change can be called an improvement. FPL's <code>ep_next</code> is the benchmark to beat.</td></tr>
-      <tr><td class="num">1</td><td><b>Minutes model</b></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
+      <tr><td class="num">1</td><td><b>Minutes model</b> <span class="chip low">Done · rules-v2</span></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
       <tr><td class="num">2</td><td><b>Team goals model + odds</b></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
       <tr><td class="num">3</td><td><b>Player shares</b></td><td>Player goals = team expected goals × the player's recency-weighted share of team non-penalty xG while on the pitch, and the same for assists. Penalties become a separate term: FPL <code>penalties_order</code> × team penalty rate × about 0.78 conversion.</td><td>Shares are more stable than raw per-90s, and a new penalty taker is priced immediately.</td></tr>
       <tr><td class="num">4</td><td><b>Component models</b></td><td>Bonus: expected BPS from components, then rank within the match, via simulation. DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
@@ -654,6 +658,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-27</span><br>Mobile app: sign-in on My Team (same Supabase accounts), showing the user's own squad instead of the public demo.</li>
     <li><span class="d">2026-09-27</span><br>Added the factors inventory and accuracy plan (section 17). Mobile app gets ESLint (<code>npm run lint</code>).</li>
     <li><span class="d">2026-09-27</span><br>Backtest harness (<code>worker/fpl_worker/backtest.py</code>) and rules-v1 baseline over 2023/24–2025/26.</li>
+    <li><span class="d">2026-09-27</span><br>rules-v2: recency-weighted minutes model (start rate, P(60|start), start and cameo minutes per player from the last 8 GWs). Backtest MAE −7.3%, P(start) Brier −15%. Web and mobile read the version from one constant each.</li>
   </ul>
 </section>
 

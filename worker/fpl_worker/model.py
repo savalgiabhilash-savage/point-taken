@@ -20,7 +20,9 @@ from dotenv import load_dotenv
 from . import db, fdr, soccer_stats
 from .fpl_client import FplClient
 
-MODEL_VERSION = "rules-v1"
+# rules-v2: recency-weighted minutes model (minutes_profile). Bump on any change to how xPts is computed,
+# together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
+MODEL_VERSION = "rules-v2"
 
 GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -31,7 +33,15 @@ DEFCON_K = 3.0  # shrink a player's DefCon per-90 toward the position average by
 HOME_ATTACK = {True: 1.05, False: 0.95}  # home sides create a little more
 PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
 LAST_GW = 38
-MINUTES_K = 4.0  # games of this season before its minutes share outweighs last season's prior
+# Minutes model (see minutes_profile): recent gameweeks count most.
+MINUTES_WINDOW = 8          # most recent finished gameweeks used
+MINUTES_HALF_LIFE = 3.0     # a gameweek's weight halves every 3 GWs back
+PRIOR_GAMES = 0.5           # last season's start rate counts as half a game of evidence (tuned on 2023-24)
+SHAPE_K = 3.0               # shrink minutes-shape rates toward the defaults by 3 virtual games
+START_MINS_DEFAULT = 85.0   # minutes when starting
+P60_DEFAULT = 0.88          # P(60+ minutes | start)
+CAMEO_RATE_DEFAULT = 0.15   # P(comes off the bench | doesn't start)
+CAMEO_MINS_DEFAULT = 20.0   # minutes of a sub appearance
 LAST_SEASON_WEIGHT = 0.5  # a 90 of last season counts half as much as a 90 of this season
 
 # --- minutes -----------------------------------------------------------------
@@ -44,33 +54,71 @@ def _availability(status: str | None, chance: int | None) -> float:
     return 0.5 if status == "d" else 1.0  # 'd' doubtful, else available
 
 
-def nailedness(cur_minutes: int | None, team_games: int, last_minutes: float | None) -> float:
-    """How nailed-on a player is (0..1): a blend of this season's minutes share and last season's.
+def minutes_profile(history: list[dict], last_minutes: float | None) -> dict:
+    """A player's minutes profile from their recent gameweeks.
 
-    `cur_minutes` is FPL's players.minutes — THIS season's total, so it must be divided by the games
-    the club has actually played (not a full season). `last_minutes` is last season's Understat
-    minutes (None if the player isn't matched). This season's share gets weight
-    team_games / (team_games + MINUTES_K), so after 4 games it counts as much as last season, and
-    by mid-season it dominates. Unmatched players (promoted clubs, arrivals from abroad) have no
-    prior, so they rely on this season alone."""
+    `history` has one entry per recent finished GW in which the player's club played:
+    {age: GWs ago (0 = latest), games: club fixtures that GW, starts, minutes}. Each GW is weighted
+    0.5 ** (age / MINUTES_HALF_LIFE), so the last few games dominate: a player dropped two weeks ago
+    is priced as a rotation risk now, not at his season average.
+
+      start_rate  = weighted starts / weighted games, blended with last season's rate
+                    (last-season minutes / 2600) worth PRIOR_GAMES games. No history -> the prior;
+                    no prior either (promoted club / new arrival) -> this season alone.
+      p60_start   = share of full-start GWs with 60+ minutes      } each shrunk toward its default by
+      start_mins  = average minutes in those starts                } SHAPE_K virtual games, so one
+      cameo_rate  = share of non-start GWs with a sub appearance   } early sub-off or cameo doesn't
+      cameo_mins  = average minutes of those appearances           } swing the profile
+    GWs with a mix of starts and non-starts (a double) count toward the start rate only."""
     prior = min(1.0, last_minutes / 2600) if last_minutes else None  # ~29 full games = nailed
-    if team_games <= 0:
-        return prior or 0.0
-    current = min(1.0, (cur_minutes or 0) / (90.0 * team_games))
-    if prior is None:
-        return current
-    w = team_games / (team_games + MINUTES_K)
-    return w * current + (1.0 - w) * prior
+    wg = ws = 0.0
+    w_start = start_min = start_60 = 0.0
+    w_bench = w_cameo = cameo_min = 0.0
+    for h in history:
+        w = 0.5 ** (h["age"] / MINUTES_HALF_LIFE)
+        games, starts, mins = h["games"], h["starts"], h["minutes"]
+        wg += w * games
+        ws += w * starts
+        if games and starts == games:
+            per = mins / games
+            w_start += w
+            start_min += w * per
+            start_60 += w * (1.0 if per >= 60 else 0.0)
+        elif starts == 0 and games:
+            w_bench += w
+            if mins > 0:
+                w_cameo += w
+                cameo_min += w * mins / games
+
+    if wg == 0:
+        start_rate = prior or 0.0
+    elif prior is None:
+        start_rate = ws / wg
+    else:
+        start_rate = (ws + PRIOR_GAMES * prior) / (wg + PRIOR_GAMES)
+
+    def shrink(total: float, weight: float, default: float) -> float:
+        return (total + SHAPE_K * default) / (weight + SHAPE_K)
+
+    return {
+        "start_rate": min(1.0, start_rate),
+        "p60_start": shrink(start_60, w_start, P60_DEFAULT),
+        "start_mins": shrink(start_min, w_start, START_MINS_DEFAULT),
+        "cameo_rate": shrink(w_cameo, w_bench, CAMEO_RATE_DEFAULT),
+        "cameo_mins": shrink(cameo_min, w_cameo, CAMEO_MINS_DEFAULT),
+    }
 
 
-def _minutes(player: dict) -> tuple[float, float, float]:
-    """Return (p_start, p_play, exp_minutes). `player["nailed"]` comes from nailedness()."""
+def _minutes(player: dict) -> tuple[float, float, float, float]:
+    """Return (p_start, p_play, exp_minutes, p_60). `player["mprof"]` comes from minutes_profile()."""
+    m = player["mprof"]
     avail = _availability(player["status"], player["chance_of_playing_next_round"])
-    p_start = avail * player["nailed"]
-    p_cameo = (1.0 - p_start) * (0.15 if avail > 0 else 0.0)
+    p_start = avail * m["start_rate"]
+    p_cameo = (1.0 - p_start) * (m["cameo_rate"] if avail > 0 else 0.0)
     p_play = min(1.0, p_start + p_cameo)
-    exp_minutes = p_start * 82 + p_cameo * 20
-    return p_start, p_play, exp_minutes
+    exp_minutes = p_start * m["start_mins"] + p_cameo * m["cameo_mins"]
+    p_60 = p_start * m["p60_start"]
+    return p_start, p_play, exp_minutes, p_60
 
 
 # --- fixture / team helpers --------------------------------------------------
@@ -201,7 +249,7 @@ def project_fixture(player: dict, rates: dict, is_home: bool, league_xga: float,
     small preseason-form multiplier on attacking output (2026 World Cup — see form.py); 1.0 = no
     change. It scales the attacking rates only, so it flows through goals, assists, and bonus."""
     pos = player["position"] or "MID"
-    p_start, p_play, exp_min = _minutes(player)
+    p_start, p_play, exp_min, p_60 = _minutes(player)
     mins_frac = exp_min / 90.0
     adj = _attack_adj(opp, league_xga, is_home)
 
@@ -218,7 +266,6 @@ def project_fixture(player: dict, rates: dict, is_home: bool, league_xga: float,
     lam = 0.5 * opp["xgf_pg"] + 0.5 * our["xga_pg"]
     lam *= 0.9 if is_home else 1.1
     p_cs = math.exp(-lam)
-    p_60 = p_start * 0.9
     x_cs_pts = p_cs * CS_PTS[pos] * p_60
 
     # appearance
@@ -291,6 +338,28 @@ def _load_form(sb) -> dict[int, float]:
         return {}
 
 
+def recent_minutes_history(client: FplClient, fixtures: list[dict],
+                           team_by_player: dict[int, int]) -> dict[int, list[dict]]:
+    """{player_id: [{age, games, starts, minutes}, ...]} over the last MINUTES_WINDOW finished GWs, from
+    FPL's event/{gw}/live (one call per GW). Only GWs where the player's CURRENT club played count, so a
+    blank for his club isn't mistaken for being dropped."""
+    games: dict[tuple[int, int], int] = {}
+    for f in fixtures:
+        if f["finished"] and f["gw"] is not None:
+            for t in (f["team_h"], f["team_a"]):
+                games[(t, f["gw"])] = games.get((t, f["gw"]), 0) + 1
+    finished = sorted({gw for (_, gw) in games})[-MINUTES_WINDOW:]
+    out: dict[int, list[dict]] = {}
+    for gw in finished:
+        for e in client.event_live(gw).get("elements", []):
+            n = games.get((team_by_player.get(e["id"]), gw), 0)
+            if n:
+                st = e["stats"]
+                out.setdefault(e["id"], []).append({"age": finished[-1] - gw, "games": n,
+                                                    "starts": st.get("starts") or 0, "minutes": st.get("minutes") or 0})
+    return out
+
+
 def next_gameweek(boot: dict) -> int | None:
     """The next gameweek whose deadline hasn't passed (FPL's is_next). Taken from FPL rather than
     'lowest GW with an unfinished fixture', which would keep projecting a GW already in progress."""
@@ -324,6 +393,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             print(f"  {pos}: xg90={b.get('xg90', 0):.3f} xa90={b.get('xa90', 0):.3f}")
     with FplClient() as client:
         boot = client.bootstrap_static()
+        history = recent_minutes_history(client, fixtures, {p["fpl_id"]: p["team_id"] for p in players})
     dc90 = defcon_rates(boot["elements"])
     ratings = fdr.blend_with_current(fdr.team_ratings(), teams, players, fixtures)
     team_rt = build_team_ratings_by_id(teams, ratings)
@@ -359,7 +429,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
         rates = player_rates(_observed(us, p), p["position"], base)
         rates["dc90"] = dc90.get(p["fpl_id"], 0.0)
-        p["nailed"] = nailedness(p["minutes"], team_games.get(p["team_id"], 0), us.get("minutes") if us else None)
+        p["mprof"] = minutes_profile(history.get(p["fpl_id"], []), us.get("minutes") if us else None)
         our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
         # World Cup form is a preseason stand-in; once the club has played, real minutes/xG take over.
         fm = form.get(p["fpl_id"], 1.0) if team_games.get(p["team_id"], 0) == 0 else 1.0
@@ -416,6 +486,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     # every reader's "lowest GW in projections" is always the real next gameweek.
     sb.table("projections").delete().eq("model_version", MODEL_VERSION).in_("gw", gws).execute()
     sb.table("projections").delete().eq("model_version", MODEL_VERSION).lt("gw", next_gw).execute()
+    # Only one model version is ever served; drop rows from older versions so nothing reads stale ones.
+    sb.table("projections").delete().neq("model_version", MODEL_VERSION).execute()
     db.upsert(sb, "projections", payload, on_conflict="player_id,gw,model_version")
     print(f"Wrote {len(payload)} projections for GW{next_gw}-{gws[-1]} (model {MODEL_VERSION}).")
 

@@ -22,6 +22,9 @@ export function createSupabaseServerClient() {
   return createClient(url, anonKey, { auth: { persistSession: false } });
 }
 
+/** The projections model the worker writes (worker/fpl_worker/model.py MODEL_VERSION). */
+export const MODEL_VERSION = "rules-v2";
+
 export type Position = "GK" | "DEF" | "MID" | "FWD";
 
 /** One named part of the next-GW xPts total, for the transparent breakdown. */
@@ -66,7 +69,7 @@ export type GwPrediction = {
 /** Per-position calibration learned from past accuracy, applied to future projections. */
 export type Calibration = { position: string; n_gws: number; multiplier: number };
 
-/** A player row enriched with rules-v1 projection data for the explorer table. */
+/** A player row enriched with projection data for the explorer table. */
 export type PlayerRow = {
   fpl_id: number;
   web_name: string;

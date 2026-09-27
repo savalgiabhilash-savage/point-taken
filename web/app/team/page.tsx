@@ -1,4 +1,4 @@
-import { type Position } from "@/lib/supabase";
+import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
@@ -6,7 +6,7 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-const MODEL = "rules-v1";
+const MODEL = MODEL_VERSION;
 const CHIP_LABEL: Record<string, string> = {
   wildcard: "Wildcard",
   freehit: "Free Hit",

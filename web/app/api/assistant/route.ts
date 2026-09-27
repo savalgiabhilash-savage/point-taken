@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS, runTool } from "@/lib/assistant-tools";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { MODEL_VERSION } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,7 +17,7 @@ Grounding rules (strict):
 - If the tools don't cover something, say so plainly instead of guessing.
 - For "what should I do" / transfer / hit / chip questions, call get_optimizer_plan first — it already computes the recommended transfers, captain, and chip timing for the user's team — and cite it.
 - For the user's own team use get_my_team; for the best team this week use get_best_xi; for shortlists use list_top_players; for one player use get_player.
-- xPts is a rules-based model projection (rules-v1); be appropriately measured about certainty.
+- xPts is a rules-based model projection (${MODEL_VERSION}); be appropriately measured about certainty.
 - The tools report which gameweek their numbers are for; use that rather than assuming the point in the season.
 - If get_player returns other_matches, say which player you used and mention the others.
 

@@ -1,9 +1,8 @@
 import { createServerSupabase } from "@/lib/supabase/server";
+import { MODEL_VERSION } from "@/lib/supabase";
 
 // Tools the grounded assistant can call. Each reads live data from Supabase and returns compact
 // JSON — the model may only cite what these return, never invent numbers.
-
-const MODEL_VERSION = "rules-v1";
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
 type SB = Awaited<ReturnType<typeof createServerSupabase>>;

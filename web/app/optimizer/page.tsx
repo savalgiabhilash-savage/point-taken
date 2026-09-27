@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { type Position } from "@/lib/supabase";
+import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { OptimizeControls } from "@/components/optimize-controls";
@@ -132,8 +132,8 @@ export default async function OptimizerPage() {
   // How many upcoming gameweeks we have projections for = the max plan horizon the user can pick.
   // Shrinks as the season progresses ("gameweeks left").
   const [{ data: gwMax }, { data: gwMin }] = await Promise.all([
-    supabase.from("projections").select("gw").eq("model_version", "rules-v1").order("gw", { ascending: false }).limit(1),
-    supabase.from("projections").select("gw").eq("model_version", "rules-v1").order("gw", { ascending: true }).limit(1),
+    supabase.from("projections").select("gw").eq("model_version", MODEL_VERSION).order("gw", { ascending: false }).limit(1),
+    supabase.from("projections").select("gw").eq("model_version", MODEL_VERSION).order("gw", { ascending: true }).limit(1),
   ]);
   const maxGw = (gwMax?.[0]?.gw as number | undefined) ?? null;
   const minGw = (gwMin?.[0]?.gw as number | undefined) ?? null;

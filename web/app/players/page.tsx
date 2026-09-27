@@ -1,4 +1,5 @@
 import {
+  MODEL_VERSION,
   createSupabaseServerClient,
   type BreakdownComponent,
   type NewsSignal,
@@ -9,7 +10,7 @@ import { PlayersTable } from "@/components/players-table";
 // Always read fresh from the DB at request time.
 export const dynamic = "force-dynamic";
 
-const MODEL = "rules-v1";
+const MODEL = MODEL_VERSION;
 
 type ProjRow = {
   player_id: number;

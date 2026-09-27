@@ -6,7 +6,7 @@ was known before g's deadline — the previous season's totals plus this season'
 and its prediction for g is compared with the points actually scored. FPL's own expected points at
 the time (`xP` in the dataset) are scored the same way as the benchmark to beat.
 
-It calls the production model functions (nailedness, player_rates, project_fixture, the team
+It calls the production model functions (minutes_profile, player_rates, project_fixture, the team
 blend, DefCon), so any change to model.py / fdr.py is measured automatically.
 
 Data: the public vaastav/Fantasy-Premier-League dataset (per-player, per-fixture rows with FPL's
@@ -128,6 +128,15 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], las
     fixtures = [{"team_h": name_to_id.get(home[f]), "team_a": name_to_id.get(away[f]), "finished": True}
                 for f in home.index.intersection(away.index)]
     ratings = fdr.blend_with_current(last_teams, team_list, team_rows, fixtures)
+
+    # Recent per-GW minutes/starts (last MINUTES_WINDOW GWs), exactly what the live model reads from
+    # event/{gw}/live. A player only has rows for GWs his club played, so blanks aren't "dropped".
+    recent = past[past["round"] >= g - model.MINUTES_WINDOW]
+    per_gw = recent.groupby(["element", "round"]).agg(
+        games=("fixture", "size"), starts=("starts", "sum"), minutes=("minutes", "sum")).reset_index()
+    history: dict[int, list[dict]] = defaultdict(list)
+    for h in per_gw.itertuples(index=False):
+        history[h.element].append({"age": (g - 1) - h.round, "games": h.games, "starts": h.starts, "minutes": h.minutes})
     team_rt = model.build_team_ratings_by_id(team_list, ratings)
     league_xga = sum(r["xga_pg"] for r in team_rt.values()) / len(team_rt)
 
@@ -150,8 +159,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], las
             "expected_goals": float(c["expected_goals"]) if c is not None else 0.0,
             "expected_assists": float(c["expected_assists"]) if c is not None else 0.0,
         }
-        player["nailed"] = model.nailedness(player["minutes"], int(club_games.get(r.team, 0)),
-                                            last["minutes"] if last else None)
+        player["mprof"] = model.minutes_profile(history.get(e, []), last["minutes"] if last else None)
         rates = model.player_rates(model._observed(last, player), r.pos, base)
         rates["dc90"] = dc90.get(int(e), 0.0)
         our_id = name_to_id.get(r.team)
