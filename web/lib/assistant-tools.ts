@@ -115,9 +115,15 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       .from("players")
       .select("fpl_id, web_name, position, now_cost, selected_by_percent, status, team:teams(short_name)")
       .ilike("web_name", `%${q}%`)
-      .limit(1);
+      .order("selected_by_percent", { ascending: false })
+      .limit(10);
     if (!matches?.length) return { error: `No player found matching "${q}".` };
-    const p = matches[0];
+    // Several players can share a name (two Palmers): prefer an exact name match, then the most-owned,
+    // and tell the model about the others so it can ask or switch.
+    const p = matches.find((m) => m.web_name.toLowerCase() === q.toLowerCase()) ?? matches[0];
+    const others = matches
+      .filter((m) => m.fpl_id !== p.fpl_id)
+      .map((m) => `${m.web_name} (${(m.team as { short_name?: string } | null)?.short_name ?? "?"}, £${r1((m.now_cost ?? 0) / 10)}m)`);
     const gw = await nextGw(sb);
     const proj = gw != null ? await projForGw(sb, gw) : new Map<number, number>();
     const { data: allProj } = gw != null
@@ -134,6 +140,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       .from("news_sentiment")
       .select("sentiment, topics, summary, minutes_risk_adj")
       .eq("player_id", p.fpl_id)
+      .order("published_at", { ascending: false })
       .limit(1);
     return {
       name: p.web_name,
@@ -145,6 +152,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       xpts_next: r1(proj.get(p.fpl_id) ?? 0),
       xpts_next5: xp5,
       news: news?.[0] ?? null,
+      other_matches: others.length ? others : undefined,
     };
   }
 

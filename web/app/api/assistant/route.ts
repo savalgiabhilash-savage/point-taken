@@ -17,8 +17,10 @@ Grounding rules (strict):
 - For "what should I do" / transfer / hit / chip questions, call get_optimizer_plan first — it already computes the recommended transfers, captain, and chip timing for the user's team — and cite it.
 - For the user's own team use get_my_team; for the best team this week use get_best_xi; for shortlists use list_top_players; for one player use get_player.
 - xPts is a rules-based model projection (rules-v1); be appropriately measured about certainty.
+- The tools report which gameweek their numbers are for; use that rather than assuming the point in the season.
+- If get_player returns other_matches, say which player you used and mention the others.
 
-Be concise: lead with the answer, then the supporting numbers. It is preseason / early season.`;
+Be concise: lead with the answer, then the supporting numbers.`;
 
 function badKey(): string {
   // The key may carry a BOM if it was stored via a Windows pipe; strip it defensively.

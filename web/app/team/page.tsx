@@ -25,7 +25,18 @@ type Pick = {
 export default async function TeamPage() {
   const supabase = await createServerSupabase();
   const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id ?? "me";
+
+  if (!authData.user) {
+    return (
+      <main className="mx-auto w-full max-w-5xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
+        <p className="mt-4 text-sm text-muted-foreground">
+          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> and connect your FPL team in Settings to see your squad here.
+        </p>
+      </main>
+    );
+  }
+  const userId = authData.user.id;
 
   const { data: stateRows } = await supabase
     .from("user_team_state")
@@ -37,32 +48,20 @@ export default async function TeamPage() {
   const picks = (state?.picks ?? []) as Pick[];
 
   if (!state || picks.length === 0) {
-    const loggedIn = userId !== "me";
     return (
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          {loggedIn ? (
-            <>
-              No squad synced for your account yet. Add your FPL entry ID and sync in{" "}
-              <Link href="/settings" className="text-emerald-400 hover:underline">Settings</Link>{" "}
-              (your squad becomes available once GW1&apos;s deadline passes).
-            </>
-          ) : (
-            <>
-              No squad synced yet. <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> and
-              connect your FPL team in Settings.
-            </>
-          )}
+          No squad synced for your account yet. Add your FPL entry ID and sync in{" "}
+          <Link href="/settings" className="text-emerald-400 hover:underline">Settings</Link>{" "}
+          (your squad becomes available once GW1&apos;s deadline passes).
         </p>
-        {loggedIn ? (
-          <div className="mt-6 max-w-md">
-            <TeamUpload
-              title="Upload a team screenshot"
-              note="Preseason your squad is private on the FPL API. Screenshot your team from the FPL app or site (all 15 — 11 starters + 4 bench, with the C/V armbands) and upload it to load them here now. Your actual team replaces this automatically once the GW deadline passes and it syncs from FPL."
-            />
-          </div>
-        ) : null}
+        <div className="mt-6 max-w-md">
+          <TeamUpload
+            title="Upload a team screenshot"
+            note="Preseason your squad is private on the FPL API. Screenshot your team from the FPL app or site (all 15 — 11 starters + 4 bench, with the C/V armbands) and upload it to load them here now. Your actual team replaces this automatically once the GW deadline passes and it syncs from FPL."
+          />
+        </div>
       </main>
     );
   }
@@ -175,18 +174,16 @@ export default async function TeamPage() {
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
       </div>
 
-      {userId !== "me" ? (
-        <div className="mt-8 max-w-md border-t border-border/50 pt-6">
-          <TeamUpload
-            title="Replace with a screenshot"
-            note={
-              state.gw === 0
-                ? "Uploaded the wrong team, or made changes? Upload a fresh screenshot to update this draft. After the GW deadline your actual team syncs from FPL and takes over automatically."
-                : "Made transfers for the next deadline? FPL doesn't show them publicly until the deadline passes. Upload a screenshot of your updated team to plan with it now; FPL's real picks take over after the deadline."
-            }
-          />
-        </div>
-      ) : null}
+      <div className="mt-8 max-w-md border-t border-border/50 pt-6">
+        <TeamUpload
+          title="Replace with a screenshot"
+          note={
+            state.gw === 0
+              ? "Uploaded the wrong team, or made changes? Upload a fresh screenshot to update this draft. After the GW deadline your actual team syncs from FPL and takes over automatically."
+              : "Made transfers for the next deadline? FPL doesn't show them publicly until the deadline passes. Upload a screenshot of your updated team to plan with it now; FPL's real picks take over after the deadline."
+          }
+        />
+      </div>
     </main>
   );
 }

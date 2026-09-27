@@ -136,9 +136,9 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 5</span>
+    <span>doc rev 6</span>
     <span>updated 2026-09-25</span>
-    <span>code @ critical, high (exc. H7), medium fixed</span>
+    <span>code @ all fixed except H7</span>
     <span>model rules-v1</span>
     <span>season 2026/27 · next GW6</span>
   </div>
@@ -233,7 +233,7 @@ svg text{font-family:var(--sans)}
       <tr><td>Worker</td><td>Python 3.12, uv, httpx, supabase-py, soccerdata, pandas, rapidfuzz, highspy, anthropic</td><td><code>worker/fpl_worker/</code></td></tr>
       <tr><td>Web</td><td>Next.js 16 App Router, React 19, TypeScript, Tailwind v4, shadcn/ui, TanStack Table, @supabase/ssr, @anthropic-ai/sdk</td><td><code>web/</code> → Vercel <code>fpl-selector.vercel.app</code></td></tr>
       <tr><td>Mobile</td><td>Expo SDK 57, expo-router, React Native 0.86, supabase-js</td><td><code>mobile/</code></td></tr>
-      <tr><td>Database</td><td>Supabase Postgres, Auth (email + password), RLS</td><td><code>supabase/migrations/0001–0006</code></td></tr>
+      <tr><td>Database</td><td>Supabase Postgres, Auth (email + password), RLS</td><td><code>supabase/migrations/0001–0007</code></td></tr>
       <tr><td>Scheduler</td><td>GitHub Actions (repo <code>savalgiabhilash-savage/fpl-selector</code>)</td><td><code>.github/workflows/</code></td></tr>
     </tbody>
   </table></div>
@@ -308,7 +308,7 @@ svg text{font-family:var(--sans)}
   </table></div>
   <p>Created but unused: <code>player_gw_stats</code>, <code>prices</code>, <code>crosswalk</code>, <code>fixtures.is_dgw/is_bgw</code>, <code>projections.p_start/exp_minutes/fixture_adj/sentiment_adj</code>.</p>
   <p><b>Row-level security</b> (<code>0005_rls.sql</code>): shared FPL and model tables are public-read and writable only by the service role. <code>user_team_state</code> and <code>optimizer_runs</code> are readable when <code>user_id = 'me'</code> or matches <code>auth.uid()</code>, and writable only for your own uid. <code>profiles</code> is own-row only. The worker's service-role key bypasses RLS.</p>
-  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>). Logged-out visitors see it as a demo.</p>
+  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>), still synced and optimized by the worker. Migration <code>0007_private_demo_squad.sql</code> removes its public read, making personal rows own-rows only. The Expo app's My Team tab, which reads "me" without signing in, shows nothing until the app gets sign-in.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -479,13 +479,13 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <thead><tr><th>Tool</th><th>Returns</th></tr></thead>
     <tbody>
       <tr><td>list_top_players</td><td>Top N by next-GW xPts, filterable by position, max price and minimum ownership</td></tr>
-      <tr><td>get_player</td><td>First <code>ilike</code> name match: price, ownership, status, next-GW xPts, "next 5" (actually the sum of every projection row), news</td></tr>
+      <tr><td>get_player</td><td>Exact name match, else the most-owned partial match (others listed in <code>other_matches</code>): price, ownership, status, next-GW xPts, next-5-GW xPts, latest news</td></tr>
       <tr><td>get_my_team</td><td>Latest squad with next-GW xPts, bank, free transfers</td></tr>
       <tr><td>get_optimizer_plan</td><td>Captain, this week's transfers, path, chip windows, gain</td></tr>
       <tr><td>get_best_xi</td><td>Latest unscored Best XI, capped or uncapped</td></tr>
     </tbody>
   </table></div>
-  <p>"Next GW" everywhere in the web app is the lowest GW in <code>projections</code>.</p>
+  <p>"Next GW" everywhere in the web app is the lowest GW in <code>projections</code>, which the model keeps equal to FPL's next deadline.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -493,7 +493,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <span class="sec-num">14</span>
   <h2>Web app &amp; auth</h2>
   <ul>
-    <li>Server components read Supabase with the anon key. Personal pages scope reads to <code>currentUserId()</code> (auth uid, or "me" when logged out).</li>
+    <li>Server components read Supabase with the anon key. My Team and Optimizer need a signed-in user and read only that user's rows; logged-out visitors get a login prompt.</li>
     <li>The middleware refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
     <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
@@ -540,7 +540,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. All critical, high and medium issues except H7 (a Supabase dashboard setting) are fixed. The low issues are open.</p>
+  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. Every issue except H7 (a Supabase dashboard setting) is fixed.</p>
 
   <div class="issues">
     <div class="issue"><span class="id">H1·3·4·8</span><div><h4><span class="chip low">Fixed</span> Current-season data, chip halves, selling prices, uploads</h4></div>
@@ -555,8 +555,8 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
       <p>M1: "next 5" totals and the optimizer's candidate ranking summed the whole season (fixed: next 5 GWs / plan horizon, per-position pool with value picks). M2: the Players page loaded ~22k rows (fixed: next 5 GWs only). M3: crude proxies (fixed: DefCon from each player's FPL rate, exact goals-conceded deduction, attack adjusted by the opponent's xG conceded, team strength updated in-season; penalty flags left unused on purpose). M4: no vice-captain or bench order (fixed). M5: runs about 4x a day (cron now every 2 h).</p></div>
     <div class="issue"><span class="id">—</span><div><h4><span class="chip low">By design</span> Not bugs</h4></div>
       <p>The news <code>minutes_risk_adj</code> stays out of xPts until sentiment is backtested (project rule). Price-change awareness and effective-ownership captaincy are new features, listed under Improvement ideas.</p></div>
-    <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Low</span> Smaller issues</h4></div>
-      <p>The assistant's <code>get_player</code> takes the first <code>ilike</code> match (there are two Palmers), and its news lookup has no ordering. The assistant prompt hardcodes "preseason / early season". The "me" demo exposes the owner's squad to logged-out visitors. The README and <code>docs/RECOMMENDATION-ENGINE.md</code> are out of date (the latter says minutes are last season's).</p></div>
+    <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Fixed</span> Smaller issues</h4></div>
+      <p>The assistant's player lookup now prefers an exact name, then the most-owned match, and returns the other matches; its news lookup takes the newest item; the hardcoded "preseason" prompt line is gone. Logged-out visitors get a login prompt on My Team and Optimizer instead of the owner's squad (migration <code>0007</code> closes the database side). The README is current and <code>docs/RECOMMENDATION-ENGINE.md</code> was removed in favour of this page.</p></div>
   </div>
 </section>
 
@@ -594,6 +594,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-25</span><br>Fixed H2, H5, H6: unmatched players fall back to FPL xG/xA; team sync runs before the optimizer; assistant requires login.</li>
     <li><span class="d">2026-09-26</span><br>Fixed H1, H3, H4, H8: last season (half weight) pooled with this season's FPL xG/xA; World Cup factor preseason only; chips per half-season with GW19 expiry; budget from real selling prices; in-season screenshot uploads saved as the next GW.</li>
     <li><span class="d">2026-09-26</span><br>Fixed M1–M5: horizon-based candidate pool with value picks; Players page fetches 5 GWs; DefCon from FPL per-90 rates; exact goals-conceded deduction; attack adjusted by opponent xG conceded; in-season team strength; vice-captain and bench order; cron every 2 h.</li>
+    <li><span class="d">2026-09-27</span><br>Fixed L1: assistant name disambiguation and newest news; no hardcoded season phase; login required for My Team and Optimizer, plus migration 0007 to make personal rows private; README refreshed; old engine doc removed.</li>
   </ul>
 </section>
 

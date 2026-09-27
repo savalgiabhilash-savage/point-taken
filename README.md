@@ -1,13 +1,18 @@
 # FPL Player Selector
 
-A personal Fantasy Premier League decision tool. **Phase 0–1 ("first win"):** pull the official FPL
-API into Supabase and browse every player in a live, sortable/filterable table. Full roadmap (own xPts
-model, multi-week + chip optimizer, news/sentiment, grounded AI assistant) is in `../FPL-Selector-Plan.md`.
+A personal Fantasy Premier League decision tool: FPL + Understat data → a transparent rules-based xPts
+model → a HiGHS MILP optimizer for transfers, captain and chips on your real team, plus news sentiment
+and a grounded Claude assistant. Live at https://fpl-selector.vercel.app.
+
+**Full reference:** `web/content/architecture.html` (the "Blueprint": architecture, pipeline, every
+formula and parameter, known issues). It is the owner-only Docs tab in the app and a Claude artifact;
+keep it updated with every change (see `CLAUDE.md`).
 
 ## Stack
 - **web/** — Next.js 16 (App Router) + TypeScript + Tailwind v4 + shadcn/ui + TanStack Table
-- **worker/** — Python (managed by `uv`): FPL API → Supabase ETL
-- **supabase/** — Postgres schema (`migrations/0001_init.sql`)
+- **worker/** — Python (managed by `uv`): ETL, xPts model, predictions/calibration, optimizer, team sync, news
+- **supabase/** — Postgres schema + RLS (`migrations/0001`–`0007`, run in order in the SQL editor)
+- **mobile/** — Expo app (Players + My Team)
 
 ## Setup
 
@@ -41,7 +46,8 @@ npm run dev                        # http://localhost:3000/players
 ```
 
 ## Scheduled refresh
-`.github/workflows/refresh.yml` runs the worker 3×/day. It activates once the repo is on GitHub with
+`.github/workflows/refresh.yml` runs the data pipeline every 2 h (`news.yml` twice a day; `optimize.yml` on
+demand from the web app). It activates once the repo is on GitHub with
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` set as Actions secrets.
 
 ## Notes

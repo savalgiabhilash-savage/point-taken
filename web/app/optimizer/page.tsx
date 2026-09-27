@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
@@ -108,7 +109,18 @@ function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
 export default async function OptimizerPage() {
   const supabase = await createServerSupabase();
   const { data: authData } = await supabase.auth.getUser();
-  const userId = authData.user?.id ?? "me";
+
+  if (!authData.user) {
+    return (
+      <main className="mx-auto w-full max-w-5xl px-6 py-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
+        <p className="mt-4 text-sm text-muted-foreground">
+          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to plan transfers, captaincy and chips for your own squad.
+        </p>
+      </main>
+    );
+  }
+  const userId = authData.user.id;
   const { data: runs } = await supabase
     .from("optimizer_runs")
     .select("*")
@@ -131,19 +143,11 @@ export default async function OptimizerPage() {
     return (
       <main className="mx-auto w-full max-w-5xl px-6 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
-        {userId !== "me" ? (
-          <>
-            <p className="mt-4 text-sm text-muted-foreground">
-              No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
-              appears here in a minute or two.
-            </p>
-            <OptimizeControls initialHorizon={5} maxHorizon={maxHorizon} userId={userId} lastComputedAt={null} />
-          </>
-        ) : (
-          <p className="mt-4 text-sm text-muted-foreground">
-            No optimization yet. Run <code>python -m fpl_worker.optimize --plan</code>.
-          </p>
-        )}
+        <p className="mt-4 text-sm text-muted-foreground">
+          No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
+          appears here in a minute or two.
+        </p>
+        <OptimizeControls initialHorizon={5} maxHorizon={maxHorizon} userId={userId} lastComputedAt={null} />
       </main>
     );
   }
@@ -275,14 +279,12 @@ export default async function OptimizerPage() {
         </p>
       </div>
 
-      {userId !== "me" && (
-        <OptimizeControls
-          initialHorizon={horizon}
-          maxHorizon={maxHorizon}
-          userId={userId}
-          lastComputedAt={(run.created_at as string | null) ?? null}
-        />
-      )}
+      <OptimizeControls
+        initialHorizon={horizon}
+        maxHorizon={maxHorizon}
+        userId={userId}
+        lastComputedAt={(run.created_at as string | null) ?? null}
+      />
 
       {stale && (
         <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
