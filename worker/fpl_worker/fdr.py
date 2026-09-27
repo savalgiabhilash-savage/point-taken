@@ -53,6 +53,25 @@ LAST_SEASON_WEIGHT = 0.5  # a last-season game counts half as much as a game thi
 LAST_SEASON_GAMES = 38
 
 
+def understat_matches(season: str = BASELINE_SEASON) -> list[dict]:
+    """Last season's matches with each side's Understat xG and kickoff date, team names mapped to FPL's,
+    for the team goals model (team_model.fit)."""
+    import pandas as pd
+
+    df = sd.Understat(leagues=LEAGUE, seasons=season).read_team_match_stats().reset_index()
+    out = []
+    for _, r in df.iterrows():
+        if pd.isna(r["home_xg"]) or pd.isna(r["away_xg"]):
+            continue
+        out.append({
+            "home": UNDERSTAT_TO_FPL_TEAM.get(r["home_team"], r["home_team"]),
+            "away": UNDERSTAT_TO_FPL_TEAM.get(r["away_team"], r["away_team"]),
+            "hxg": float(r["home_xg"]), "axg": float(r["away_xg"]),
+            "date": pd.to_datetime(r["date"], utc=True).to_pydatetime(),
+        })
+    return out
+
+
 def blend_with_current(last_by_name: dict[str, dict], teams: list[dict], players: list[dict],
                        fixtures: list[dict]) -> dict[str, dict]:
     """Update last season's team xG with this season's, so team strength moves in-season.

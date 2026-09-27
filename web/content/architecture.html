@@ -136,10 +136,10 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 11</span>
+    <span>doc rev 12</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
-    <span>model rules-v2</span>
+    <span>model rules-v3</span>
     <span>season 2026/27 · next GW6</span>
   </div>
 </header>
@@ -277,6 +277,7 @@ svg text{font-family:var(--sans)}
       <tr><td>FPL <code>entry/{id}/transfers</code>, <code>element-summary/{id}</code></td><td>Purchase prices, used to compute selling prices</td><td><code>sync_team.selling_prices</code> (called by the optimizer)</td></tr>
       <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions; recent per-GW starts and minutes for the minutes model</td><td><code>predict.py</code>, <code>model.recent_minutes_history</code></td></tr>
       <tr><td>Understat 2025/26 (soccerdata)</td><td>Player season xG, xA, minutes, yellow cards. Team match xG for and against.</td><td><code>soccer_stats.py</code>, <code>fdr.py</code></td></tr>
+      <tr><td>football-data.co.uk</td><td>Market-average match and over/under 2.5 odds: upcoming round (<code>fixtures.csv</code>) live, full past seasons for the backtest</td><td><code>team_model.py</code></td></tr>
       <tr><td>FBref, World Cup 2026</td><td>Minutes, goals, assists → bounded attacking multiplier</td><td><code>form.py</code></td></tr>
       <tr><td>Google News RSS</td><td>Up to 5 headlines per player from the last 21 days</td><td><code>news.py</code></td></tr>
       <tr><td>Claude Haiku 4.5</td><td>Sentiment classification, chat assistant, screenshot squad reader</td><td><code>sentiment.py</code>, <code>/api/assistant</code>, <code>/api/team-upload</code></td></tr>
@@ -330,7 +331,7 @@ svg text{font-family:var(--sans)}
 <!-- ===================================================================== -->
 <section id="model">
   <span class="sec-num">07</span>
-  <h2>The xPts model (<code>model.py</code>, rules-v2)</h2>
+  <h2>The xPts model (<code>model.py</code>, rules-v3)</h2>
   <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38. Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline.</p>
   <figure>
     <div class="fig">
@@ -378,11 +379,12 @@ no data in either season → 0</code></pre>
   <p>A 90 from last season counts half as much as a 90 from this season, so current form takes over as the season goes on. Players with no Understat match (promoted clubs, arrivals from abroad, about 40% of the list) use this season's FPL numbers alone.</p>
 
   <h3>3. Per-fixture components</h3>
-<pre><code>adj          = opp_xGA_pg / league_avg_xGA_pg × (1.05 home | 0.95 away)
+<pre><code>xG_for, xG_against = this fixture's expected goals for / against the team   (team model, below)
+adj          = xG_for / team's expected goals vs an average opponent
 x_goals_pts  = xg90·form · (E[min]/90) · adj · GOAL_PTS[pos]      GK/DEF 6, MID 5, FWD 4
 x_assist_pts = xa90·form · (E[min]/90) · adj · 3
 
-λ            = (0.5·opp_xGF_pg + 0.5·own_xGA_pg) × (0.9 home | 1.1 away)
+λ            = xG_against
 x_cs_pts     = e^(−λ) · CS_PTS[pos] · p_60                    GK/DEF 4, MID 1, FWD 0
 x_app_pts    = p_play + p_60
 x_saves_pts  = (2/3)·λ·p_start                                GK only
@@ -390,9 +392,21 @@ dc90         = (DefCon actions + 3·position avg) / (n90 + 3)      this season, 
 x_defcon_pts = 2 · P(Poisson(dc90 · 82/90) ≥ T) · p_start       T: DEF 10, MID/FWD 12, GK none
 x_bonus_pts  = min(1.5, 0.25 · (goals + assists [+ CS for GK/DEF]))
 x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></pre>
-  <p>Team xG for/against per game comes from the blended team ratings in section 06. The custom FDR is only shown on the Fixtures page; the model uses the opponent's xG conceded directly. DefCon counts come from FPL <code>bootstrap-static</code> (CBIT for defenders, CBIRT for midfielders and forwards). For example, Tarkowski at 10.2 per 90 hits the threshold in about 45% of starts. Penalty and set-piece flags are deliberately unused: both Understat and FPL xG already include penalty xG, so a bonus would double-count.</p>
+  <p>The custom FDR is only shown on the Fixtures page; the model uses the team model's expected goals. DefCon counts come from FPL <code>bootstrap-static</code> (CBIT for defenders, CBIRT for midfielders and forwards). For example, Tarkowski at 10.2 per 90 hits the threshold in about 45% of starts. Penalty and set-piece flags are deliberately unused: both Understat and FPL xG already include penalty xG, so a bonus would double-count.</p>
 
-  <h3>4. Form and calibration multipliers</h3>
+  <h3>4. Team goals model (<code>team_model.py</code>)</h3>
+  <p>Every fixture gets both sides' expected goals from two sources, blended.</p>
+<pre><code>fitted:  E[home xG] = exp(μ + home + att_home + def_away)
+         E[away xG] = exp(μ + att_away + def_home)
+         fitted on match xG, each match weighted 0.5 ^ (age in days / 90);
+         att/def pulled toward a prior by 3 virtual matches (0 for established clubs,
+         att −0.25 / def +0.25 for promoted clubs)
+odds:    football-data.co.uk market-average 1X2 and over/under 2.5, margin removed;
+         total goals solved from P(over 2.5), split solved from P(home) − P(away)
+blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</code></pre>
+  <p>Live, the fit uses last season's Understat match xG plus this season's matches, rebuilt from FPL's <code>event/{gw}/live</code> (a club's xG in a GW = its players' <code>expected_goals</code>, split evenly across a double). Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them. Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code>. The 90-day half-life and 0.75 odds weight were tuned on 2023/24.</p>
+
+  <h3>5. Form and calibration multipliers</h3>
   <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It applies only until the player's club has played its first league game.</p>
   <p><b>Calibration</b>: every component is multiplied by the position multiplier from <code>model_calibration</code>, so components still sum to <code>x_pts</code>. The multiplier is written to <code>components.calibration</code>.</p>
 </section>
@@ -519,11 +533,12 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
       <tr><td>MINUTES_WINDOW · HALF_LIFE · PRIOR_GAMES</td><td class="num">8 GWs · 3 GWs · 0.5</td><td>model.py</td><td>Minutes history length, recency decay, weight of last season</td></tr>
       <tr><td>Minutes-shape defaults · SHAPE_K</td><td class="num">85 min · 0.88 · 0.15 · 20 min · 3</td><td>model.py</td><td>Start minutes, P(60|start), cameo rate, cameo minutes; shrinkage</td></tr>
       <tr><td>PRIOR_K</td><td class="num">12</td><td>model.py</td><td>Shrinkage strength, in 90s</td></tr>
-      <tr><td>HOME_ATTACK</td><td class="num">×1.05 / ×0.95</td><td>model.py</td><td>Attack tweak home / away</td></tr>
+      <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
+      <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
       <tr><td>bonus cap</td><td class="num">1.5</td><td>model.py</td><td>Maximum bonus proxy</td></tr>
       <tr><td>DEFCON_THRESHOLD · K</td><td class="num">DEF 10 · MID/FWD 12 · 3</td><td>model.py</td><td>Actions for 2 pts · shrinkage in 90s</td></tr>
-      <tr><td>Team blend</td><td class="num">38 games × 0.5</td><td>fdr.py</td><td>Weight of last season in team xG</td></tr>
+      <tr><td>Team blend (FDR display)</td><td class="num">38 games × 0.5</td><td>fdr.py</td><td>Weight of last season in the Fixtures-page FDR</td></tr>
       <tr><td>HOME_ADVANTAGE</td><td class="num">0.25</td><td>fdr.py</td><td>FDR home/away nudge</td></tr>
       <tr><td>FORM_WEIGHT · CLAMP</td><td class="num">0.12 · 0.90–1.12</td><td>form.py</td><td>World Cup multiplier size</td></tr>
       <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP · FROM_GW</td><td class="num">3 · 2.0 · 0.8–1.2 · 6</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
@@ -577,9 +592,9 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
       <tr><td>Nailedness</td><td>This season's minutes ÷ club games, last season's Understat minutes</td><td>Blend weighted by games played (K = 4) → P(start)</td><td>Season average, not recent GWs; no rotation or congestion signal</td></tr>
       <tr><td>Minutes shape</td><td>Fixed constants</td><td>82 min per start, 20 per cameo, P(60) = 0.9·P(start)</td><td>Same for every player</td></tr>
       <tr><td>Attacking rate</td><td>Understat 2025/26 xG/xA (half weight) + FPL 2026/27 xG/xA</td><td>Pooled per-90, shrunk to position average (K = 12)</td><td>No recency weighting inside the season; penalties folded into xG</td></tr>
-      <tr><td>Opponent defence</td><td>Team xG conceded (last season + this season)</td><td>Attack × opp xGA ÷ league average</td><td>Simple ratio; no time decay; no odds</td></tr>
-      <tr><td>Home advantage</td><td>Constant</td><td>Attack ×1.05 / ×0.95; goals against ×0.9 / ×1.1</td><td>Not estimated from data</td></tr>
-      <tr><td>Clean sheet</td><td>Opponent xGF, own xGA</td><td>Poisson P(0) with λ = average of the two</td><td>Ad-hoc 50/50 blend; ignores match odds</td></tr>
+      <tr><td>Fixture expected goals</td><td>Fitted team strengths (time-decayed xG) + bookmaker odds</td><td>Attack × xG_for ÷ team average; CS, saves, goals conceded from xG_against</td><td>Odds only for the next round; player share of team goals not modelled yet</td></tr>
+      <tr><td>Home advantage</td><td>Fitted from data</td><td>Inside the team model (about ×1.15 this season)</td><td>Fine</td></tr>
+      <tr><td>Clean sheet</td><td>Fixture xG against</td><td>Poisson P(0)</td><td>Assumes independent goals</td></tr>
       <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
       <tr><td>Saves</td><td>Expected goals against</td><td>(2/3)·λ for goalkeepers</td><td>No shots-on-target model</td></tr>
       <tr><td>Bonus</td><td>Own attacking points</td><td>min(1.5, 0.25 × involvement)</td><td>Not a BPS model; bonus is about 10% of points</td></tr>
@@ -595,20 +610,21 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <h3>Backtest results</h3>
   <p><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26. It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark. Results go to <code>worker/reports/</code>. It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it.</p>
   <div class="tbl"><table>
-    <thead><tr><th>Head-to-head (2023/24 + 2024/25)</th><th class="num">rules-v1</th><th class="num">rules-v2</th><th class="num">FPL xP</th></tr></thead>
+    <thead><tr><th>Head-to-head (2023/24 + 2024/25)</th><th class="num">rules-v1</th><th class="num">rules-v2</th><th class="num">rules-v3</th><th class="num">FPL xP</th></tr></thead>
     <tbody>
-      <tr><td>MAE, all player-GWs</td><td class="num">1.115</td><td class="num">1.034</td><td class="num">0.858</td></tr>
-      <tr><td>MAE, players who played</td><td class="num">1.886</td><td class="num">1.926</td><td class="num">1.730</td></tr>
-      <tr><td>Rank correlation per GW</td><td class="num">0.621</td><td class="num">0.671</td><td class="num">0.745</td></tr>
-      <tr><td>Avg pts of top-20 picks (oracle 11.07)</td><td class="num">4.64</td><td class="num">4.92</td><td class="num">7.03</td></tr>
-      <tr><td>Avg pts of captain pick</td><td class="num">6.46</td><td class="num">6.67</td><td class="num">11.20</td></tr>
-      <tr><td>Top-20 picks who didn't play</td><td class="num">10%</td><td class="num">7%</td><td class="num">6%</td></tr>
-      <tr><td>Bias (mean pred − actual)</td><td class="num">+0.02</td><td class="num">+0.02</td><td class="num">−0.09</td></tr>
-      <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">0.097</td><td class="num">—</td></tr>
+      <tr><td>MAE, all player-GWs</td><td class="num">1.115</td><td class="num">1.034</td><td class="num">1.023</td><td class="num">0.858</td></tr>
+      <tr><td>MAE, players who played</td><td class="num">1.886</td><td class="num">1.926</td><td class="num">1.905</td><td class="num">1.730</td></tr>
+      <tr><td>Rank correlation per GW</td><td class="num">0.621</td><td class="num">0.671</td><td class="num">0.674</td><td class="num">0.745</td></tr>
+      <tr><td>Avg pts of top-20 picks (oracle 11.07)</td><td class="num">4.64</td><td class="num">4.92</td><td class="num">4.90</td><td class="num">7.03</td></tr>
+      <tr><td>Avg pts of captain pick</td><td class="num">6.46</td><td class="num">6.67</td><td class="num">7.86</td><td class="num">11.20</td></tr>
+      <tr><td>Top-20 picks who didn't play</td><td class="num">10%</td><td class="num">7%</td><td class="num">7%</td><td class="num">6%</td></tr>
+      <tr><td>Bias (mean pred − actual)</td><td class="num">+0.02</td><td class="num">+0.02</td><td class="num">+0.01</td><td class="num">−0.09</td></tr>
+      <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">0.097</td><td class="num">0.097</td><td class="num">—</td></tr>
     </tbody>
   </table></div>
   <p>Head-to-head covers 2023/24 and 2024/25 (55,661 player-GWs). The dataset's <code>xP</code> is broken for 2025/26 (it averages 34% of actual points), so the harness drops it there automatically. Three differences favour <code>xP</code>. The dataset has no injury flags, so the replay treats everyone as available. "Last season" uses FPL xG instead of Understat. And when <code>xP</code> was recorded isn't documented, so it may include team news the replay can't see. For a clean head-to-head from now on, log FPL's <code>ep_next</code> next to each live prediction (needs a <code>prediction_log</code> column).</p>
   <p><b>rules-v2 (minutes model, step 1):</b> over all three seasons, MAE 1.117 → 1.035 (−7.3%), rank correlation 0.633 → 0.680, P(start) Brier 0.114 → 0.097 (−15%), top-20 no-shows 10% → 7%, top-20 points 4.55 → 4.77. It improves on every season, including the held-out 2024/25 and 2025/26. The one metric that got worse, MAE among players who played (+2%), is conditioned on the outcome; the model's job is the unconditional forecast. Still behind FPL <code>xP</code>, which has injury news the replay lacks.</p>
+  <p><b>rules-v3 (team goals model + odds, step 2):</b> over all three seasons, MAE 1.035 → 1.027, rank correlation 0.680 → 0.682, top-20 points 4.77 → 4.83, captain points 6.28 → 7.18 (+0.9 per GW), top-20 no-shows 7% → 6%. Gains on 2023/24 and 2025/26. The held-out 2024/25 is mixed: MAE 1.051 → 1.055 and top-20 5.11 → 4.99 slightly worse, captain 8.87 → 9.21 better. Most of the gain comes from the fitted team strengths; odds move the backtest little because they mostly agree with the fit. Live, odds also carry injury and team news, which the backtest can't show.</p>
   <p><b>What the rules-v1 baseline said to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares). Those are steps 1–3.</p>
 
   <h3>The plan, in order</h3>
@@ -618,7 +634,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <tbody>
       <tr><td class="num">0</td><td><b>Measure first</b></td><td>A backtest harness on the vaastav dataset (every GW of 2022/23–2025/26, with FPL's own <code>xP</code> at the time and actual points). Replay the model using only data available before each deadline. Report MAE and RMSE per position, rank correlation among likely starters, top-50 hit rate, calibration by decile, Brier score for P(start) and P(60+), and decision scores (captain and Best XI points vs actual). Log per-component predictions live (goals, assists, CS, saves, bonus, DefCon, minutes) against <code>event/{gw}/live</code>.</td><td>Without this, no change can be called an improvement. FPL's <code>ep_next</code> is the benchmark to beat.</td></tr>
       <tr><td class="num">1</td><td><b>Minutes model</b> <span class="chip low">Done · rules-v2</span></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
-      <tr><td class="num">2</td><td><b>Team goals model + odds</b></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
+      <tr><td class="num">2</td><td><b>Team goals model + odds</b> <span class="chip low">Done · rules-v3</span></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
       <tr><td class="num">3</td><td><b>Player shares</b></td><td>Player goals = team expected goals × the player's recency-weighted share of team non-penalty xG while on the pitch, and the same for assists. Penalties become a separate term: FPL <code>penalties_order</code> × team penalty rate × about 0.78 conversion.</td><td>Shares are more stable than raw per-90s, and a new penalty taker is priced immediately.</td></tr>
       <tr><td class="num">4</td><td><b>Component models</b></td><td>Bonus: expected BPS from components, then rank within the match, via simulation. DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
       <tr><td class="num">5</td><td><b>Simulation &amp; uncertainty</b></td><td>Monte Carlo each fixture (team goals → scorers and assisters → CS, bonus) to get each player's full distribution: mean, P10/P90 and P(≥ 10 pts), with teammates correlated.</td><td>Captain and Triple Captain choices depend on upside, not just the mean.</td></tr>
@@ -659,6 +675,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-27</span><br>Added the factors inventory and accuracy plan (section 17). Mobile app gets ESLint (<code>npm run lint</code>).</li>
     <li><span class="d">2026-09-27</span><br>Backtest harness (<code>worker/fpl_worker/backtest.py</code>) and rules-v1 baseline over 2023/24–2025/26.</li>
     <li><span class="d">2026-09-27</span><br>rules-v2: recency-weighted minutes model (start rate, P(60|start), start and cameo minutes per player from the last 8 GWs). Backtest MAE −7.3%, P(start) Brier −15%. Web and mobile read the version from one constant each.</li>
+    <li><span class="d">2026-09-27</span><br>rules-v3: team goals model (<code>team_model.py</code>: time-decayed team strengths on match xG, blended with football-data.co.uk odds) drives attack scaling, clean sheets, saves and goals conceded. Backtest captain points +0.9 per GW, MAE 1.035 → 1.027.</li>
   </ul>
 </section>
 

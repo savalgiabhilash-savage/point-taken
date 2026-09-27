@@ -2,9 +2,9 @@
 
 Transparent by design: every projection is the sum of named components, each stored so the UI
 can explain the headline number. Attacking output pools last-season Understat xG (via the crosswalk,
-half weight) with this season's FPL xG; minutes blend this season's minutes share with last season's;
-defensive contributions use each player's FPL per-90 rate; team strength pools last season's
-Understat team xG with this season's FPL team xG.
+half weight) with this season's FPL xG; minutes come from each player's recent GWs; defensive
+contributions use each player's FPL per-90 rate; each fixture's expected goals for and against come
+from the team goals model (team_model.py: fitted team strengths blended with bookmaker odds).
 
     python -m fpl_worker.model --dry-run            # compute + print top projections, no DB write
     python -m fpl_worker.model --run --horizon 5    # write projections for the next 5 GWs
@@ -17,12 +17,14 @@ import math
 
 from dotenv import load_dotenv
 
-from . import db, fdr, soccer_stats
+from datetime import datetime, timezone
+
+from . import db, fdr, soccer_stats, team_model
 from .fpl_client import FplClient
 
-# rules-v2: recency-weighted minutes model (minutes_profile). Bump on any change to how xPts is computed,
+# rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
-MODEL_VERSION = "rules-v2"
+MODEL_VERSION = "rules-v3"
 
 GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -30,7 +32,6 @@ ASSIST_PTS = 3
 DEFCON_PTS = 2
 DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
 DEFCON_K = 3.0  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
-HOME_ATTACK = {True: 1.05, False: 0.95}  # home sides create a little more
 PRIOR_K = 12.0  # base-rate shrinkage strength, in 90s (~a third of a season)
 LAST_GW = 38
 # Minutes model (see minutes_profile): recent gameweeks count most.
@@ -123,12 +124,6 @@ def _minutes(player: dict) -> tuple[float, float, float, float]:
 
 # --- fixture / team helpers --------------------------------------------------
 
-def _attack_adj(opp: dict, league_xga: float, is_home: bool) -> float:
-    """Attacking multiplier from the OPPONENT'S DEFENCE: their xG conceded per game relative to the
-    league average (a leaky side at 1.6 vs 1.35 avg -> x1.19), times a small home/away tweak."""
-    return (opp["xga_pg"] / league_xga if league_xga else 1.0) * HOME_ATTACK[is_home]
-
-
 def _poisson_at_least(mean: float, k: int) -> float:
     """P(X >= k) for X ~ Poisson(mean)."""
     term, cdf = math.exp(-mean), 0.0
@@ -164,21 +159,6 @@ def defcon_rates(elements: list[dict]) -> dict[int, float]:
         n90 = (e.get("minutes") or 0) / 90.0
         b = base[pos[e["element_type"]]]
         out[e["id"]] = ((e.get("defensive_contribution") or 0) + DEFCON_K * b) / (n90 + DEFCON_K)
-    return out
-
-
-def build_team_ratings_by_id(teams: list[dict], ratings_by_name: dict[str, dict]) -> dict[int, dict]:
-    """{fpl_id: {xgf_pg, xga_pg}} with a weak fallback for promoted clubs (no last-season data)."""
-    known = [r for r in ratings_by_name.values()]
-    if known:
-        weak_att = min(r["xgf_pg"] for r in known)
-        leaky_def = max(r["xga_pg"] for r in known)
-    else:
-        weak_att, leaky_def = 1.0, 1.6
-    out: dict[int, dict] = {}
-    for t in teams:
-        r = ratings_by_name.get(t["name"])
-        out[t["fpl_id"]] = r if r else {"xgf_pg": weak_att, "xga_pg": leaky_def, "rating": None}
     return out
 
 
@@ -241,17 +221,21 @@ def _observed(us: dict | None, p: dict) -> dict | None:
 
 # --- core projection ---------------------------------------------------------
 
-def project_fixture(player: dict, rates: dict, is_home: bool, league_xga: float,
-                    our: dict, opp: dict, form_mult: float = 1.0) -> dict:
+def project_fixture(player: dict, rates: dict, lam_for: float, lam_against: float, base_for: float,
+                    form_mult: float = 1.0) -> dict:
     """One player, one fixture -> component dict of expected points.
 
     `rates` holds the base-rate-blended per-90 attacking rates (see player_rates). `form_mult` is a
     small preseason-form multiplier on attacking output (2026 World Cup — see form.py); 1.0 = no
-    change. It scales the attacking rates only, so it flows through goals, assists, and bonus."""
+    change. It scales the attacking rates only, so it flows through goals, assists, and bonus.
+
+    `lam_for` / `lam_against` are this fixture's expected goals for and against the player's team
+    (team_model). `base_for` is the team's expected goals against an average opponent — the level the
+    player's per-90 rates were earned at — so attacking output scales by lam_for / base_for."""
     pos = player["position"] or "MID"
     p_start, p_play, exp_min, p_60 = _minutes(player)
     mins_frac = exp_min / 90.0
-    adj = _attack_adj(opp, league_xga, is_home)
+    adj = lam_for / base_for if base_for else 1.0
 
     xg90 = rates["xg90"] * form_mult
     xa90 = rates["xa90"] * form_mult
@@ -262,9 +246,8 @@ def project_fixture(player: dict, rates: dict, is_home: bool, league_xga: float,
     x_goals_pts = x_goals * GOAL_PTS[pos]
     x_assist_pts = x_assists * ASSIST_PTS
 
-    # clean sheet: expected goals conceded blends opponent attack and our defence, home tweak
-    lam = 0.5 * opp["xgf_pg"] + 0.5 * our["xga_pg"]
-    lam *= 0.9 if is_home else 1.1
+    # clean sheet, saves and goals-conceded deductions all use the fixture's expected goals against
+    lam = lam_against
     p_cs = math.exp(-lam)
     x_cs_pts = p_cs * CS_PTS[pos] * p_60
 
@@ -338,25 +321,61 @@ def _load_form(sb) -> dict[int, float]:
         return {}
 
 
-def recent_minutes_history(client: FplClient, fixtures: list[dict],
-                           team_by_player: dict[int, int]) -> dict[int, list[dict]]:
-    """{player_id: [{age, games, starts, minutes}, ...]} over the last MINUTES_WINDOW finished GWs, from
-    FPL's event/{gw}/live (one call per GW). Only GWs where the player's CURRENT club played count, so a
-    blank for his club isn't mistaken for being dropped."""
+def _club_games(fixtures: list[dict]) -> dict[tuple[int, int], int]:
+    """{(team_id, gw): fixtures that club played that GW} over finished fixtures."""
     games: dict[tuple[int, int], int] = {}
     for f in fixtures:
         if f["finished"] and f["gw"] is not None:
             for t in (f["team_h"], f["team_a"]):
                 games[(t, f["gw"])] = games.get((t, f["gw"]), 0) + 1
-    finished = sorted({gw for (_, gw) in games})[-MINUTES_WINDOW:]
+    return games
+
+
+def fetch_live(client: FplClient, fixtures: list[dict]) -> dict[int, list[dict]]:
+    """{gw: event/{gw}/live elements} for every finished GW (one call each). Feeds both the minutes
+    model (last MINUTES_WINDOW GWs) and this season's team xG for the team goals model."""
+    return {gw: client.event_live(gw).get("elements", [])
+            for gw in sorted({gw for (_, gw) in _club_games(fixtures)})}
+
+
+def recent_minutes_history(live: dict[int, list[dict]], fixtures: list[dict],
+                           team_by_player: dict[int, int]) -> dict[int, list[dict]]:
+    """{player_id: [{age, games, starts, minutes}, ...]} over the last MINUTES_WINDOW finished GWs. Only
+    GWs where the player's CURRENT club played count, so a blank for his club isn't mistaken for being
+    dropped."""
+    games = _club_games(fixtures)
+    finished = sorted(live)[-MINUTES_WINDOW:]
     out: dict[int, list[dict]] = {}
     for gw in finished:
-        for e in client.event_live(gw).get("elements", []):
+        for e in live[gw]:
             n = games.get((team_by_player.get(e["id"]), gw), 0)
             if n:
                 st = e["stats"]
                 out.setdefault(e["id"], []).append({"age": finished[-1] - gw, "games": n,
                                                     "starts": st.get("starts") or 0, "minutes": st.get("minutes") or 0})
+    return out
+
+
+def season_team_matches(live: dict[int, list[dict]], fixtures: list[dict], team_by_player: dict[int, int],
+                        name_by_id: dict[int, str]) -> list[dict]:
+    """This season's finished matches with each side's xG, for the team goals model. A club's xG in a
+    GW is the sum of its players' FPL expected_goals (event/{gw}/live), split evenly if it played twice.
+    Players are credited to their current club, so a mid-season transfer's earlier xG moves with him."""
+    games = _club_games(fixtures)
+    xg: dict[tuple[int, int], float] = {}
+    for gw, elements in live.items():
+        for e in elements:
+            t = team_by_player.get(e["id"])
+            if t is not None:
+                xg[(t, gw)] = xg.get((t, gw), 0.0) + float(e["stats"].get("expected_goals") or 0)
+    out = []
+    for f in fixtures:
+        if not f["finished"] or f["gw"] is None or not f.get("kickoff_time"):
+            continue
+        h, a, gw = f["team_h"], f["team_a"], f["gw"]
+        out.append({"home": name_by_id[h], "away": name_by_id[a],
+                    "hxg": xg.get((h, gw), 0.0) / games[(h, gw)], "axg": xg.get((a, gw), 0.0) / games[(a, gw)],
+                    "date": datetime.fromisoformat(f["kickoff_time"].replace("Z", "+00:00"))})
     return out
 
 
@@ -378,7 +397,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     teams = sb.table("teams").select("fpl_id, name, short_name").execute().data
     fixtures = (
         sb.table("fixtures")
-        .select("gw, team_h, team_a, custom_fdr_h, custom_fdr_a, finished")
+        .select("gw, team_h, team_a, custom_fdr_h, custom_fdr_a, finished, kickoff_time")
         .execute()
         .data
     )
@@ -391,13 +410,26 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         for pos in ("GK", "DEF", "MID", "FWD"):
             b = base.get(pos, {})
             print(f"  {pos}: xg90={b.get('xg90', 0):.3f} xa90={b.get('xa90', 0):.3f}")
+    team_by_player = {p["fpl_id"]: p["team_id"] for p in players}
+    name_by_id = {t["fpl_id"]: t["name"] for t in teams}
     with FplClient() as client:
         boot = client.bootstrap_static()
-        history = recent_minutes_history(client, fixtures, {p["fpl_id"]: p["team_id"] for p in players})
+        live = fetch_live(client, fixtures)
+    history = recent_minutes_history(live, fixtures, team_by_player)
     dc90 = defcon_rates(boot["elements"])
-    ratings = fdr.blend_with_current(fdr.team_ratings(), teams, players, fixtures)
-    team_rt = build_team_ratings_by_id(teams, ratings)
-    league_xga = sum(r["xga_pg"] for r in team_rt.values()) / len(team_rt)
+
+    # Team goals model: fit strengths on last season's Understat match xG + this season's FPL xG,
+    # then blend each upcoming fixture with bookmaker odds where they're published.
+    last_matches = fdr.understat_matches()
+    matches = last_matches + season_team_matches(live, fixtures, team_by_player, name_by_id)
+    names = [t["name"] for t in teams]
+    promoted = set(names) - {m["home"] for m in last_matches}
+    all_teams = sorted(set(names) | {m["home"] for m in matches} | {m["away"] for m in matches})
+    strengths = team_model.fit(matches, datetime.now(timezone.utc), all_teams, promoted)
+    odds = team_model.upcoming_odds(names)
+    base_for = {t["fpl_id"]: team_model.average_goals_for(strengths, t["name"]) for t in teams}
+    print(f"Team model: {len(matches)} matches, home advantage x{math.exp(strengths['home']):.2f}, "
+          f"odds for {len(odds)} upcoming fixtures.")
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
     form = _load_form(sb)  # small preseason (World Cup) form nudge; {} until form.py populates it
 
@@ -415,14 +447,17 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             for t in (f["team_h"], f["team_a"]):
                 team_games[t] = team_games.get(t, 0) + 1
 
-    # index fixtures by (team_id, gw) -> list of (is_home, fdr, opp_team_id). The custom FDR is only for
-    # display (Fixtures page); the model uses the opponent's xG conceded (see _attack_adj).
+    # index fixtures by (team_id, gw) -> list of (is_home, xg_for, xg_against, opp_team_id, has_odds).
+    # (The custom FDR stays for display on the Fixtures page; the model uses these expected goals.)
     by_team_gw: dict[tuple[int, int], list] = {}
     for f in upcoming:
         if f["gw"] not in gws:
             continue
-        by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, f["custom_fdr_h"], f["team_a"]))
-        by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, f["custom_fdr_a"], f["team_h"]))
+        hn, an = name_by_id[f["team_h"]], name_by_id[f["team_a"]]
+        mkt = odds.get((hn, an))
+        lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, hn, an), mkt)
+        by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, lam_h, lam_a, f["team_a"], mkt is not None))
+        by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, lam_a, lam_h, f["team_h"], mkt is not None))
 
     rows = []
     for p in players:
@@ -430,7 +465,6 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         rates = player_rates(_observed(us, p), p["position"], base)
         rates["dc90"] = dc90.get(p["fpl_id"], 0.0)
         p["mprof"] = minutes_profile(history.get(p["fpl_id"], []), us.get("minutes") if us else None)
-        our = team_rt.get(p["team_id"], {"xgf_pg": 1.3, "xga_pg": 1.4})
         # World Cup form is a preseason stand-in; once the club has played, real minutes/xG take over.
         fm = form.get(p["fpl_id"], 1.0) if team_games.get(p["team_id"], 0) == 0 else 1.0
         for gw in gws:
@@ -439,8 +473,12 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 continue  # blank GW for this team
             agg: dict[str, float] = {}
             opp_short = []
-            for is_home, _fdr, opp_id in fxs:
-                comp = project_fixture(p, rates, is_home, league_xga, our, team_rt.get(opp_id, our), form_mult=fm)
+            xg_for, xg_against, with_odds = [], [], []
+            for is_home, lam_for, lam_against, opp_id, has_odds in fxs:
+                comp = project_fixture(p, rates, lam_for, lam_against, base_for[p["team_id"]], form_mult=fm)
+                xg_for.append(round(lam_for, 2))
+                xg_against.append(round(lam_against, 2))
+                with_odds.append(has_odds)
                 for k, v in comp.items():
                     if k in ("p_start", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
                         continue
@@ -459,7 +497,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "x_bonus_pts": round(agg["x_bonus_pts"], 3),
                 "x_deductions_pts": round(agg["x_deductions_pts"], 3),
                 "model_version": MODEL_VERSION,
-                "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3)},
+                "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3),
+                               "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],
                 "_cost": p["now_cost"],
