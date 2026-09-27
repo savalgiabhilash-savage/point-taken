@@ -14,6 +14,7 @@ const toSP = (p: BestSquadPlayer): SquadPlayer => ({
   is_captain: p.is_captain,
   is_vice_captain: false,
   xp_next: p.xpn,
+  why: [p.is_start ? "In the best XI for this gameweek" : "On the bench of the best squad for this gameweek"],
 });
 
 const TABS: { key: "capped" | "uncapped"; label: string; sub: string }[] = [

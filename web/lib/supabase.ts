@@ -23,7 +23,7 @@ export function createSupabaseServerClient() {
 }
 
 /** The projections model the worker writes (worker/fpl_worker/model.py MODEL_VERSION). */
-export const MODEL_VERSION = "rules-v3";
+export const MODEL_VERSION = "rules-v4";
 
 export type Position = "GK" | "DEF" | "MID" | "FWD";
 

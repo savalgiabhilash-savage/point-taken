@@ -22,9 +22,9 @@ from datetime import datetime, timezone
 from . import db, fdr, soccer_stats, team_model
 from .fpl_client import FplClient
 
-# rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
+# rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
-MODEL_VERSION = "rules-v3"
+MODEL_VERSION = "rules-v4"
 
 GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -43,6 +43,13 @@ START_MINS_DEFAULT = 85.0   # minutes when starting
 P60_DEFAULT = 0.88          # P(60+ minutes | start)
 CAMEO_RATE_DEFAULT = 0.15   # P(comes off the bench | doesn't start)
 CAMEO_MINS_DEFAULT = 20.0   # minutes of a sub appearance
+
+# News (news_job.py: Google News + Claude) lowers availability. Claude's minutes_risk_adj (0 .. -1) is scaled
+# by how directly the topic affects playing time, and fades with age (FPL's own flag catches up within days).
+NEWS_TOPIC_WEIGHT = {"injury-risk": 1.0, "suspension": 1.0, "rotation": 0.75, "transfer": 0.5, "off-pitch": 0.5}
+NEWS_FRESH_DAYS = 3.0       # full strength while this recent
+NEWS_STALE_DAYS = 14.0      # no effect once this old
+NEWS_WEIGHT = 1.0           # overall strength; learned weekly from outcomes (predict.py -> model_params)
 LAST_SEASON_WEIGHT = 0.5  # a 90 of last season counts half as much as a 90 of this season
 
 # --- minutes -----------------------------------------------------------------
@@ -110,10 +117,31 @@ def minutes_profile(history: list[dict], last_minutes: float | None) -> dict:
     }
 
 
+def news_adjustment(news: dict | None, now: datetime) -> float:
+    """Effective news effect on availability (0 = none, -1 = won't play): Claude's minutes_risk_adj x the
+    strongest playing-time topic weight x a freshness factor. Positive news never raises availability."""
+    if not news or not news.get("minutes_risk_adj"):
+        return 0.0
+    topic_w = max((NEWS_TOPIC_WEIGHT.get(t, 0.0) for t in (news.get("topics") or [])), default=0.0)
+    age_days = 0.0
+    if news.get("published_at"):
+        age_days = (now - datetime.fromisoformat(news["published_at"].replace("Z", "+00:00"))).total_seconds() / 86400
+    fresh = 1.0 if age_days <= NEWS_FRESH_DAYS else max(0.0, 1 - (age_days - NEWS_FRESH_DAYS) / (NEWS_STALE_DAYS - NEWS_FRESH_DAYS))
+    return float(news["minutes_risk_adj"]) * topic_w * fresh
+
+
+def availability(player: dict) -> tuple[float, float]:
+    """(availability used, FPL-only availability). News can only lower it, and FPL's flag and the news are
+    not stacked: the lower of the two wins, so one injury isn't counted twice."""
+    fpl = _availability(player["status"], player["chance_of_playing_next_round"])
+    news = max(0.0, 1.0 + NEWS_WEIGHT * player.get("news_adj", 0.0))
+    return min(fpl, news), fpl
+
+
 def _minutes(player: dict) -> tuple[float, float, float, float]:
     """Return (p_start, p_play, exp_minutes, p_60). `player["mprof"]` comes from minutes_profile()."""
     m = player["mprof"]
-    avail = _availability(player["status"], player["chance_of_playing_next_round"])
+    avail, _ = availability(player)
     p_start = avail * m["start_rate"]
     p_cameo = (1.0 - p_start) * (m["cameo_rate"] if avail > 0 else 0.0)
     p_play = min(1.0, p_start + p_cameo)
@@ -286,6 +314,8 @@ def project_fixture(player: dict, rates: dict, lam_for: float, lam_against: floa
         "x_bonus_pts": x_bonus_pts,
         "x_deductions_pts": x_deductions_pts,
         "p_start": p_start,
+        "p_60": p_60,
+        "p_dc": p_dc,
         "exp_minutes": exp_min,
         "fixture_adj": adj,
         "p_cs": p_cs,
@@ -308,6 +338,29 @@ def _load_calibration(sb) -> dict[str, float]:
         rows = sb.table("model_calibration").select("position, multiplier").execute().data
         return {r["position"]: float(r["multiplier"]) for r in rows}
     except Exception:  # noqa: BLE001 — table may not exist yet; projections must still run
+        return {}
+
+
+def _load_news(sb) -> dict[int, dict]:
+    """Latest news signal per player (news_sentiment is replaced wholesale by each news_job run)."""
+    try:
+        rows = sb.table("news_sentiment").select(
+            "player_id, sentiment, topics, summary, minutes_risk_adj, published_at, source").execute().data
+    except Exception:  # noqa: BLE001 — news is an enhancement; projections must still run
+        return {}
+    out: dict[int, dict] = {}
+    for r in rows:
+        cur = out.get(r["player_id"])
+        if cur is None or (r.get("published_at") or "") > (cur.get("published_at") or ""):
+            out[r["player_id"]] = r
+    return out
+
+
+def _load_params(sb) -> dict[str, float]:
+    """Learned model parameters (model_params, migration 0008): e.g. news_weight. Empty -> defaults."""
+    try:
+        return {r["key"]: float(r["value"]) for r in sb.table("model_params").select("key, value").execute().data}
+    except Exception:  # noqa: BLE001 — table may not exist yet
         return {}
 
 
@@ -459,12 +512,32 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, lam_h, lam_a, f["team_a"], mkt is not None))
         by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, lam_a, lam_h, f["team_h"], mkt is not None))
 
+    global NEWS_WEIGHT
+    NEWS_WEIGHT = _load_params(sb).get("news_weight", NEWS_WEIGHT)
+    news = _load_news(sb)
+    now = datetime.now(timezone.utc)
+
     rows = []
     for p in players:
         us = us_by_id.get(p["understat_id"]) if p["understat_id"] else None
         rates = player_rates(_observed(us, p), p["position"], base)
         rates["dc90"] = dc90.get(p["fpl_id"], 0.0)
-        p["mprof"] = minutes_profile(history.get(p["fpl_id"], []), us.get("minutes") if us else None)
+        hist = history.get(p["fpl_id"], [])
+        p["mprof"] = minutes_profile(hist, us.get("minutes") if us else None)
+        p["news_adj"] = news_adjustment(news.get(p["fpl_id"]), now)
+        avail, fpl_avail = availability(p)
+        recent = [h for h in hist if h["age"] < 5]
+        # Explanation inputs stored on every projection (the web's "i" pop-up turns these into bullets).
+        why = {
+            "start_rate": round(p["mprof"]["start_rate"], 3), "p60_start": round(p["mprof"]["p60_start"], 3),
+            "recent_starts": sum(h["starts"] for h in recent), "recent_games": sum(h["games"] for h in recent),
+            "recent_minutes": sum(h["minutes"] for h in recent),
+            "fpl_avail": round(fpl_avail, 2), "news_adj": round(p["news_adj"], 3), "avail": round(avail, 3),
+            "xg90": round(rates["xg90"], 3), "xa90": round(rates["xa90"], 3), "dc90": round(rates["dc90"], 2),
+            "season": {"xg": round(p["expected_goals"] or 0, 2), "xa": round(p["expected_assists"] or 0, 2),
+                       "min": p["minutes"] or 0},
+            "last": ({"xg": round(us["xg"], 2), "xa": round(us["xa"], 2), "min": int(us["minutes"])} if us else None),
+        }
         # World Cup form is a preseason stand-in; once the club has played, real minutes/xG take over.
         fm = form.get(p["fpl_id"], 1.0) if team_games.get(p["team_id"], 0) == 0 else 1.0
         for gw in gws:
@@ -473,14 +546,18 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 continue  # blank GW for this team
             agg: dict[str, float] = {}
             opp_short = []
-            xg_for, xg_against, with_odds = [], [], []
+            xg_for, xg_against, with_odds, atk_mult, p_cs = [], [], [], [], []
             for is_home, lam_for, lam_against, opp_id, has_odds in fxs:
                 comp = project_fixture(p, rates, lam_for, lam_against, base_for[p["team_id"]], form_mult=fm)
                 xg_for.append(round(lam_for, 2))
                 xg_against.append(round(lam_against, 2))
                 with_odds.append(has_odds)
+                atk_mult.append(round(comp["fixture_adj"], 3))
+                p_cs.append(round(comp["p_cs"], 3))
+                fx_why = {"p_start": round(comp["p_start"], 3), "p_60": round(comp["p_60"], 3),
+                          "exp_minutes": round(comp["exp_minutes"], 1), "p_dc": round(comp["p_dc"], 3)}
                 for k, v in comp.items():
-                    if k in ("p_start", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
+                    if k in ("p_start", "p_60", "p_dc", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
                         continue
                     agg[k] = agg.get(k, 0.0) + v
                 opp_short.append(("" if is_home else "@") + short_by_id.get(opp_id, "?"))
@@ -498,7 +575,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "x_deductions_pts": round(agg["x_deductions_pts"], 3),
                 "model_version": MODEL_VERSION,
                 "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3),
-                               "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds},
+                               "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds,
+                               "atk_mult": atk_mult, "p_cs": p_cs, **fx_why, "why": why},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],
                 "_cost": p["now_cost"],

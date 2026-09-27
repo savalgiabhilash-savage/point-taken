@@ -11,6 +11,8 @@ const ITEMS = [
   { href: "/fixtures", label: "Fixtures" },
   { href: "/team", label: "My Team" },
   { href: "/optimizer", label: "Optimizer" },
+  { href: "/chips", label: "Chips" },
+  { href: "/differentials", label: "Differentials" },
   { href: "/best", label: "Best XI" },
   { href: "/assistant", label: "Assistant" },
   { href: "/guide", label: "Guide" },
@@ -28,7 +30,7 @@ export function Nav() {
   }, []);
   const items = owner ? [...ITEMS, { href: "/docs", label: "Docs" }] : ITEMS;
   return (
-    <nav className="flex items-center gap-1 text-sm">
+    <nav className="flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm">
       {items.map((it) => {
         const active = path === it.href;
         return (

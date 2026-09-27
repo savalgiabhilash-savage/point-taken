@@ -35,17 +35,19 @@ export default async function BestPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Best XI{upcomingGw != null ? ` — GW${upcomingGw}` : ""}
         </h1>
-        <p className="text-sm text-muted-foreground">
-          The highest-projected squad for the upcoming gameweek, within a £100m budget or with no budget at all.
-          Each week&apos;s pick is tracked against what actually happened, and the accuracy feeds back to
-          calibrate future projections.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          This is the best team for <span className="text-foreground">this gameweek only</span>. For a plan that
-          looks several gameweeks ahead — transfers, chip timing, captaincy over a horizon you choose — use the{" "}
-          <span className="text-foreground">Optimizer</span> (it can suggest different players when their fixtures
-          improve later, even if this week&apos;s XI is already optimal).
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• The highest-projected squad for the upcoming gameweek, with a £100m budget or none</li>
+          <li>• Each week&apos;s pick is scored against what happened; accuracy calibrates future projections</li>
+        </ul>
+        <ul className="space-y-0.5 text-xs text-muted-foreground">
+          <li>
+            • Best team for <span className="text-foreground">this gameweek only</span>
+          </li>
+          <li>
+            • For transfers, captaincy and chips over several weeks, use the{" "}
+            <span className="text-foreground">Optimizer</span>
+          </li>
+        </ul>
       </div>
 
       {migrationMissing && (
@@ -130,10 +132,10 @@ export default async function BestPage() {
                 })}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Projections run uncalibrated (×1.000). Once gameweeks are scored, any position the model
-                systematically over- or under-rates gets a correction here, applied to future projections.
-              </p>
+              <ul className="space-y-0.5 text-sm text-muted-foreground">
+                <li>• Projections run uncalibrated (×1.000) for now</li>
+                <li>• Once gameweeks are scored, a position the model over- or under-rates gets a correction here</li>
+              </ul>
             )}
           </div>
         </section>

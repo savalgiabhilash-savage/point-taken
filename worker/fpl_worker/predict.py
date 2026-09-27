@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 from . import db
 from .fpl_client import FplClient
+from .model import MODEL_VERSION
 from .optimize import BUDGET, _solve, load_pool
 
 UNCAPPED_BUDGET = 100_000   # effectively unlimited (a real 15 costs < £200m = 2000 tenths)
@@ -198,6 +199,64 @@ def _tables_ready(sb) -> bool:
         return False
 
 
+# --- news weight: learned from who actually started ------------------------------
+
+NEWS_WEIGHT_PRIOR = 1.0     # starting belief: apply Claude's minutes_risk_adj as-is (topic/age weighted)
+NEWS_WEIGHT_PRIOR_N = 30    # the prior counts as 30 observations, so a handful of cases can't swing it
+NEWS_WEIGHT_GRID = [i / 10 for i in range(0, 16)]  # 0.0 .. 1.5
+
+
+def log_news_effects(sb, gw: int) -> None:
+    """Snapshot every player whose next-GW projection was changed by news (replaced until the deadline)."""
+    try:
+        rows = _all(sb, "projections", "player_id, components", eq=("gw", gw), eq2=("model_version", MODEL_VERSION))
+        log = []
+        for r in rows:
+            why = (r.get("components") or {}).get("why") or {}
+            if why.get("news_adj"):
+                log.append({"gw": gw, "player_id": r["player_id"], "start_rate": why["start_rate"],
+                            "fpl_avail": why["fpl_avail"], "news_adj": why["news_adj"], "scored": False})
+        sb.table("news_effect_log").delete().eq("gw", gw).eq("scored", False).execute()
+        if log:
+            db.upsert(sb, "news_effect_log", log, on_conflict="gw,player_id")
+        print(f"  news log GW{gw}: {len(log)} players affected by news")
+    except Exception as exc:  # noqa: BLE001 — needs migration 0008; skip quietly until it's applied
+        print(f"  news log skipped ({exc.__class__.__name__}); run supabase/migrations/0008 to enable")
+
+
+def learn_news_weight(sb, client: FplClient, finished: set[int]) -> None:
+    """Score logged news cases (did he start?) and refit news_weight: the weight whose start probabilities
+    p = start_rate x min(fpl_avail, 1 + w x news_adj) best match reality (Brier score), shrunk toward the
+    prior by sample size. The model reads it on its next run, so news handling keeps improving."""
+    try:
+        pending = _all(sb, "news_effect_log", "gw, player_id", eq=("scored", False))
+    except Exception:  # noqa: BLE001 — migration 0008 not applied yet
+        return
+    for gw in sorted({r["gw"] for r in pending} & finished):
+        starts = {e["id"]: (e["stats"].get("starts") or 0) > 0 for e in client.event_live(gw).get("elements", [])}
+        upd = [{"gw": gw, "player_id": r["player_id"], "started": starts.get(r["player_id"], False), "scored": True}
+               for r in pending if r["gw"] == gw]
+        db.upsert(sb, "news_effect_log", upd, on_conflict="gw,player_id")
+    rows = _all(sb, "news_effect_log", "start_rate, fpl_avail, news_adj, started", eq=("scored", True))
+    if not rows:
+        return
+
+    def brier(w: float) -> float:
+        err = 0.0
+        for r in rows:
+            p = float(r["start_rate"]) * min(float(r["fpl_avail"]), max(0.0, 1 + w * float(r["news_adj"])))
+            err += (p - (1.0 if r["started"] else 0.0)) ** 2
+        return err / len(rows)
+
+    best = min(NEWS_WEIGHT_GRID, key=brier)
+    n = len(rows)
+    w = (n * best + NEWS_WEIGHT_PRIOR_N * NEWS_WEIGHT_PRIOR) / (n + NEWS_WEIGHT_PRIOR_N)
+    sb.table("model_params").upsert({"key": "news_weight", "value": round(w, 3), "n": n, "updated_at": _now(),
+                                     "note": f"best fit {best} on {n} cases (Brier {brier(best):.4f} vs {brier(1.0):.4f} at 1.0)"},
+                                    on_conflict="key").execute()
+    print(f"  news weight: {w:.3f} (best fit {best} on {n} scored cases)")
+
+
 def run(sb, dry_run: bool = False) -> None:
     pool, gws, _, _, _, xp_by_gw = load_pool(sb)
     if not gws:
@@ -222,9 +281,12 @@ def run(sb, dry_run: bool = False) -> None:
         return
     with FplClient() as client:
         score_finished(sb, client)
+        finished = {e["id"] for e in client.bootstrap_static().get("events", []) if e.get("finished")}
+        learn_news_weight(sb, client, finished)
     update_calibration(sb)
     log_best_squads(sb, pool, xp_by_gw, next_gw)
     snapshot_predictions(sb, pool, xp_by_gw, next_gw)
+    log_news_effects(sb, next_gw)
 
 
 def main() -> None:

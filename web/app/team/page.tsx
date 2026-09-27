@@ -124,9 +124,10 @@ export default async function TeamPage() {
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
-        <p className="text-sm text-muted-foreground">
-          Your live squad, each player showing projected xPts for the next gameweek. Captain counts double.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• Your squad with each player&apos;s projected points for the next gameweek</li>
+          <li>• Captain counts double; tap the i on any player for the reasoning</li>
+        </ul>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -155,15 +156,16 @@ export default async function TeamPage() {
       )}
 
       {state.gw === 0 ? (
-        <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Preseason draft snapshot. This is automatically replaced by your actual team once the GW
-          deadline passes and it syncs from FPL.
-        </p>
+        <ul className="mt-4 space-y-0.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <li>• Preseason draft snapshot</li>
+          <li>• Replaced by your actual team once the GW deadline passes and it syncs from FPL</li>
+        </ul>
       ) : state.fpl_entry_id == null ? (
-        <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Uploaded squad for GW{state.gw}. It overrides your synced team until the GW{state.gw} deadline, then
-          FPL&apos;s real picks replace it. Bank and free transfers are carried over from your last sync.
-        </p>
+        <ul className="mt-4 space-y-0.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <li>• Uploaded squad for GW{state.gw}</li>
+          <li>• Overrides your synced team until the GW{state.gw} deadline, then FPL&apos;s real picks replace it</li>
+          <li>• Bank and free transfers are carried over from your last sync</li>
+        </ul>
       ) : (
         <p className="mt-4 text-xs text-muted-foreground">
           Live team · GW{state.gw} — synced from your FPL account.

@@ -194,9 +194,10 @@ export default async function PlayersPage() {
     <main className="mx-auto w-full max-w-7xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Player Explorer</h1>
-        <p className="text-sm text-muted-foreground">
-          Projected expected points (xPts) for every player, fixture-adjusted. Click a row to see the breakdown.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• Projected points (xPts) for every player, adjusted for minutes, form and fixtures</li>
+          <li>• Click a row for the breakdown; tap the i for the full reasoning</li>
+        </ul>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -3,6 +3,7 @@ import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { OptimizeControls } from "@/components/optimize-controls";
+import { PlayerInfo } from "@/components/player-info";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +92,7 @@ function pairByPosition(out: Move[], inn: Move[]): [Move, Move | undefined][] {
   return out.map((o) => [o, queues.get(o.position)?.shift()]);
 }
 
-function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
+function MovePill({ p, dir, why }: { p: Move; dir: "out" | "in"; why?: string[] }) {
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] ${
@@ -102,8 +103,23 @@ function MovePill({ p, dir }: { p: Move; dir: "out" | "in" }) {
     >
       <span className={`text-[9px] font-bold ${POS_ACCENT[p.position]}`}>{p.position}</span>
       {p.web_name}
+      <PlayerInfo playerId={p.fpl_id} name={p.web_name} why={why} />
     </span>
   );
+}
+
+// "Why this move" bullets for a transfer pair, from the plan's own numbers.
+function moveWhy(o: Move, inp: Move | null | undefined, gw: number, horizon: number, dir: "out" | "in"): string[] {
+  if (!inp) return [`Sold in GW${gw}`];
+  const delta = inp.xp5 - o.xp5;
+  const priceDiff = (inp.now_cost - o.now_cost) / 10;
+  const common = [
+    `${inp.web_name} ${inp.xp5.toFixed(1)} pts vs ${o.web_name} ${o.xp5.toFixed(1)} over the next ${horizon} GWs (${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`,
+    `Price difference ${priceDiff >= 0 ? "+" : "−"}£${Math.abs(priceDiff).toFixed(1)}m`,
+  ];
+  return dir === "in"
+    ? [`Transfer in for ${o.web_name} in GW${gw}`, ...common]
+    : [`Transfer out for ${inp.web_name} in GW${gw}`, ...common];
 }
 
 export default async function OptimizerPage() {
@@ -198,14 +214,17 @@ export default async function OptimizerPage() {
     is_vice_captain: !!p.is_vice,
     xp_next: p.xpn,
     xp_horizon: p.xp5,
-    note: p.is_captain
-      ? "Captain — the highest projected returns in your XI, so the ×2 goes here."
-      : p.is_vice
-        ? "Vice-captain — the next-highest projection; takes the ×2 if the captain doesn't play."
-        : p.is_start
-        ? "Starts: highest projected points for its slot within the squad rules."
-        : "Bench: covers a starter; projected below the XI but keeps a legal 15.",
+    ownership: ownership.get(p.fpl_id) ?? null,
+    why: p.is_start
+      ? ["Starts: among the highest projections for his slot within the squad rules"]
+      : [`Bench${p.bench_order ? ` #${p.bench_order}` : ""}: covers a starter; the order is who comes on first`],
   });
+
+  const { data: ownRows } = await supabase
+    .from("players")
+    .select("fpl_id, selected_by_percent")
+    .in("fpl_id", squad.map((p) => p.fpl_id));
+  const ownership = new Map((ownRows ?? []).map((r) => [r.fpl_id as number, Number(r.selected_by_percent ?? 0)]));
 
   const starters = squad.filter((p) => p.is_start);
   const bench = squad.filter((p) => !p.is_start).sort((a, b) => (a.bench_order ?? 9) - (b.bench_order ?? 9));
@@ -267,16 +286,16 @@ export default async function OptimizerPage() {
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
-        <p className="text-sm text-muted-foreground">
-          A multi-week plan for your squad over the next {horizon} gameweeks: a transfer path (which week to move,
-          when to roll a free transfer, when a −4 hit pays off) plus chip timing. Respects £100m, 2/5/5/3,
-          ≤3 per club, valid formation, and free-transfer rollover (HiGHS MILP).
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Unlike <span className="text-foreground">Best XI</span> (the best team for a single gameweek), this looks
-          across your chosen horizon — so it can suggest swaps that lift your total over several GWs even when this
-          week&apos;s XI is already optimal. Set the horizon to 1 to compare like-for-like.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• A plan for your squad over the next {horizon} gameweeks</li>
+          <li>• Which week to transfer, when to roll a free transfer, when a −4 hit pays off</li>
+          <li>• Follows every FPL rule: budget, 2/5/5/3, max 3 per club, valid formation</li>
+          <li>
+            • Differs from <span className="text-foreground">Best XI</span> (one gameweek only); set the horizon to 1
+            to compare
+          </li>
+          <li>• Tap the i on any player for the full reasoning; chip moves are on the Chips tab</li>
+        </ul>
       </div>
 
       <OptimizeControls
@@ -289,11 +308,11 @@ export default async function OptimizerPage() {
       {stale && (
         <div className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
           <span className="text-xs font-medium uppercase tracking-wide text-amber-400">Plan out of date</span>
-          <div className="mt-0.5 text-sm text-amber-700 dark:text-amber-300">
-            Your squad changed since this plan was computed, so the transfers below still reference your
-            previous team. A fresh optimization runs automatically after a team change (usually within a
-            minute or two) and on the 3-hourly sync — reload this page then.
-          </div>
+          <ul className="mt-0.5 space-y-0.5 text-sm text-amber-700 dark:text-amber-300">
+            <li>• Your squad changed since this plan was computed</li>
+            <li>• The transfers below still refer to your previous team</li>
+            <li>• A fresh plan runs automatically within a minute or two, and every 2 hours: reload then</li>
+          </ul>
         </div>
       )}
 
@@ -365,9 +384,9 @@ export default async function OptimizerPage() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       {pairByPosition(step.out, step.in).map(([o, inp]) => (
                         <span key={o.fpl_id} className="flex items-center gap-1.5">
-                          <MovePill p={o} dir="out" />
+                          <MovePill p={o} dir="out" why={moveWhy(o, inp, step.gw, horizon, "out")} />
                           <span className="text-muted-foreground">→</span>
-                          {inp ? <MovePill p={inp} dir="in" /> : null}
+                          {inp ? <MovePill p={inp} dir="in" why={moveWhy(o, inp, step.gw, horizon, "in")} /> : null}
                         </span>
                       ))}
                     </div>
@@ -442,13 +461,17 @@ export default async function OptimizerPage() {
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench.map(toSP)} />
       </div>
 
-      <p className="mt-4 text-xs text-muted-foreground">
-        Projections span the next {horizon} GWs.{" "}
-        {hasSpecialGw
-          ? "Any Double/Blank gameweeks in this window are flagged above — the ideal time for Bench Boost / Triple Captain (doubles) or Free Hit (blanks)."
-          : "No Double or Blank gameweeks are scheduled — they only appear in the second half as fixtures are rearranged (around the FA Cup, usually from late February), and the app flags them automatically once the fixtures confirm it."}{" "}
-        See the Guide for details.
-      </p>
+      <ul className="mt-4 space-y-0.5 text-xs text-muted-foreground">
+        <li>• Projections span the next {horizon} GWs</li>
+        {hasSpecialGw ? (
+          <li>• Double/Blank gameweeks in this window are flagged above: doubles suit Bench Boost and Triple Captain, blanks suit Free Hit</li>
+        ) : (
+          <>
+            <li>• No Double or Blank gameweeks are scheduled yet</li>
+            <li>• They appear in the second half as fixtures move for cup ties, and are flagged automatically</li>
+          </>
+        )}
+      </ul>
     </main>
   );
 }

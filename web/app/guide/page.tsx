@@ -23,15 +23,16 @@ function Chip({ cls, children }: { cls: string; children: React.ReactNode }) {
 function Dot({ cls }: { cls: string }) {
   return <span className={`inline-block size-2.5 rounded-full ${cls}`} />;
 }
+const B = ({ children }: { children: React.ReactNode }) => <li>• {children}</li>;
 
 const CHIPS: { label: string; cls: string; meaning: string }[] = [
-  { label: "injury", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400", meaning: "A knock, doubt, or fitness concern — real risk of missing out." },
-  { label: "susp.", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400", meaning: "Suspension news — likely unavailable." },
-  { label: "rotation", cls: "bg-amber-500/15 text-amber-600 ring-amber-500/30 dark:text-amber-400", meaning: "Squad-depth / benching risk — may not start." },
-  { label: "return", cls: "bg-sky-500/15 text-sky-600 ring-sky-500/30 dark:text-sky-400", meaning: "Coming back from injury — minutes trending up." },
-  { label: "buzz", cls: "bg-emerald-500/15 text-emerald-600 ring-emerald-500/30 dark:text-emerald-400", meaning: "Positive form or hype around the player." },
-  { label: "transfer", cls: "bg-violet-500/15 text-violet-600 ring-violet-500/30 dark:text-violet-400", meaning: "Move rumours — creates future uncertainty." },
-  { label: "news", cls: "bg-zinc-500/15 text-zinc-600 ring-zinc-500/30 dark:text-zinc-400", meaning: "Other relevant news worth a glance." },
+  { label: "injury", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400", meaning: "A knock, doubt, or fitness concern: real risk of missing out" },
+  { label: "susp.", cls: "bg-rose-500/15 text-rose-600 ring-rose-500/30 dark:text-rose-400", meaning: "Suspension news: likely unavailable" },
+  { label: "rotation", cls: "bg-amber-500/15 text-amber-600 ring-amber-500/30 dark:text-amber-400", meaning: "Squad-depth or benching risk: may not start" },
+  { label: "return", cls: "bg-sky-500/15 text-sky-600 ring-sky-500/30 dark:text-sky-400", meaning: "Coming back from injury: minutes trending up" },
+  { label: "buzz", cls: "bg-emerald-500/15 text-emerald-600 ring-emerald-500/30 dark:text-emerald-400", meaning: "Positive form or hype around the player" },
+  { label: "transfer", cls: "bg-violet-500/15 text-violet-600 ring-violet-500/30 dark:text-violet-400", meaning: "Move rumours: creates uncertainty" },
+  { label: "news", cls: "bg-zinc-500/15 text-zinc-600 ring-zinc-500/30 dark:text-zinc-400", meaning: "Other relevant news worth a glance" },
 ];
 
 const FDR: { label: string; cls: string }[] = [
@@ -43,14 +44,14 @@ const FDR: { label: string; cls: string }[] = [
 ];
 
 const COMPONENTS: { label: string; cls: string; note: string }[] = [
-  { label: "Appearance", cls: "bg-zinc-400", note: "Points just for playing (1) and for 60+ mins (1)." },
-  { label: "Goals", cls: "bg-emerald-500", note: "Expected goals × the position's goal value (GK/DEF 6, MID 5, FWD 4)." },
-  { label: "Assists", cls: "bg-sky-500", note: "Expected assists × 3." },
-  { label: "Clean sheet", cls: "bg-teal-500", note: "P(clean sheet) × CS value, weighted by chance of 60+ mins." },
-  { label: "Bonus", cls: "bg-violet-500", note: "Proxy for BPS bonus from involvement." },
-  { label: "DefCon", cls: "bg-amber-500", note: "Defensive-contribution points (rough placeholder for now)." },
-  { label: "Saves", cls: "bg-cyan-500", note: "Goalkeeper save points (rough)." },
-  { label: "Deductions", cls: "bg-rose-500", note: "Goals conceded (GK/DEF) and card risk — subtracted." },
+  { label: "Appearance", cls: "bg-zinc-400", note: "Points for playing (1) and for 60+ minutes (1)" },
+  { label: "Goals", cls: "bg-emerald-500", note: "Expected goals × the position's goal value (GK/DEF 6, MID 5, FWD 4)" },
+  { label: "Assists", cls: "bg-sky-500", note: "Expected assists × 3" },
+  { label: "Clean sheet", cls: "bg-teal-500", note: "Chance of a clean sheet × CS value, weighted by chance of 60+ minutes" },
+  { label: "Bonus", cls: "bg-violet-500", note: "Estimate from goal and assist involvement (rough)" },
+  { label: "DefCon", cls: "bg-amber-500", note: "Chance of reaching the defensive-contribution threshold × 2, from his own rate" },
+  { label: "Saves", cls: "bg-cyan-500", note: "Goalkeeper save points from the opponent's expected goals" },
+  { label: "Deductions", cls: "bg-rose-500", note: "Goals conceded (GK/DEF) and card risk, subtracted" },
 ];
 
 const STATUS: { cls: string; label: string }[] = [
@@ -65,65 +66,81 @@ export default function GuidePage() {
     <main className="mx-auto w-full max-w-4xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">How to use this app</h1>
-        <p className="text-sm text-muted-foreground">
-          A personal Fantasy Premier League decision tool. It projects each player&apos;s expected
-          points with a transparent, own-built model — every number can be broken down into its parts.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <B>A personal FPL assistant for picks, transfers, captaincy and chips</B>
+          <B>Every projected number breaks down into named parts; tap the i on any player to see why</B>
+        </ul>
       </div>
 
       <div className="mt-6 grid gap-4">
         <Card title="The tabs">
           <ul className="space-y-1.5">
-            <li><b>Players</b> — every player ranked by projected points (xPts). Sort, filter, and click any row for the full breakdown.</li>
-            <li><b>Fixtures</b> — a difficulty ticker: each team&apos;s next 8 gameweeks, coloured by how tough the run is (easiest runs first).</li>
-            <li><b>My Team</b> — your real FPL squad as a pitch view.</li>
-            <li><b>Optimizer</b> — a multi-week plan for your squad: a transfer <i>path</i> (which week to move, when to roll a free transfer, when a −4 hit pays off) plus <b>chip timing</b> — the best gameweek and expected gain for your Triple Captain, Bench Boost, Wildcard, and Free Hit.</li>
-            <li><b>Best XI</b> — the highest-projected squad for this gameweek, within a £100m budget or with no budget. Each week&apos;s pick is tracked against the real result, and the accuracy calibrates future projections.</li>
-            <li><b>Assistant</b> — a chat assistant for captaincy, transfers, hits, chips, and player questions. It answers strictly from your live data and cites the numbers — it won&apos;t invent stats.</li>
-            <li><b>Guide</b> — this page.</li>
+            <B><b>Players</b>: every player ranked by projected points; click a row for the breakdown</B>
+            <B><b>Fixtures</b>: each team&apos;s next 8 gameweeks, coloured by difficulty</B>
+            <B><b>My Team</b>: your squad on a pitch; upload a screenshot to plan with unsynced transfers</B>
+            <B><b>Optimizer</b>: a multi-week transfer plan (when to move, roll or take a −4) and chip timing</B>
+            <B><b>Chips</b>: for each chip, the best week and the exact moves if you play it in any week</B>
+            <B><b>Differentials</b>: low-owned players the model rates highly, with the reasons</B>
+            <B><b>Best XI</b>: the best squad for this gameweek, scored afterwards to measure accuracy</B>
+            <B><b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
+          </ul>
+        </Card>
+
+        <Card title="The i button">
+          <ul className="space-y-1.5">
+            <B>On every recommended player: pitch cards, transfers, chip squads, differentials, the Players table</B>
+            <B>&ldquo;Why this pick&rdquo;: the reason for that spot (captain, transfer in, chip squad…)</B>
+            <B>Then the model&apos;s factors: minutes and availability, news, form, fixture, points breakdown, price and ownership</B>
+            <B>A purple <b>D</b> badge marks a differential (under 10% owned)</B>
           </ul>
         </Card>
 
         <Card title="Reading the Players table">
           <ul className="space-y-1.5">
-            <li><b>xPts</b> — projected points for the next gameweek. The headline number. Greener = higher.</li>
-            <li><b>Next 5</b> — xPts summed across the next five gameweeks (good for longer-term picks).</li>
-            <li><b>Opp</b> — the next opponent (a leading <span className="tabular-nums">@</span> means away), coloured by fixture difficulty.</li>
-            <li><b>Price</b> — current cost. <b>Own %</b> — how many managers own them. <b>Last szn</b> — total points last season.</li>
-            <li><b>Pos</b> —{" "}
-              <span className="inline-flex gap-1">
-                <Chip cls="bg-amber-400/15 text-amber-600 ring-amber-400/30 dark:text-amber-400">GK</Chip>
-                <Chip cls="bg-emerald-400/15 text-emerald-600 ring-emerald-400/30 dark:text-emerald-400">DEF</Chip>
-                <Chip cls="bg-sky-400/15 text-sky-600 ring-sky-400/30 dark:text-sky-400">MID</Chip>
-                <Chip cls="bg-rose-400/15 text-rose-600 ring-rose-400/30 dark:text-rose-400">FWD</Chip>
-              </span>
+            <B><b>xPts</b>: projected points next gameweek; greener is higher</B>
+            <B><b>Next 5</b>: projected points over the next five gameweeks</B>
+            <B><b>Opp</b>: next opponent (@ = away), coloured by difficulty</B>
+            <B><b>Price</b>, <b>Own %</b> (managers who own him), <b>Last szn</b> (last season&apos;s points)</B>
+            <li className="flex flex-wrap items-center gap-1">
+              • <b>Pos</b>:
+              <Chip cls="bg-amber-400/15 text-amber-600 ring-amber-400/30 dark:text-amber-400">GK</Chip>
+              <Chip cls="bg-emerald-400/15 text-emerald-600 ring-emerald-400/30 dark:text-emerald-400">DEF</Chip>
+              <Chip cls="bg-sky-400/15 text-sky-600 ring-sky-400/30 dark:text-sky-400">MID</Chip>
+              <Chip cls="bg-rose-400/15 text-rose-600 ring-rose-400/30 dark:text-rose-400">FWD</Chip>
             </li>
             <li className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span><b>Status dot</b> (far right):</span>
-              {STATUS.map((s) => (
-                <span key={s.label} className="inline-flex items-center gap-1.5">
-                  <Dot cls={s.cls} /> {s.label}
+              <span>
+                • <b>Status dot</b>:
+              </span>
+              {STATUS.map((st) => (
+                <span key={st.label} className="inline-flex items-center gap-1.5">
+                  <Dot cls={st.cls} /> {st.label}
                 </span>
               ))}
             </li>
           </ul>
-          <p className="text-muted-foreground">Tip: click a row to open the detail drawer with the breakdown, the next-five fixtures, and any news.</p>
         </Card>
 
         <Card title="The xPts breakdown">
-          <p>Every projection is the sum of named parts, each scaled by the chance the player starts and how many minutes they&apos;re expected to play. Open any player to see the stacked bar and these components:</p>
           <ul className="space-y-1.5">
+            <B>Each projection is the sum of the parts below</B>
+            <B>Each part is scaled by the chance he starts and his expected minutes</B>
             {COMPONENTS.map((c) => (
               <li key={c.label} className="flex items-start gap-2">
                 <span className={`mt-1 size-2.5 shrink-0 rounded-full ${c.cls}`} />
-                <span><b>{c.label}</b> — {c.note}</span>
+                <span>
+                  <b>{c.label}</b>: {c.note}
+                </span>
               </li>
             ))}
           </ul>
         </Card>
 
         <Card title="Fixture difficulty (FDR)">
-          <p>A data-driven 1–5 difficulty for each fixture, computed from last season&apos;s team attacking/defensive expected goals — not the official FPL rating. Lower is easier.</p>
+          <ul className="space-y-1.5">
+            <B>A 1–5 difficulty from team expected goals (last season and this season), not FPL&apos;s rating</B>
+            <B>Lower is easier; the projections themselves use each fixture&apos;s expected goals directly</B>
+          </ul>
           <div className="flex flex-wrap gap-2">
             {FDR.map((f) => (
               <span key={f.label} className={`inline-flex min-w-16 items-center justify-center rounded-md px-2 py-1 text-xs font-medium ${f.cls}`}>
@@ -133,9 +150,13 @@ export default function GuidePage() {
           </div>
         </Card>
 
-        <Card title="News & sentiment signals">
-          <p>Recent headlines for flagged and highly-owned players are classified into a single chip next to the player&apos;s name. Open the drawer for the summary and a link to the source.</p>
+        <Card title="News signals">
           <ul className="space-y-1.5">
+            <B>Headlines for flagged and popular players are read by Claude twice a day</B>
+            <B>Injury, suspension, rotation, transfer and off-pitch news lowers a player&apos;s chance of starting</B>
+            <B>Fresh news counts fully; it fades out over two weeks as FPL&apos;s own flag catches up</B>
+            <B>If FPL&apos;s flag is already lower, the news isn&apos;t counted twice</B>
+            <B>How much news counts is re-learned every gameweek from who actually started</B>
             {CHIPS.map((c) => (
               <li key={c.label} className="flex items-center gap-2">
                 <Chip cls={c.cls}>{c.label}</Chip>
@@ -143,24 +164,23 @@ export default function GuidePage() {
               </li>
             ))}
           </ul>
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-600 dark:text-amber-400">
-            News is <b>advisory</b>. A &ldquo;minutes risk&rdquo; percentage may show how much the news lowers a player&apos;s
-            chance of starting — but it is deliberately <b>not</b> folded into the xPts number until it&apos;s been
-            validated. Treat it as a nudge, and always check the source.
-          </p>
         </Card>
 
-        <Card title="How the model works (and its limits)">
+        <Card title="How the model works">
           <ul className="space-y-1.5">
-            <li>Attacking output uses last season&apos;s expected goals/assists, <b>shrunk toward the position average</b> so small hot streaks don&apos;t overstate a player (a Haaland stays top; a one-game wonder regresses).</li>
-            <li>Everything scales by <b>minutes</b> — a great fixture is worth little if the player won&apos;t start.</li>
-            <li>Clean sheets come from expected goals conceded (opponent attack vs. team defence, home/away adjusted).</li>
-            <li><b>Honest caveats:</b> defensive-contribution, saves, and bonus are rough placeholders for now, and preseason projections lean on last season&apos;s baseline until live form accumulates.</li>
+            <B><b>Minutes first</b>: his last 8 gameweeks, recent ones weighted most, plus injury flags and news</B>
+            <B><b>Form</b>: expected goals and assists this season, with last season at half weight, pulled toward the position average</B>
+            <B><b>Fixtures</b>: each team&apos;s expected goals for and against, from recent team form blended with bookmaker odds</B>
+            <B><b>Accuracy</b>: every change is tested on three past seasons before it ships</B>
+            <B><b>Limits</b>: bonus is a rough estimate; set pieces and fixture congestion are being added</B>
           </ul>
         </Card>
 
         <Card title="How fresh is the data?">
-          <p>The full pipeline (FPL data, advanced stats, projections, your team, optimizer, and news) refreshes automatically twice a day. You&apos;re always looking at recent numbers, not a stale snapshot.</p>
+          <ul className="space-y-1.5">
+            <B>Prices, injuries, projections, your team and the optimizer refresh every 2 hours</B>
+            <B>News is refreshed twice a day</B>
+          </ul>
         </Card>
       </div>
     </main>

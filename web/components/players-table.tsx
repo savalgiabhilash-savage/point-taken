@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PlayerInfo } from "@/components/player-info";
 import {
   type ColumnDef,
   type SortingState,
@@ -128,6 +129,7 @@ const columns: ColumnDef<PlayerRow>[] = [
         <div className="flex flex-col leading-tight">
           <span className="flex items-center gap-1.5">
             <span className="font-medium">{r.web_name}</span>
+            <PlayerInfo playerId={r.fpl_id} name={r.web_name} />
             {r.news ? <NewsChip news={r.news} /> : null}
           </span>
           <span className="text-xs text-muted-foreground">{r.team?.short_name ?? ""}</span>
@@ -254,6 +256,7 @@ function PlayerDrawer({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-lg font-semibold">{player.web_name}</span>
+              <PlayerInfo playerId={player.fpl_id} name={player.web_name} />
               <PosPill pos={player.position} />
             </div>
             <div className="text-sm text-muted-foreground">

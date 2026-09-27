@@ -1,4 +1,5 @@
 import type { Position } from "@/lib/supabase";
+import { PlayerInfo } from "@/components/player-info";
 
 export type SquadPlayer = {
   fpl_id: number;
@@ -12,7 +13,11 @@ export type SquadPlayer = {
   xp_next: number | null;
   xp_horizon?: number | null; // projected pts over the plan horizon (optimizer only)
   note?: string | null; // short "why this player" note (optimizer only)
+  why?: string[]; // page-specific reasons shown first in the "i" pop-up
+  ownership?: number | null; // % owned — under 10% gets a differential badge
 };
+
+const DIFFERENTIAL_OWNERSHIP = 10;
 
 const POS_ACCENT: Record<Position, string> = {
   GK: "bg-amber-400",
@@ -48,11 +53,22 @@ function xpChip(v: number | null): string {
   return "bg-zinc-200 text-zinc-700";
 }
 
+// "Why this pick" bullets for the pop-up: the page's own reasons plus what this card shows.
+function cardWhy(p: SquadPlayer): string[] {
+  const out = [...(p.why ?? [])];
+  if (p.is_captain) out.push("Captain: highest projection in the XI, so his points count double");
+  if (p.is_vice_captain && !p.is_captain) out.push("Vice-captain: takes the armband if the captain doesn't play");
+  if (p.xp_horizon != null) out.push(`${p.xp_horizon.toFixed(1)} pts projected over the plan`);
+  if (p.note) out.push(p.note);
+  if (p.status && p.status !== "a") out.push(`Status: ${STATUS_LABEL[p.status] ?? p.status}`);
+  return out;
+}
+
 function PlayerCard({ p }: { p: SquadPlayer }) {
   const dot = STATUS_DOT[p.status ?? "a"] ?? STATUS_DOT.a;
   const price = p.now_cost == null ? null : (p.now_cost / 10).toFixed(1);
   return (
-    // Outer wrapper is NOT clipped, so the hover/focus tooltip can escape the card.
+    // Outer wrapper is NOT clipped, so the corner badges can sit on the card edge.
     <div className="group/card relative w-[72px] sm:w-[84px]">
       <div className="flex w-full flex-col items-center overflow-hidden rounded-lg bg-white/95 shadow-md ring-1 ring-black/10">
         <div className={`h-1 w-full ${p.position ? POS_ACCENT[p.position] : "bg-zinc-300"}`} />
@@ -81,31 +97,23 @@ function PlayerCard({ p }: { p: SquadPlayer }) {
         </div>
       </div>
 
-      {/* Info affordance — a focusable "i" so it also works on tap/keyboard, not only hover. */}
-      <button
-        type="button"
-        aria-label={`Why ${p.web_name} is here`}
-        className="absolute left-1 top-2 z-10 flex size-4 cursor-help items-center justify-center rounded-full bg-zinc-900/70 font-serif text-[10px] font-bold italic leading-none text-white"
-      >
-        i
-      </button>
-      <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1 hidden w-44 -translate-x-1/2 rounded-lg bg-zinc-900 px-2.5 py-2 text-left text-[10px] leading-snug text-zinc-100 shadow-xl ring-1 ring-white/10 group-hover/card:block group-focus-within/card:block">
-        <div className="font-semibold text-white">
-          {p.web_name}{" "}
-          <span className="font-normal text-zinc-400">
-            {p.position ?? ""} · {p.team_short}
-          </span>
-        </div>
-        {price != null && <div className="text-zinc-300">Price £{price}m</div>}
-        <div className="text-zinc-300">Proj {p.xp_next == null ? "—" : p.xp_next.toFixed(1)} pts next GW</div>
-        {p.xp_horizon != null && <div className="text-zinc-300">{p.xp_horizon.toFixed(1)} pts over the plan</div>}
-        <div className="text-zinc-300">Status: {STATUS_LABEL[p.status ?? "a"] ?? "Available"}</div>
-        {p.is_captain && <div className="mt-0.5 text-amber-300">Captain — points count double.</div>}
-        {p.is_vice_captain && !p.is_captain && (
-          <div className="mt-0.5 text-amber-300">Vice-captain — steps in if the captain doesn&apos;t play.</div>
-        )}
-        {p.note && <div className="mt-1 text-emerald-300">{p.note}</div>}
+      {/* "i": click for the full factor-by-factor reasoning (works on tap and keyboard too). */}
+      <div className="absolute left-1 top-2 z-10">
+        <PlayerInfo
+          playerId={p.fpl_id}
+          name={p.web_name}
+          why={cardWhy(p)}
+          className="flex size-4 cursor-pointer items-center justify-center rounded-full bg-zinc-900/70 font-serif text-[10px] font-bold italic leading-none text-white hover:bg-emerald-600"
+        />
       </div>
+      {p.ownership != null && p.ownership < DIFFERENTIAL_OWNERSHIP ? (
+        <span
+          className="absolute bottom-1 right-1 z-10 rounded bg-violet-600 px-1 text-[8px] font-bold text-white"
+          title={`Differential: ${p.ownership.toFixed(1)}% owned`}
+        >
+          D
+        </span>
+      ) : null}
     </div>
   );
 }

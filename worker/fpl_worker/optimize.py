@@ -422,30 +422,45 @@ def _plan_val_at(squad15, xp_by_gw, gw):
         "bench": sum(p["xp"] for p in bench),
         "cap": cap["xp"] if cap else 0.0,             # the captain's points = the extra ×1 a TC adds
         "cap_name": cap["web_name"] if cap else None,
+        "cap_id": cap["fpl_id"] if cap else None,
+        "bench_ids": [p["fpl_id"] for p in bench],
     }
 
 
+def _squad_option(new15: list[dict], planned15: list[dict]) -> dict:
+    """What a Wildcard / Free Hit squad changes vs the squad you'd otherwise have that GW."""
+    new_ids = {p["fpl_id"] for p in new15}
+    old_ids = {p["fpl_id"] for p in planned15}
+    return {"out": sorted(old_ids - new_ids), "in": sorted(new_ids - old_ids),
+            "squad": [{"id": p["fpl_id"], "start": bool(p.get("is_start")), "cap": bool(p.get("is_captain"))}
+                      for p in new15]}
+
+
 def _chip_triple_captain(plan_squads, xp_by_gw, gws, idxs):
-    best = None
+    best, options = None, []
     for gi in idxs:
         g = gws[gi]
         v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
         gain = round(v["cap"], 2)  # a TC turns the ×2 captain into ×3 → the extra is one more ×1
+        options.append({"gw": g, "gain": gain, "captain": v["cap_id"]})
         if best is None or gain > best["gain"]:
             best = {"chip": "Triple Captain", "gw": g, "gain": gain,
                     "detail": f"captain {v['cap_name']} projects {v['cap']:.1f} pts"}
+    best["options"] = options
     return best
 
 
 def _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs):
-    best = None
+    best, options = None, []
     for gi in idxs:
         g = gws[gi]
         v = _plan_val_at(plan_squads[gi], xp_by_gw, g)
         gain = round(v["bench"], 2)  # BB scores your 4 bench players too
+        options.append({"gw": g, "gain": gain, "bench": v["bench_ids"]})
         if best is None or gain > best["gain"]:
             best = {"chip": "Bench Boost", "gw": g, "gain": gain,
                     "detail": "your bench projects the most in this gameweek"}
+    best["options"] = options
     return best
 
 
@@ -453,7 +468,7 @@ def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idx
     """Marginal value of a free full rebuild vs continuing your planned transfers: the extra points
     the rebuild reaches PLUS any hits it saves. ≈0 when your free transfers already reach the
     optimal squad (e.g. preseason, when transfers are unlimited)."""
-    best = None
+    best, options = None, []
     for gi in idxs:
         g = gws[gi]
         window = gws[gi:]
@@ -464,28 +479,32 @@ def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idx
         plan_val = sum(_plan_val_at(plan_squads[gj], xp_by_gw, gws[gj])["xi_cap"] for gj in range(gi, len(gws)))
         hits_saved = sum(hits_by_gw[gj] for gj in range(gi, len(gws)))
         gain = round(fresh_val - plan_val + HIT_COST * hits_saved, 2)
+        options.append({"gw": g, "gain": gain, **_squad_option(fresh, plan_squads[gi])})
         if best is None or gain > best["gain"]:
             detail = (f"a free rebuild adds {gain:.1f} pts over your planned transfers for the next "
                       f"{len(window)} GW{'s' if len(window) != 1 else ''}"
                       if gain > 1.0 else "your free transfers already reach the optimal squad — no edge from wildcarding")
             best = {"chip": "Wildcard", "gw": g, "gain": gain, "detail": detail}
+    best["options"] = options
     return best
 
 
 def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs):
     """Marginal value of a one-week optimal squad vs the team you'd actually field that GW. Large
     in a Blank GW (when your squad has few players); ≈0 when your squad is already near-optimal."""
-    best = None
+    best, options = None, []
     for gi in idxs:
         g = gws[gi]
         uni = [{**u, "xp5": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0),
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
         fh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
         gain = round(_plan_val_at(fh, xp_by_gw, g)["xi_cap"] - _plan_val_at(plan_squads[gi], xp_by_gw, g)["xi_cap"], 2)
+        options.append({"gw": g, "gain": gain, **_squad_option(fh, plan_squads[gi])})
         if best is None or gain > best["gain"]:
             detail = (f"a one-week squad beats your team by {gain:.1f} here"
                       if gain > 1.0 else "your team is already near-optimal this week — no edge from a Free Hit")
             best = {"chip": "Free Hit", "gw": g, "gain": gain, "detail": detail}
+    best["options"] = options
     return best
 
 
@@ -501,6 +520,27 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
     ]
     avail = set(chips_available) if chips_available else None  # None (preseason) -> all available
     gw_flags = gw_flags or {}
+    meta = {u["fpl_id"]: u for u in universe}
+
+    def card(pid: int, g: int, **extra) -> dict:
+        u = meta.get(pid, {})
+        return {"fpl_id": pid, "web_name": u.get("web_name", str(pid)), "position": u.get("position"),
+                "team_short": u.get("team_short", "?"), "now_cost": u.get("cost"),
+                "xp": round(xp_by_gw.get(pid, {}).get(g, 0.0), 2), **extra}
+
+    def expand(o: dict) -> dict:
+        g = o["gw"]
+        out = {"gw": g, "gain": o["gain"]}
+        if "captain" in o:
+            out["captain"] = card(o["captain"], g) if o["captain"] else None
+        if "bench" in o:
+            out["bench"] = [card(i, g) for i in o["bench"]]
+        if "squad" in o:
+            out["out"] = [card(i, g) for i in o["out"]]
+            out["in"] = [card(i, g) for i in o["in"]]
+            out["squad"] = [card(x["id"], g, is_start=x["start"], is_captain=x["cap"]) for x in o["squad"]]
+        return out
+
     chips = []
     for half, (lo, hi) in ((1, (1, CHIP_HALF_END)), (2, (CHIP_HALF_END + 1, LAST_GW))):
         idxs = [i for i, g in enumerate(gws) if lo <= g <= hi]
@@ -509,6 +549,7 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
         current_half = lo <= gws[0] <= hi
         for ev in evaluators:
             c = ev(idxs)
+            c["options"] = [expand(o) for o in c["options"]]
             c["half"] = half
             c["available"] = (avail is None or CHIP_CODES[c["chip"]] in avail) if current_half else True
             c["threshold"] = CHIP_THRESHOLDS[c["chip"]]

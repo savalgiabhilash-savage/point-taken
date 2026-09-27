@@ -55,10 +55,10 @@ export default async function FixturesPage() {
     <main className="mx-auto w-full max-w-7xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Fixture Ticker</h1>
-        <p className="text-sm text-muted-foreground">
-          Next {gws.length} gameweeks, colored by data-driven custom FDR (green = easy → red = hard).
-          Teams sorted by easiest run first.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• Next {gws.length} gameweeks, coloured by difficulty (green = easy, red = hard)</li>
+          <li>• Teams with the easiest run are at the top</li>
+        </ul>
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-border/60 bg-card shadow-sm">

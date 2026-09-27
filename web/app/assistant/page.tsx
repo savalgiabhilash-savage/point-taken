@@ -47,10 +47,10 @@ export default function AssistantPage() {
     <main className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-3xl flex-col px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Assistant</h1>
-        <p className="text-sm text-muted-foreground">
-          Ask about captaincy, transfers, hits, chips, or any player. Answers are grounded in your live
-          data and cite the numbers — it won&apos;t invent stats.
-        </p>
+        <ul className="space-y-0.5 text-sm text-muted-foreground">
+          <li>• Ask about captaincy, transfers, hits, chips or any player</li>
+          <li>• Answers use your live data and cite the numbers; it won&apos;t invent stats</li>
+        </ul>
       </div>
 
       <div className="mt-6 flex-1 space-y-4 overflow-y-auto rounded-xl border border-border/60 bg-card p-4">
