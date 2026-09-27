@@ -13,6 +13,8 @@ import { MODEL_VERSION, supabase } from '@/lib/supabase';
 const POS_ORDER: Record<string, number> = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
 const POS_COLOR: Record<string, string> = { GK: '#f59e0b', DEF: '#10b981', MID: '#0ea5e9', FWD: '#f43f5e' };
 
+type ThemeColors = (typeof Colors)['light' | 'dark'];
+
 type P = {
   id: number;
   name: string;
@@ -118,40 +120,6 @@ export default function TeamScreen() {
   const bench = squad.filter((p) => !p.starter);
   const xi = starters.reduce((s, p) => s + p.xpn, 0) + (starters.find((p) => p.captain)?.xpn ?? 0);
 
-  const PlayerRow = ({ p }: { p: P }) => (
-    <View style={styles.row}>
-      <View style={[styles.posDot, { backgroundColor: POS_COLOR[p.pos] ?? '#888' }]} />
-      <View style={styles.rowMain}>
-        <ThemedText type="smallBold">
-          {p.name}
-          {p.captain ? '  (C)' : p.vice ? '  (V)' : ''}
-        </ThemedText>
-        <ThemedText type="small" style={{ color: c.textSecondary }}>
-          {p.team} · {p.pos} · £{p.price.toFixed(1)}m
-        </ThemedText>
-      </View>
-      <ThemedText type="smallBold" style={styles.xp}>
-        {p.xpn.toFixed(1)}
-      </ThemedText>
-    </View>
-  );
-
-  const Section = ({ title, items }: { title: string; items: P[] }) => (
-    <View style={styles.section}>
-      <ThemedText type="small" style={[styles.sectionLabel, { color: c.textSecondary }]}>
-        {title}
-      </ThemedText>
-      <ThemedView type="backgroundElement" style={styles.card}>
-        {items.map((p, i) => (
-          <View key={p.id}>
-            {i > 0 && <View style={[styles.sep, { backgroundColor: c.backgroundSelected }]} />}
-            <PlayerRow p={p} />
-          </View>
-        ))}
-      </ThemedView>
-    </View>
-  );
-
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -182,12 +150,51 @@ export default function TeamScreen() {
           <ThemedText style={{ marginTop: Spacing.three, color: c.textSecondary }}>{msg}</ThemedText>
         ) : (
           <ScrollView contentContainerStyle={{ paddingBottom: BottomTabInset + Spacing.four }}>
-            <Section title="STARTING XI" items={starters} />
-            <Section title="BENCH" items={bench} />
+            <Section title="STARTING XI" items={starters} c={c} />
+            <Section title="BENCH" items={bench} c={c} />
           </ScrollView>
         )}
       </SafeAreaView>
     </ThemedView>
+  );
+}
+
+// Defined at module level (not inside TeamScreen) so React keeps their identity between renders.
+function PlayerRow({ p, c }: { p: P; c: ThemeColors }) {
+  return (
+    <View style={styles.row}>
+      <View style={[styles.posDot, { backgroundColor: POS_COLOR[p.pos] ?? '#888' }]} />
+      <View style={styles.rowMain}>
+        <ThemedText type="smallBold">
+          {p.name}
+          {p.captain ? '  (C)' : p.vice ? '  (V)' : ''}
+        </ThemedText>
+        <ThemedText type="small" style={{ color: c.textSecondary }}>
+          {p.team} · {p.pos} · £{p.price.toFixed(1)}m
+        </ThemedText>
+      </View>
+      <ThemedText type="smallBold" style={styles.xp}>
+        {p.xpn.toFixed(1)}
+      </ThemedText>
+    </View>
+  );
+}
+
+function Section({ title, items, c }: { title: string; items: P[]; c: ThemeColors }) {
+  return (
+    <View style={styles.section}>
+      <ThemedText type="small" style={[styles.sectionLabel, { color: c.textSecondary }]}>
+        {title}
+      </ThemedText>
+      <ThemedView type="backgroundElement" style={styles.card}>
+        {items.map((p, i) => (
+          <View key={p.id}>
+            {i > 0 && <View style={[styles.sep, { backgroundColor: c.backgroundSelected }]} />}
+            <PlayerRow p={p} c={c} />
+          </View>
+        ))}
+      </ThemedView>
+    </View>
   );
 }
 
