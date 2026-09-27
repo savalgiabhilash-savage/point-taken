@@ -19,7 +19,7 @@ export async function createServerSupabase() {
           try {
             cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
           } catch {
-            // Called from a Server Component (cookies are read-only there); the middleware refreshes the session.
+            // Called from a Server Component (cookies are read-only there); the proxy (proxy.ts) refreshes the session.
           }
         },
       },

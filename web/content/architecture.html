@@ -136,7 +136,7 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 6</span>
+    <span>doc rev 7</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v1</span>
@@ -494,7 +494,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <h2>Web app &amp; auth</h2>
   <ul>
     <li>Server components read Supabase with the anon key. My Team and Optimizer need a signed-in user and read only that user's rows; logged-out visitors get a login prompt.</li>
-    <li>The middleware refreshes the Supabase session cookie on every non-asset request.</li>
+    <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
     <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
     <li>The mobile app (<code>mobile/</code>) reads the same tables. So far it has Players and My Team.</li>
@@ -595,6 +595,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-26</span><br>Fixed H1, H3, H4, H8: last season (half weight) pooled with this season's FPL xG/xA; World Cup factor preseason only; chips per half-season with GW19 expiry; budget from real selling prices; in-season screenshot uploads saved as the next GW.</li>
     <li><span class="d">2026-09-26</span><br>Fixed M1–M5: horizon-based candidate pool with value picks; Players page fetches 5 GWs; DefCon from FPL per-90 rates; exact goals-conceded deduction; attack adjusted by opponent xG conceded; in-season team strength; vice-captain and bench order; cron every 2 h.</li>
     <li><span class="d">2026-09-27</span><br>Fixed L1: assistant name disambiguation and newest news; no hardcoded season phase; login required for My Team and Optimizer, plus migration 0007 to make personal rows private; README refreshed; old engine doc removed.</li>
+    <li><span class="d">2026-09-27</span><br>Renamed <code>middleware.ts</code> to <code>proxy.ts</code> (Next 16 file convention); behaviour unchanged.</li>
   </ul>
 </section>
 
