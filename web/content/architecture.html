@@ -124,7 +124,7 @@ svg text{font-family:var(--sans)}
     <li><a href="#web">Web app &amp; auth</a></li>
     <li><a href="#params">Parameters</a></li>
     <li><a href="#issues">Known issues</a></li>
-    <li><a href="#ideas">Improvement ideas</a></li>
+    <li><a href="#ideas">Factors &amp; accuracy plan</a></li>
     <li><a href="#history">History</a></li>
     <li><a href="#maintenance">Keeping this current</a></li>
   </ol>
@@ -136,7 +136,7 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 8</span>
+    <span>doc rev 9</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v1</span>
@@ -563,20 +563,57 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
 <!-- ===================================================================== -->
 <section id="ideas">
   <span class="sec-num">17</span>
-  <h2>Improvement ideas</h2>
-  <p>Ranked by value for buy/sell decisions, after the critical fixes above.</p>
-  <ol>
-    <li><b>Backtest harness</b> on vaastav 2023–26 GW data: replay the model and optimizer week by week and report MAE, rank correlation and points gained. This is the gate for every model change.</li>
-    <li><b>Live-season blend</b>: weight this season's FPL xG, xA, starts and DefCon per 90 by recency, with last season as the prior and <code>PRIOR_K</code> tuned by the backtest.</li>
-    <li><b>Transfer explainer</b>: for each suggested move, show the xPts delta per GW, the price and selling-price effect, and fixture swings, with an "is the −4 worth it" breakdown.</li>
-    <li><b>What-if planner</b>: pin or ban players and force or forbid transfers in a given GW, then re-solve.</li>
-    <li><b>Captaincy with effective ownership</b> and a rank-goal toggle (protect or chase).</li>
-    <li><b>Price-change model</b> from net transfers, to time buys before rises and sells before falls.</li>
-    <li><b>Deadline alerts</b>: push or email with the plan, flagged injuries in the XI, and captain.</li>
-    <li><b>Odds</b> (The Odds API free tier) for clean-sheet and anytime-scorer calibration.</li>
-    <li><b>Uncertainty bands</b> (P10/P90 per player) so differentials and captain gambles can be judged on variance.</li>
-    <li><b>Mini-league view</b>: rivals' squads and differentials.</li>
-  </ol>
+  <h2>Factors &amp; accuracy plan</h2>
+  <p>This section lists everything that currently shapes a recommendation, what is left out, and a plan to make the predictions as accurate as the free data allows. FPL points are noisy (one goal swings a score by 4–6), so "most accurate" only means something against a benchmark. The plan therefore starts by measuring.</p>
+
+  <h3>Factors the model uses today</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Factor</th><th>Source</th><th>How it enters</th><th>Weakness</th></tr></thead>
+    <tbody>
+      <tr><td>Availability</td><td>FPL status, chance of playing</td><td>Multiplies P(start): 0 for i/s/u/n, chance %, 0.5 if doubtful</td><td>Reactive; no return-from-injury ramp</td></tr>
+      <tr><td>Nailedness</td><td>This season's minutes ÷ club games, last season's Understat minutes</td><td>Blend weighted by games played (K = 4) → P(start)</td><td>Season average, not recent GWs; no rotation or congestion signal</td></tr>
+      <tr><td>Minutes shape</td><td>Fixed constants</td><td>82 min per start, 20 per cameo, P(60) = 0.9·P(start)</td><td>Same for every player</td></tr>
+      <tr><td>Attacking rate</td><td>Understat 2025/26 xG/xA (half weight) + FPL 2026/27 xG/xA</td><td>Pooled per-90, shrunk to position average (K = 12)</td><td>No recency weighting inside the season; penalties folded into xG</td></tr>
+      <tr><td>Opponent defence</td><td>Team xG conceded (last season + this season)</td><td>Attack × opp xGA ÷ league average</td><td>Simple ratio; no time decay; no odds</td></tr>
+      <tr><td>Home advantage</td><td>Constant</td><td>Attack ×1.05 / ×0.95; goals against ×0.9 / ×1.1</td><td>Not estimated from data</td></tr>
+      <tr><td>Clean sheet</td><td>Opponent xGF, own xGA</td><td>Poisson P(0) with λ = average of the two</td><td>Ad-hoc 50/50 blend; ignores match odds</td></tr>
+      <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
+      <tr><td>Saves</td><td>Expected goals against</td><td>(2/3)·λ for goalkeepers</td><td>No shots-on-target model</td></tr>
+      <tr><td>Bonus</td><td>Own attacking points</td><td>min(1.5, 0.25 × involvement)</td><td>Not a BPS model; bonus is about 10% of points</td></tr>
+      <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
+      <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
+      <tr><td>Calibration</td><td>Scored predictions from GW6</td><td>One multiplier per position (±20%)</td><td>Too coarse: can't fix one component</td></tr>
+      <tr><td>World Cup form</td><td>FBref WC 2026</td><td>Preseason only</td><td>Retired once the season starts</td></tr>
+    </tbody>
+  </table></div>
+  <p><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags.</p>
+  <p><b>Left out:</b> bookmaker odds, predicted line-ups, European and cup fixture congestion, penalty order as its own term, news sentiment (advisory by design), price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
+
+  <h3>The plan, in order</h3>
+  <p>Each step ships only if the backtest shows it improves accuracy. The ordering puts the biggest expected error reduction for the effort first.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Step</th><th>What changes</th><th>Why it matters</th></tr></thead>
+    <tbody>
+      <tr><td class="num">0</td><td><b>Measure first</b></td><td>A backtest harness on the vaastav dataset (every GW of 2022/23–2025/26, with FPL's own <code>xP</code> at the time and actual points). Replay the model using only data available before each deadline. Report MAE and RMSE per position, rank correlation among likely starters, top-50 hit rate, calibration by decile, Brier score for P(start) and P(60+), and decision scores (captain and Best XI points vs actual). Log per-component predictions live (goals, assists, CS, saves, bonus, DefCon, minutes) against <code>event/{gw}/live</code>.</td><td>Without this, no change can be called an improvement. FPL's <code>ep_next</code> is the benchmark to beat.</td></tr>
+      <tr><td class="num">1</td><td><b>Minutes model</b></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
+      <tr><td class="num">2</td><td><b>Team goals model + odds</b></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
+      <tr><td class="num">3</td><td><b>Player shares</b></td><td>Player goals = team expected goals × the player's recency-weighted share of team non-penalty xG while on the pitch, and the same for assists. Penalties become a separate term: FPL <code>penalties_order</code> × team penalty rate × about 0.78 conversion.</td><td>Shares are more stable than raw per-90s, and a new penalty taker is priced immediately.</td></tr>
+      <tr><td class="num">4</td><td><b>Component models</b></td><td>Bonus: expected BPS from components, then rank within the match, via simulation. DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
+      <tr><td class="num">5</td><td><b>Simulation &amp; uncertainty</b></td><td>Monte Carlo each fixture (team goals → scorers and assisters → CS, bonus) to get each player's full distribution: mean, P10/P90 and P(≥ 10 pts), with teammates correlated.</td><td>Captain and Triple Captain choices depend on upside, not just the mean.</td></tr>
+      <tr><td class="num">6</td><td><b>Learned correction</b></td><td>Replace the single per-position multiplier with per-component isotonic calibration. Then fit a gradient-boosted residual model on backtest features, shown as its own "correction" component so the breakdown stays explainable.</td><td>Captures patterns the rules miss, without giving up transparency.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Decision quality (optimizer)</h3>
+  <ul>
+    <li>Tune the 0.9 discount, the hit threshold and the chip bars on backtested decisions, not intuition.</li>
+    <li>Replace the flat 0.1 bench weight with each bench slot's expected autosub value: P(a starter misses) × that sub's points, in bench order.</li>
+    <li>Price-change model from net transfers (<code>transfers_in_event</code> / <code>transfers_out_event</code>), so buy and sell timing can protect team value.</li>
+    <li>Captaincy with effective ownership and a rank-goal toggle, using the step 5 distributions.</li>
+  </ul>
+
+  <h3>Other ideas</h3>
+  <p>What-if planner (pin or ban players, then re-solve), deadline alerts with the plan and flagged injuries, and a mini-league rivals view.</p>
 </section>
 
 <!-- ===================================================================== -->
@@ -597,6 +634,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-27</span><br>Fixed L1: assistant name disambiguation and newest news; no hardcoded season phase; login required for My Team and Optimizer, plus migration 0007 to make personal rows private; README refreshed; old engine doc removed.</li>
     <li><span class="d">2026-09-27</span><br>Renamed <code>middleware.ts</code> to <code>proxy.ts</code> (Next 16 file convention); behaviour unchanged.</li>
     <li><span class="d">2026-09-27</span><br>Mobile app: sign-in on My Team (same Supabase accounts), showing the user's own squad instead of the public demo.</li>
+    <li><span class="d">2026-09-27</span><br>Added the factors inventory and accuracy plan (section 17). Mobile app gets ESLint (<code>npm run lint</code>).</li>
   </ul>
 </section>
 
