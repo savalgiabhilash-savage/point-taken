@@ -136,10 +136,10 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 12</span>
+    <span>doc rev 13</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
-    <span>model rules-v3</span>
+    <span>model rules-v4</span>
     <span>season 2026/27 · next GW6</span>
   </div>
 </header>
@@ -331,7 +331,7 @@ svg text{font-family:var(--sans)}
 <!-- ===================================================================== -->
 <section id="model">
   <span class="sec-num">07</span>
-  <h2>The xPts model (<code>model.py</code>, rules-v3)</h2>
+  <h2>The xPts model (<code>model.py</code>, rules-v4)</h2>
   <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38. Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline.</p>
   <figure>
     <div class="fig">
@@ -353,6 +353,10 @@ svg text{font-family:var(--sans)}
              = chance/100   if chance_of_playing_next_round is set
              = 0.5          if status = d
              = 1.0          otherwise
+news_adj     = Claude minutes_risk_adj × topic weight × freshness     (≤ 0)
+               topic: injury/suspension 1.0 · rotation 0.75 · transfer/off-pitch 0.5 · other 0
+               freshness: 1 up to 3 days old, fading to 0 at 14 days
+availability = min(FPL availability, 1 + news_weight × news_adj)      news never stacks on FPL's flag
 history      = last 8 finished GWs in which the player's club played: {games, starts, minutes}
 w(GW)        = 0.5 ^ (GWs ago / 3)                                  recent games count most
 prior        = min(1, last_season_understat_minutes / 2600)          (none if unmatched)
@@ -419,6 +423,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><b>Score.</b> For GWs FPL marks finished that still have unscored <code>prediction_log</code> rows, fetch <code>event/{gw}/live</code>, fill in actual points and minutes, and score each Best XI (starters + captain doubled).</li>
     <li><b>Calibrate.</b> Over scored rows from GW6 on (<code>CALIB_FROM_GW</code>; earlier logs are unusable) with predicted xPts ≥ 2, per position: <code>raw = clamp(Σactual / Σpredicted, 0.5, 2)</code>, <code>mult = clamp((n·raw + 3) / (n + 3), 0.8, 1.2)</code> where n = GWs scored. The next model run applies it. With no usable data, every multiplier is reset to ×1.0.</li>
     <li><b>Best XI.</b> For the next GW, solve the single-squad MILP twice, with a £100.0m budget ("capped") and with no budget ("uncapped"). Upsert into <code>gw_predictions</code>, unless that GW is already scored.</li>
+    <li><b>News weight.</b> Score logged news cases (did he start?) and refit <code>news_weight</code> (section 12).</li>
     <li><b>Snapshot.</b> Replace the unscored <code>prediction_log</code> rows for that GW with every pool player's predicted xPts. The GW only advances at the deadline, so the last pre-deadline run is the snapshot that gets scored.</li>
   </ol>
   <p>A GW is scored if either its per-player log or its published Best XI is still unscored. The GW1 Best XI (predicted 5.2 under the old minutes bug) is kept as an honest record.</p>
@@ -464,6 +469,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">8</td></tr>
     </tbody>
   </table></div>
+  <p><b>Per-week options:</b> every chip stores an option for each GW it scanned. Triple Captain: the captain. Bench Boost: the 4 bench players. Wildcard / Free Hit: the full new squad (XI, captain) plus exactly which players go out and in versus your planned squad that week. The Chips tab reads these, so you can see the moves for any week, not only the best one.</p>
   <p>A chip is recommended only if you still hold it and its gain clears the bar. <b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window. If the horizon stops short of GW19, the "hold" advice names the first-half chips that will expire. If several do, the one with the largest gain over its bar wins. Otherwise the advice is "hold". DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW. Available chips = the four codes minus any chip played in the same half as the next deadline.</p>
 </section>
 
@@ -483,9 +489,14 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <!-- ===================================================================== -->
 <section id="news">
   <span class="sec-num">12</span>
-  <h2>News &amp; sentiment (advisory)</h2>
+  <h2>News &amp; sentiment</h2>
   <p>Targets: players with an FPL flag (status not "a", or a chance-of-playing value) plus anyone owned by ≥ 5%, flagged players first, capped at 200. For each: Google News query <code>"web_name" Club football (injury OR fitness OR lineup OR transfer OR Premier League)</code>, up to 5 headlines from the last 21 days, then Claude Haiku 4.5 with a forced <code>record_sentiment</code> tool. It returns sentiment, topics (injury-risk, return-from-injury, rotation, suspension, form-buzz, transfer, off-pitch, none), <code>minutes_risk_adj</code> in [−1, 0], and a one-line summary. Results tagged "none" are dropped. The table is replaced in full each run (97 rows on the last run).</p>
-  <p>The signal is shown in the Players table and the assistant's player lookup. It does <b>not</b> change xPts or the optimizer.</p>
+  <ul>
+    <li>Since rules-v4, news <b>lowers availability</b> in the model (formula in section 07). It is shown in the Players table, the "i" pop-up and the assistant.</li>
+    <li><code>news_weight</code> (default 1.0) is re-learned every run. <code>predict.py</code> logs each news-affected player before the deadline (<code>news_effect_log</code>). After the GW it records whether he started, then picks the weight whose start probabilities best match reality (Brier score), shrunk toward 1.0 by 30 pseudo-cases. The result is stored in <code>model_params</code>.</li>
+    <li>Historical news isn't available from free sources, so news can't be backtested on past seasons; it improves from live outcomes instead.</li>
+    <li>Needs migration <code>0008_model_params_news_log.sql</code>. Until then the weight stays at 1.0 and logging is skipped.</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -514,6 +525,10 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Server components read Supabase with the anon key. My Team and Optimizer need a signed-in user and read only that user's rows; logged-out visitors get a login prompt.</li>
     <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
+    <li><b>"i" pop-ups</b> (<code>components/player-info.tsx</code> → <code>/api/insight</code> → <code>lib/insight.ts</code>): on every recommended player (pitch cards, transfers, chip squads, differentials, Players table). Page-specific "why this pick" bullets come first. Then grouped bullets built from the projection's stored reasoning (<code>components.why</code>, fixture data): projection and position rank, minutes and availability, news, form, fixture, points breakdown, price and ownership.</li>
+    <li><b>Chips</b> tab (<code>/chips</code>, signed in): chip picker, status and bar, a GW picker, and for the chosen week the moves (with steps) and the resulting squad.</li>
+    <li><b>Differentials</b> tab (<code>/differentials</code>): the top 5 per position owned by under 10% with a start chance of at least 60%, ranked by next-5-GW points. Bullet reasons include rank, the most-owned alternative at ±£1.0m, fixtures, team expected goals, minutes, value and news. A purple D badge marks differentials on pitch cards.</li>
+    <li>All in-app text is bullet points (house rule).</li>
     <li>The <b>Docs</b> tab (<code>/docs</code>) and its content route (<code>/docs/content</code>) return 404 unless the signed-in user's email is <code>savalgiabhilash@gmail.com</code> (<code>web/lib/owner.ts</code>). The nav shows the tab only for that account. The page source is <code>web/content/architecture.html</code>, which is outside <code>public/</code>, so it is never served statically.</li>
     <li>The mobile app (<code>mobile/</code>) reads the same tables. Players is public. My Team signs in with the same email and password accounts as the website (<code>supabase.auth.signInWithPassword</code>), keeps the session in AsyncStorage, refreshes its token only while the app is in the foreground, and shows the signed-in user's own squad. Accounts are created on the website.</li>
   </ul>
@@ -549,6 +564,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>POOL_TOP · POOL_VALUE</td><td class="num">8/25/25/15 · 4/8/8/5</td><td>optimize.py</td><td>Candidates per GK/DEF/MID/FWD by points · by points per £</td></tr>
       <tr><td>Chip bars</td><td class="num">TC 12 · BB 18 · WC 8 · FH 8</td><td>optimize.py</td><td>Marginal xPts needed to recommend</td></tr>
       <tr><td>Crosswalk thresholds</td><td class="num">85/6 · 91 · 92/8</td><td>crosswalk.py</td><td>Team pass/margin · structured · global/margin</td></tr>
+      <tr><td>NEWS_TOPIC_WEIGHT · FRESH/STALE · news_weight</td><td class="num">1 / 0.75 / 0.5 · 3 d / 14 d · 1.0 (learned)</td><td>model.py, predict.py</td><td>How news cuts availability</td></tr>
       <tr><td>News targeting</td><td class="num">own ≥ 5% · 200 · 21 d</td><td>news_job.py</td><td>Threshold · cap · headline age</td></tr>
     </tbody>
   </table></div>
@@ -572,7 +588,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <div class="issue"><span class="id">M1–5</span><div><h4><span class="chip low">Fixed</span> Medium issues</h4></div>
       <p>M1: "next 5" totals and the optimizer's candidate ranking summed the whole season (fixed: next 5 GWs / plan horizon, per-position pool with value picks). M2: the Players page loaded ~22k rows (fixed: next 5 GWs only). M3: crude proxies (fixed: DefCon from each player's FPL rate, exact goals-conceded deduction, attack adjusted by the opponent's xG conceded, team strength updated in-season; penalty flags left unused on purpose). M4: no vice-captain or bench order (fixed). M5: runs about 4x a day (cron now every 2 h).</p></div>
     <div class="issue"><span class="id">—</span><div><h4><span class="chip low">By design</span> Not bugs</h4></div>
-      <p>The news <code>minutes_risk_adj</code> stays out of xPts until sentiment is backtested (project rule). Price-change awareness and effective-ownership captaincy are new features, listed under Improvement ideas.</p></div>
+      <p>Price-change awareness is a new feature, planned under Phase B. Captaincy stays on maximum expected points (your choice); ownership is surfaced through the Differentials tab instead.</p></div>
     <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Fixed</span> Smaller issues</h4></div>
       <p>The assistant's player lookup now prefers an exact name, then the most-owned match, and returns the other matches; its news lookup takes the newest item; the hardcoded "preseason" prompt line is gone. Logged-out visitors get a login prompt on My Team and Optimizer instead of the owner's squad (migration <code>0007</code> closes the database side). The README is current and <code>docs/RECOMMENDATION-ENGINE.md</code> was removed in favour of this page.</p></div>
   </div>
@@ -588,7 +604,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <div class="tbl"><table>
     <thead><tr><th>Factor</th><th>Source</th><th>How it enters</th><th>Weakness</th></tr></thead>
     <tbody>
-      <tr><td>Availability</td><td>FPL status, chance of playing</td><td>Multiplies P(start): 0 for i/s/u/n, chance %, 0.5 if doubtful</td><td>Reactive; no return-from-injury ramp</td></tr>
+      <tr><td>Availability</td><td>FPL status, chance of playing, news</td><td>Multiplies P(start): FPL flag, or news if more cautious</td><td>No return-from-injury ramp yet</td></tr>
       <tr><td>Nailedness</td><td>This season's minutes ÷ club games, last season's Understat minutes</td><td>Blend weighted by games played (K = 4) → P(start)</td><td>Season average, not recent GWs; no rotation or congestion signal</td></tr>
       <tr><td>Minutes shape</td><td>Fixed constants</td><td>82 min per start, 20 per cameo, P(60) = 0.9·P(start)</td><td>Same for every player</td></tr>
       <tr><td>Attacking rate</td><td>Understat 2025/26 xG/xA (half weight) + FPL 2026/27 xG/xA</td><td>Pooled per-90, shrunk to position average (K = 12)</td><td>No recency weighting inside the season; penalties folded into xG</td></tr>
@@ -605,7 +621,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     </tbody>
   </table></div>
   <p><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags.</p>
-  <p><b>Left out:</b> bookmaker odds, predicted line-ups, European and cup fixture congestion, penalty order as its own term, news sentiment (advisory by design), price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
+  <p><b>Left out:</b> bookmaker odds, predicted line-ups, European and cup fixture congestion, penalty order as its own term, price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
 
   <h3>Backtest results</h3>
   <p><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26. It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark. Results go to <code>worker/reports/</code>. It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it.</p>
@@ -676,6 +692,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-09-27</span><br>Backtest harness (<code>worker/fpl_worker/backtest.py</code>) and rules-v1 baseline over 2023/24–2025/26.</li>
     <li><span class="d">2026-09-27</span><br>rules-v2: recency-weighted minutes model (start rate, P(60|start), start and cameo minutes per player from the last 8 GWs). Backtest MAE −7.3%, P(start) Brier −15%. Web and mobile read the version from one constant each.</li>
     <li><span class="d">2026-09-27</span><br>rules-v3: team goals model (<code>team_model.py</code>: time-decayed team strengths on match xG, blended with football-data.co.uk odds) drives attack scaling, clean sheets, saves and goals conceded. Backtest captain points +0.9 per GW, MAE 1.035 → 1.027.</li>
+    <li><span class="d">2026-09-28</span><br>Phase A. rules-v4: news lowers availability, with its weight re-learned each GW from who started (migration 0008). "i" pop-ups on every recommended player, built from reasoning stored on each projection. Chips tab with per-week moves for every chip. Differentials tab. Bullet-point text across the app.</li>
   </ul>
 </section>
 
