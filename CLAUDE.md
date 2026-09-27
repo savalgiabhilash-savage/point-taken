@@ -57,3 +57,6 @@ https://claude.ai/artifact/MrVLaHc9qV1Ck19fXY58EA.
 - Worker: `uv run --directory worker python -m fpl_worker.refresh --refresh`
   (dry run: add `--dry-run`; offline from cache: `--dry-run --from-cache`).
 - Web: `cd web && npm run dev` → http://localhost:3000/players
+- Backtest: `uv run --directory worker python -m fpl_worker.backtest` (~10 min; replays 2023/24–2025/26,
+  reports to `worker/reports/`). Any change to model.py / fdr.py must be backtested before shipping and
+  must beat the baseline in the blueprint (section 17); update that table when a change ships.

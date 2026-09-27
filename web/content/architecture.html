@@ -136,7 +136,7 @@ svg text{font-family:var(--sans)}
   <h1>FPL Selector Blueprint</h1>
   <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
   <div class="meta">
-    <span>doc rev 9</span>
+    <span>doc rev 10</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v1</span>
@@ -589,6 +589,24 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <p><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags.</p>
   <p><b>Left out:</b> bookmaker odds, predicted line-ups, European and cup fixture congestion, penalty order as its own term, news sentiment (advisory by design), price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
 
+  <h3>Backtest baseline (step 0 done, 2026-09-27)</h3>
+  <p><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26. It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark. Results go to <code>worker/reports/</code>. It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>rules-v1</th><th class="num">Model</th><th class="num">FPL xP</th><th>Reading</th></tr></thead>
+    <tbody>
+      <tr><td>MAE, all player-GWs</td><td class="num">1.115</td><td class="num">0.858</td><td>Model's average error is about 30% larger</td></tr>
+      <tr><td>MAE, players who played</td><td class="num">1.886</td><td class="num">1.730</td><td>Gap narrows once minutes are known</td></tr>
+      <tr><td>Rank correlation per GW</td><td class="num">0.621</td><td class="num">0.745</td><td>Model orders players less well</td></tr>
+      <tr><td>Avg pts of top-20 picks</td><td class="num">4.64</td><td class="num">7.03</td><td>Oracle (hindsight) 11.07</td></tr>
+      <tr><td>Avg pts of captain pick</td><td class="num">6.46</td><td class="num">11.20</td><td>Both mostly pick Salah or Haaland; the gap is in the other weeks</td></tr>
+      <tr><td>Top-20 picks who didn't play</td><td class="num">10%</td><td class="num">6%</td><td>Minutes misses: step 1's target</td></tr>
+      <tr><td>Bias (mean pred − actual)</td><td class="num">+0.02</td><td class="num">−0.09</td><td>Model is well calibrated by decile</td></tr>
+      <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">—</td><td>Baseline for the minutes model</td></tr>
+    </tbody>
+  </table></div>
+  <p>Head-to-head covers 2023/24 and 2024/25 (55,661 player-GWs). The dataset's <code>xP</code> is broken for 2025/26 (it averages 34% of actual points), so the harness drops it there automatically. Three differences favour <code>xP</code>. The dataset has no injury flags, so the replay treats everyone as available. "Last season" uses FPL xG instead of Understat. And when <code>xP</code> was recorded isn't documented, so it may include team news the replay can't see. For a clean head-to-head from now on, log FPL's <code>ep_next</code> next to each live prediction (needs a <code>prediction_log</code> column).</p>
+  <p><b>What the baseline says to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares). Those are steps 1–3.</p>
+
   <h3>The plan, in order</h3>
   <p>Each step ships only if the backtest shows it improves accuracy. The ordering puts the biggest expected error reduction for the effort first.</p>
   <div class="tbl"><table>
@@ -635,6 +653,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li><span class="d">2026-09-27</span><br>Renamed <code>middleware.ts</code> to <code>proxy.ts</code> (Next 16 file convention); behaviour unchanged.</li>
     <li><span class="d">2026-09-27</span><br>Mobile app: sign-in on My Team (same Supabase accounts), showing the user's own squad instead of the public demo.</li>
     <li><span class="d">2026-09-27</span><br>Added the factors inventory and accuracy plan (section 17). Mobile app gets ESLint (<code>npm run lint</code>).</li>
+    <li><span class="d">2026-09-27</span><br>Backtest harness (<code>worker/fpl_worker/backtest.py</code>) and rules-v1 baseline over 2023/24–2025/26.</li>
   </ul>
 </section>
 
