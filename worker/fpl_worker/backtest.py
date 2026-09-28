@@ -42,7 +42,7 @@ import pandas as pd
 
 from datetime import datetime
 
-from . import form_model, fpl_history, model, team_model
+from . import context_model, form_model, fpl_history, model, schedules, team_model
 
 CACHE = fpl_history.CACHE
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -84,6 +84,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
 
     # This season's per-GW history per player — the same shape the live model builds from event/{gw}/live.
     history = fpl_history.entries_before(past, g - 1)
+    opp_ratios = context_model.opp_position_ratios(tm["opp_prev"] + [r[:4] for r in tm["opp_cur"] if r[4] < g])
 
     # DefCon per-90 (2025/26 rules onward), from this season's counts so far.
     dc90: dict[int, float] = {}
@@ -108,9 +109,11 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         h, a = (r.team, opp) if r.was_home else (opp, r.team)
         lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, h, a), tm["odds"].get((h, a)))
         lam_for, lam_against = (lam_h, lam_a) if r.was_home else (lam_a, lam_h)
+        rot, _ = context_model.rotation_factor(tm["dates"].get(r.team, []), date.fromisoformat(str(r.kickoff_time)[:10]))
         comp = model.project_fixture(player, prof, lam_for, lam_against,
                                      team_model.average_goals_for(strengths, r.team),
-                                     team_model.average_goals_against(strengths, r.team), bool(r.was_home))
+                                     team_model.average_goals_against(strengths, r.team), bool(r.was_home),
+                                     opp_mult=context_model.opp_multiplier(opp_ratios, opp, r.pos), rotation=rot)
         out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"],
                     "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP})
     rows = pd.DataFrame(out)
@@ -135,6 +138,17 @@ def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
         "promoted": set(names) - set(prev_names),
         "odds": season_odds(season, names),
     }
+    # Opponent-vs-position records (opponent, position, xG+xA, match key[, round]) and all-competition dates.
+    prev_ids = {int(t.id): t.name for t in teams(_prev(season)).itertuples(index=False)}
+    cur_ids = {t["fpl_id"]: t["name"] for t in team_list}
+    tm["opp_prev"] = [(prev_ids[int(o)], p, x + a, f"p{f}") for o, p, x, a, f in
+                      prev[["opponent_team", "pos", "expected_goals", "expected_assists", "fixture"]].itertuples(index=False)]
+    tm["opp_cur"] = [(cur_ids[int(o)], p, x + a, f"c{f}", int(rd)) for o, p, x, a, f, rd in
+                     df[["opponent_team", "pos", "expected_goals", "expected_assists", "fixture", "round"]].itertuples(index=False)]
+    start, end = context_model.season_window(str(df["kickoff_time"].min()), str(df["kickoff_time"].max()))
+    league = list(df[["team", "kickoff_time"]].drop_duplicates().itertuples(index=False, name=None))
+    tm["dates"] = schedules.team_dates(schedules.season_matches(season, start, end),
+                                       [(t, str(k)) for t, k in league], names)
 
     frames = []
     for g in sorted(df["round"].unique()):
@@ -194,9 +208,10 @@ def score(res: pd.DataFrame) -> dict:
 
 def _report(results: dict) -> str:
     lines = [f"# Backtest — model {model.MODEL_VERSION} vs FPL xP ({date.today().isoformat()})", ""]
-    lines.append("| Scope | n | Model MAE | xP MAE | Model MAE (played) | xP MAE (played) | Model ρ | xP ρ "
+    # RMSE is the headline: for expected points (skewed, many zeros) MAE rewards simply predicting lower.
+    lines.append("| Scope | n | Model RMSE | xP RMSE | Model MAE | xP MAE | Model MAE (played) | xP MAE (played) | Model ρ | xP ρ "
                  "| Model top-20 | xP top-20 | Oracle top-20 | Model capt | xP capt | P(start) Brier |")
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     def xv(x, *keys):
         if x is None:
             return "—"
@@ -206,7 +221,7 @@ def _report(results: dict) -> str:
 
     for scope, s in results.items():
         m, x, o = s["model"], s["fpl_xP"], s["oracle"]
-        lines.append(f"| {scope} | {s['n']} | {m['all']['mae']} | {xv(x, 'all', 'mae')} | {m['played']['mae']} | "
+        lines.append(f"| {scope} | {s['n']} | {m['all']['rmse']} | {xv(x, 'all', 'rmse')} | {m['all']['mae']} | {xv(x, 'all', 'mae')} | {m['played']['mae']} | "
                      f"{xv(x, 'played', 'mae')} | {m['spearman']} | {xv(x, 'spearman')} | {m['top20_avg_pts']} | "
                      f"{xv(x, 'top20_avg_pts')} | {o['top20_avg_pts']} | {m['captain_avg_pts']} | "
                      f"{xv(x, 'captain_avg_pts')} | {m['p_start_brier']} |")

@@ -257,6 +257,80 @@ def learn_news_weight(sb, client: FplClient, finished: set[int]) -> None:
     print(f"  news weight: {w:.3f} (best fit {best} on {n} scored cases)")
 
 
+# --- live-only factor weights: learned from outcomes --------------------------------
+
+# Starting belief per factor (model.FACTOR_WEIGHTS) and how many observations it's worth.
+FACTOR_PRIOR = {"penalty": 0.5, "setpiece": 0.5, "return": 1.0, "lineup": 0.7}
+FACTOR_PRIOR_N = 40
+FACTOR_GRID = [i / 10 for i in range(0, 16)]
+# What each factor predicts: expected goals (penalty), goals+assists (set pieces), or P(start).
+FACTOR_OUTCOME = {"penalty": "goals", "setpiece": "goals+assists", "return": "started", "lineup": "started"}
+
+
+def log_factor_effects(sb, gw: int) -> None:
+    """Snapshot every player a live-only factor touches in GW `gw` (replaced until the deadline)."""
+    try:
+        rows = _all(sb, "projections", "player_id, components", eq=("gw", gw), eq2=("model_version", MODEL_VERSION))
+        log = []
+        for r in rows:
+            for factor, t in ((r.get("components") or {}).get("f") or {}).items():
+                if t and t.get("term"):
+                    log.append({"gw": gw, "player_id": r["player_id"], "factor": factor,
+                                "base": t["base"], "term": t["term"], "scored": False})
+        sb.table("factor_effect_log").delete().eq("gw", gw).eq("scored", False).execute()
+        if log:
+            db.upsert(sb, "factor_effect_log", log, on_conflict="gw,player_id,factor")
+        print(f"  factor log GW{gw}: {len(log)} player-factor cases")
+    except Exception as exc:  # noqa: BLE001 — needs migration 0009
+        print(f"  factor log skipped ({exc.__class__.__name__}); run supabase/migrations/0009 to enable")
+
+
+def learn_factor_weights(sb, client: FplClient, finished: set[int]) -> None:
+    """Score logged cases and refit each factor's weight w: the value for which base + w x term best matches
+    what happened (squared error for goal counts, Brier for starts), shrunk toward the prior by sample size."""
+    try:
+        pending = _all(sb, "factor_effect_log", "gw, player_id, factor", eq=("scored", False))
+    except Exception:  # noqa: BLE001 — migration 0009 not applied yet
+        return
+    for gw in sorted({r["gw"] for r in pending} & finished):
+        stats = {e["id"]: e["stats"] for e in client.event_live(gw).get("elements", [])}
+        upd = []
+        for r in pending:
+            if r["gw"] != gw:
+                continue
+            st = stats.get(r["player_id"], {})
+            outcome = FACTOR_OUTCOME[r["factor"]]
+            actual = ((st.get("goals_scored") or 0) if outcome == "goals"
+                      else (st.get("goals_scored") or 0) + (st.get("assists") or 0) if outcome == "goals+assists"
+                      else 1.0 if (st.get("starts") or 0) > 0 else 0.0)
+            upd.append({"gw": gw, "player_id": r["player_id"], "factor": r["factor"], "actual": actual, "scored": True})
+        if upd:
+            db.upsert(sb, "factor_effect_log", upd, on_conflict="gw,player_id,factor")
+    rows = _all(sb, "factor_effect_log", "factor, base, term, actual", eq=("scored", True))
+    for factor, prior in FACTOR_PRIOR.items():
+        cases = [r for r in rows if r["factor"] == factor]
+        if not cases:
+            continue
+        clamp = FACTOR_OUTCOME[factor] == "started"
+
+        def err(w: float) -> float:
+            tot = 0.0
+            for r in cases:
+                pred = float(r["base"]) + w * float(r["term"])
+                if clamp:
+                    pred = min(1.0, max(0.0, pred))
+                tot += (pred - float(r["actual"])) ** 2
+            return tot / len(cases)
+
+        best = min(FACTOR_GRID, key=err)
+        n = len(cases)
+        w = (n * best + FACTOR_PRIOR_N * prior) / (n + FACTOR_PRIOR_N)
+        sb.table("model_params").upsert({"key": f"{factor}_weight", "value": round(w, 3), "n": n, "updated_at": _now(),
+                                         "note": f"best fit {best} on {n} cases (error {err(best):.4f} vs {err(prior):.4f} at prior)"},
+                                        on_conflict="key").execute()
+        print(f"  {factor} weight: {w:.3f} (best fit {best} on {n} cases)")
+
+
 def run(sb, dry_run: bool = False) -> None:
     pool, gws, _, _, _, xp_by_gw = load_pool(sb)
     if not gws:
@@ -283,10 +357,12 @@ def run(sb, dry_run: bool = False) -> None:
         score_finished(sb, client)
         finished = {e["id"] for e in client.bootstrap_static().get("events", []) if e.get("finished")}
         learn_news_weight(sb, client, finished)
+        learn_factor_weights(sb, client, finished)
     update_calibration(sb)
     log_best_squads(sb, pool, xp_by_gw, next_gw)
     snapshot_predictions(sb, pool, xp_by_gw, next_gw)
     log_news_effects(sb, next_gw)
+    log_factor_effects(sb, next_gw)
 
 
 def main() -> None:

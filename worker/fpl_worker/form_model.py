@@ -35,6 +35,7 @@ SHARE_K = 2.0  # tuned 2023-24 (2/4/8)
 HOME_K = 6.0
 HOME_SPLIT = 0.0  # off: 0.5/1.0 made no measurable difference in the 2023-24 backtest
 BONUS_K = 6.0
+MANAGER_RESET = 0.5  # factor 14: games before a managerial change (and last season) count this much
 
 
 def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
@@ -58,15 +59,17 @@ def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
     return out
 
 
-def _w(age: float) -> float:
-    return 1.0 if FORM_HALF_LIFE is None else 0.5 ** (age / FORM_HALF_LIFE)
+def _w(age: float, reset_age: int | None = None) -> float:
+    w = 1.0 if FORM_HALF_LIFE is None else 0.5 ** (age / FORM_HALF_LIFE)
+    return w * MANAGER_RESET if reset_age is not None and age >= reset_age else w
 
 
-def form_profile(entries: list[dict], last: dict | None, base: dict) -> dict:
+def form_profile(entries: list[dict], last: dict | None, base: dict, reset_age: int | None = None) -> dict:
     """entries: this season's per-GW history (fpl_history.entries_before / model live equivalent);
     last: last-season profile (or None); base: position averages. Returns shares, bonus and card rates,
-    home/away multipliers and the evidence behind them (for the "i" pop-up)."""
-    lw = LAST_SEASON_WEIGHT if last else 0.0
+    home/away multipliers and the evidence behind them (for the "i" pop-up). reset_age: GWs at or older
+    than this were under a previous manager, so they (and last season) count MANAGER_RESET as much."""
+    lw = (LAST_SEASON_WEIGHT * (MANAGER_RESET if reset_age is not None else 1.0)) if last else 0.0
     last = last or {"xg": 0.0, "xa": 0.0, "team_xg_on": 0.0, "minutes": 0.0, "bonus": 0.0, "yellow_cards": 0.0}
 
     def pooled(sel=lambda e: True):
@@ -74,7 +77,7 @@ def form_profile(entries: list[dict], last: dict | None, base: dict) -> dict:
         for e in entries:
             if not sel(e):
                 continue
-            w = _w(e["age"])
+            w = _w(e["age"], reset_age)
             xg += w * e["xg"]
             xa += w * e["xa"]
             on += w * e["team_xg_on"]

@@ -19,12 +19,12 @@ from dotenv import load_dotenv
 
 from datetime import datetime, timezone
 
-from . import db, form_model, fpl_history, team_model
+from . import context_model, db, form_model, fpl_history, price_model, schedules, team_model
 from .fpl_client import FplClient
 
-# rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
+# rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
-MODEL_VERSION = "rules-v5"
+MODEL_VERSION = "rules-v6"
 
 GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -49,8 +49,25 @@ NEWS_TOPIC_WEIGHT = {"injury-risk": 1.0, "suspension": 1.0, "rotation": 0.75, "t
 NEWS_FRESH_DAYS = 3.0       # full strength while this recent
 NEWS_STALE_DAYS = 14.0      # no effect once this old
 NEWS_WEIGHT = 1.0           # overall strength; learned weekly from outcomes (predict.py -> model_params)
+CONGESTION_GWS = 6   # fetch other-competition fixtures this many GWs ahead
+
+# Live-only factors (no gameweek-by-gameweek history exists to backtest them). Each has a strength learned
+# weekly from outcomes (predict.py -> model_params "<factor>_weight"); these are the starting values.
+PEN_RATE = 0.14          # penalties won per team per match (Premier League average)
+PEN_CONVERSION = 0.78
+CORNER_XA90 = 0.06       # extra xA per 90 for the main corner / indirect free-kick taker
+FK_XG90 = 0.02           # extra xG per 90 for the main direct free-kick taker
+RETURN_RAMP = 0.7        # first games back: this share of his pre-absence start rate
+RETURN_MIN_ABSENT = 2    # consecutive club games missed to count as an absence
+RETURN_PRE_RATE = 0.6    # ...by a player who was starting at least this often before it
+LINEUP_TARGET = {True: 0.92, False: 0.10}  # start chance when named / left out of a predicted XI
+FACTOR_WEIGHTS = {"penalty": 0.5, "setpiece": 0.5, "return": 1.0, "lineup": 0.7}
+# model_params keys the weekly re-tune (tune.py) may override.
+TUNED_PARAMS = {"congestion": (context_model, "CONGESTION"), "last_season_weight": (form_model, "LAST_SEASON_WEIGHT"),
+                "share_k": (form_model, "SHARE_K")}
 BONUS_MODEL = True   # factor 17: bonus from his own bonus rate (False = the old involvement proxy)
-GAME_STATE = 0.1     # factor 16: start minutes x (1 - GAME_STATE x max(0, xG_for - xG_against)); tuned 2023-24
+GAME_STATE = 0.0     # factor 16: start minutes x (1 - GAME_STATE x max(0, xG_for - xG_against)). Off: its MAE gain
+                     # was only a lower overall level; RMSE (the right score for expected points) didn't improve
 
 # --- minutes -----------------------------------------------------------------
 
@@ -138,17 +155,25 @@ def availability(player: dict) -> tuple[float, float]:
     return min(fpl, news), fpl
 
 
-def _minutes(player: dict, game_state: float = 1.0) -> tuple[float, float, float, float]:
+def _minutes(player: dict, game_state: float = 1.0, rotation: float = 1.0,
+             lineup: tuple[bool, float] | None = None) -> tuple[float, float, float, float, float]:
     """Return (p_start, p_play, exp_minutes, p_60). `player["mprof"]` comes from minutes_profile().
-    `game_state` (<= 1) shortens start minutes when his team is a heavy favourite (early subs)."""
+    `game_state` (<= 1) shortens start minutes when his team is a heavy favourite (early subs);
+    `rotation` (<= 1) lowers his start chance when his club has another match within a few days;
+    `lineup` = (named in a predicted XI?, source confidence) moves it toward LINEUP_TARGET.
+    Returns (p_start, p_play, exp_minutes, p_60, p_start before the line-up adjustment)."""
     m = player["mprof"]
     avail, _ = availability(player)
-    p_start = avail * m["start_rate"]
+    p_start0 = avail * m["start_rate"] * rotation
+    p_start = p_start0
+    if lineup is not None and avail > 0:
+        p_start += FACTOR_WEIGHTS["lineup"] * lineup[1] * (LINEUP_TARGET[lineup[0]] - p_start0)
+        p_start = min(1.0, max(0.0, p_start))
     p_cameo = (1.0 - p_start) * (m["cameo_rate"] if avail > 0 else 0.0)
     p_play = min(1.0, p_start + p_cameo)
     exp_minutes = p_start * m["start_mins"] * game_state + p_cameo * m["cameo_mins"]
     p_60 = p_start * m["p60_start"]
-    return p_start, p_play, exp_minutes, p_60
+    return p_start, p_play, exp_minutes, p_60, p_start0
 
 
 # --- fixture / team helpers --------------------------------------------------
@@ -196,7 +221,8 @@ def defcon_rates(elements: list[dict]) -> dict[int, float]:
 # --- core projection ---------------------------------------------------------
 
 def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float, base_for: float,
-                    base_against: float, is_home: bool, form_mult: float = 1.0) -> dict:
+                    base_against: float, is_home: bool, form_mult: float = 1.0,
+                    opp_mult: float = 1.0, rotation: float = 1.0, extras: dict | None = None) -> dict:
     """One player, one fixture -> component dict of expected points.
 
     `prof` is the player's form profile (form_model.form_profile + dc90). `form_mult` is a
@@ -209,17 +235,27 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
     to express how favourable the fixture is and to scale bonus."""
     pos = player["position"] or "MID"
     gs = max(0.6, 1.0 - GAME_STATE * max(0.0, lam_for - lam_against))
-    p_start, p_play, exp_min, p_60 = _minutes(player, gs)
+    extras = extras or {}
+    p_start, p_play, exp_min, p_60, p_start0 = _minutes(player, gs, rotation, extras.get("lineup"))
     mins_frac = exp_min / 90.0
     adj = lam_for / base_for if base_for else 1.0
     home = prof["home_mult"][is_home]
 
-    xg90 = prof["xg_share"] * lam_for * home * form_mult     # his expected goals per 90 in THIS fixture
-    xa90 = prof["xa_share"] * lam_for * home * form_mult
+    # his expected goals per 90 in THIS fixture; opp_mult: how this opponent's conceded chances fall to his position
+    xg90 = prof["xg_share"] * lam_for * home * form_mult * opp_mult
+    xa90 = prof["xa_share"] * lam_for * home * form_mult * opp_mult
     yellow90 = prof["yellow90"]
 
     x_goals = xg90 * mins_frac
     x_assists = xa90 * mins_frac
+    # Live-only set-piece duties (learned weights): penalties, corners / indirect FKs, direct FKs.
+    team_scale = lam_for / extras["lam_avg"] if extras.get("lam_avg") else 1.0
+    pen_term = PEN_RATE * team_scale * mins_frac * PEN_CONVERSION if extras.get("pen") else 0.0
+    sp_xa = CORNER_XA90 * team_scale * mins_frac if extras.get("corner") else 0.0
+    sp_xg = FK_XG90 * team_scale * mins_frac if extras.get("fk") else 0.0
+    base_goals, base_assists = x_goals, x_assists
+    x_goals += FACTOR_WEIGHTS["penalty"] * pen_term + FACTOR_WEIGHTS["setpiece"] * sp_xg
+    x_assists += FACTOR_WEIGHTS["setpiece"] * sp_xa
     x_goals_pts = x_goals * GOAL_PTS[pos]
     x_assist_pts = x_assists * ASSIST_PTS
 
@@ -268,7 +304,12 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
         "x_bonus_pts": x_bonus_pts,
         "x_deductions_pts": x_deductions_pts,
         "p_start": p_start,
+        "p_start0": p_start0,
         "p_60": p_60,
+        "f": {"penalty": {"base": base_goals, "term": pen_term} if pen_term else None,
+              "setpiece": {"base": base_goals + base_assists, "term": sp_xa + sp_xg} if (sp_xa or sp_xg) else None,
+              "lineup": ({"base": p_start0, "term": extras["lineup"][1] * (LINEUP_TARGET[extras["lineup"][0]] - p_start0)}
+                         if extras.get("lineup") else None)},
         "p_dc": p_dc,
         "exp_minutes": exp_min,
         "fixture_adj": adj,
@@ -316,6 +357,57 @@ def _load_params(sb) -> dict[str, float]:
         return {r["key"]: float(r["value"]) for r in sb.table("model_params").select("key, value").execute().data}
     except Exception:  # noqa: BLE001 — table may not exist yet
         return {}
+
+
+def _load_table(sb, table: str, cols: str, eq: tuple | None = None) -> list[dict]:
+    """Rows from an optional table (migration 0009); [] if it doesn't exist yet."""
+    try:
+        q = sb.table(table).select(cols)
+        if eq:
+            q = q.eq(*eq)
+        return q.execute().data
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _manager_reset_ages(ctx: list[dict], fixtures: list[dict]) -> dict[int, int]:
+    """{team_id: age in GWs at/after which games were under the previous manager} for recent changes."""
+    finished = sorted({f["gw"] for f in fixtures if f["finished"] and f["gw"] is not None})
+    if not finished:
+        return {}
+    latest = finished[-1]
+    out = {}
+    for c in ctx:
+        if not c.get("manager_changed_at"):
+            continue
+        after = [f["gw"] for f in fixtures if f["gw"] is not None and f.get("kickoff_time")
+                 and f["kickoff_time"][:10] >= str(c["manager_changed_at"])
+                 and c["team_id"] in (f["team_h"], f["team_a"])]
+        first_gw = min(after) if after else latest + 1
+        out[c["team_id"]] = latest - first_gw + 1
+    return out
+
+
+def return_ramp(hist: list[dict], player: dict) -> dict | None:
+    """Factor 5: a regular starter who has missed his club's last RETURN_MIN_ABSENT+ games but is now fully
+    available (FPL flag clear) restarts from RETURN_RAMP of his pre-absence start rate, instead of the near-zero
+    rate his recent zeros imply. Returns {base, ramp, absent} or None."""
+    if player["status"] != "a" or (player["chance_of_playing_next_round"] or 100) < 75:
+        return None
+    by_age = sorted(hist, key=lambda h: h["age"])
+    absent = 0
+    for h in by_age:
+        if h["minutes"] > 0:
+            break
+        absent += 1
+    if absent < RETURN_MIN_ABSENT:
+        return None
+    before = [dict(h, age=h["age"] - absent) for h in by_age[absent:] if h["age"] - absent < MINUTES_WINDOW]
+    pre = minutes_profile(before, None)["start_rate"] if before else 0.0
+    if pre < RETURN_PRE_RATE:
+        return None
+    base = player["mprof"]["start_rate"]
+    return {"base": round(base, 3), "ramp": round(pre * RETURN_RAMP, 3), "absent": absent}
 
 
 def _load_form(sb) -> dict[int, float]:
@@ -427,6 +519,12 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         .data
     )
 
+    # Strengths re-tuned weekly (tune.py) and factor weights learned from outcomes (predict.py).
+    params = _load_params(sb)
+    for key, (mod, attr) in TUNED_PARAMS.items():
+        if key in params:
+            setattr(mod, attr, params[key])
+
     # Last season from the FPL dataset (fpl_history), matched by FPL's stable player `code` — the same
     # source the backtest replays, so what's measured is what runs.
     first_kickoff = min(f["kickoff_time"] for f in fixtures if f.get("kickoff_time"))
@@ -443,6 +541,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         live = fetch_live(client, fixtures)
     history = season_entries(live, fixtures, team_by_player)
     dc90 = defcon_rates(boot["elements"])
+    elem = {e["id"]: e for e in boot["elements"]}
+    total_managers = boot.get("total_players") or 0
 
     # Team goals model: fit strengths on last season's match xG + this season's FPL xG, then blend each
     # upcoming fixture with bookmaker odds where they're published.
@@ -455,6 +555,29 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     odds = team_model.upcoming_odds(names)
     base_for = {t["fpl_id"]: team_model.average_goals_for(strengths, t["name"]) for t in teams}
     base_against = {t["fpl_id"]: team_model.average_goals_against(strengths, t["name"]) for t in teams}
+
+    # Match context: opponent-vs-position ratios (last season + this season) and each club's match dates
+    # across all competitions (league fixtures + ESPN cup/European fixtures near the upcoming GWs).
+    pos_by_player = {p["fpl_id"]: p["position"] for p in players}
+    opp_of = {}
+    for f in fixtures:
+        if f["gw"] is not None:
+            opp_of.setdefault((f["team_h"], f["gw"]), []).append(name_by_id[f["team_a"]])
+            opp_of.setdefault((f["team_a"], f["gw"]), []).append(name_by_id[f["team_h"]])
+    records = [(r.opp_name, r.pos, r.expected_goals + r.expected_assists, f"p{r.fixture}")
+               for r in prev.assign(opp_name=prev["opponent_team"].map(
+                   {int(t.id): t.name for t in fpl_history.teams(fpl_history.prev_season(
+                       fpl_history.season_of(int(first_kickoff[:4])))).itertuples(index=False)})).itertuples(index=False)]
+    for gw, elements in live.items():
+        for e in elements:
+            t = team_by_player.get(e["id"])
+            opps = opp_of.get((t, gw), [])
+            if len(opps) == 1 and pos_by_player.get(e["id"]):
+                xgi = float(e["stats"].get("expected_goals") or 0) + float(e["stats"].get("expected_assists") or 0)
+                records.append((opps[0], pos_by_player[e["id"]], xgi, f"c{gw}-{t}"))
+    opp_ratios = context_model.opp_position_ratios(records)
+    league_dates = [(name_by_id[t], f["kickoff_time"]) for f in fixtures if f.get("kickoff_time")
+                    for t in (f["team_h"], f["team_a"])]
     print(f"Team model: {len(matches)} matches, home advantage x{math.exp(strengths['home']):.2f}, "
           f"odds for {len(odds)} upcoming fixtures.")
     short_by_id = {t["fpl_id"]: t["short_name"] for t in teams}
@@ -466,6 +589,10 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         return
     gws = list(range(next_gw, min(next_gw + horizon, LAST_GW + 1)))
     upcoming = [f for f in fixtures if not f["finished"] and f["gw"] is not None]
+    # Other competitions only matter near the next few GWs (cup draws further out aren't known yet).
+    soon = sorted(f["kickoff_time"] for f in upcoming if f.get("kickoff_time") and f["gw"] < next_gw + CONGESTION_GWS)
+    other = schedules.fetch(*context_model.season_window(soon[0], soon[-1])) if soon and context_model.CONGESTION else []
+    dates_by_team = schedules.team_dates(other, league_dates, names)
 
     # Games each club has played so far this season — the denominator for this season's minutes share.
     team_games: dict[int, int] = {}
@@ -483,11 +610,20 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         hn, an = name_by_id[f["team_h"]], name_by_id[f["team_a"]]
         mkt = odds.get((hn, an))
         lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, hn, an), mkt)
-        by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, lam_h, lam_a, f["team_a"], mkt is not None))
-        by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, lam_a, lam_h, f["team_h"], mkt is not None))
+        day = datetime.fromisoformat(f["kickoff_time"].replace("Z", "+00:00")).date() if f.get("kickoff_time") else None
+        rot_h = context_model.rotation_factor(dates_by_team.get(hn, []), day) if day else (1.0, None)
+        rot_a = context_model.rotation_factor(dates_by_team.get(an, []), day) if day else (1.0, None)
+        by_team_gw.setdefault((f["team_h"], f["gw"]), []).append((True, lam_h, lam_a, f["team_a"], mkt is not None, rot_h))
+        by_team_gw.setdefault((f["team_a"], f["gw"]), []).append((False, lam_a, lam_h, f["team_h"], mkt is not None, rot_a))
 
     global NEWS_WEIGHT
-    NEWS_WEIGHT = _load_params(sb).get("news_weight", NEWS_WEIGHT)
+    NEWS_WEIGHT = params.get("news_weight", NEWS_WEIGHT)
+    for k in FACTOR_WEIGHTS:
+        FACTOR_WEIGHTS[k] = params.get(f"{k}_weight", FACTOR_WEIGHTS[k])
+    lineup_rows = _load_table(sb, "predicted_lineups", "player_id, predicted, confidence", ("gw", next_gw))
+    lineup = {r["player_id"]: (bool(r["predicted"]), float(r["confidence"] or 0)) for r in lineup_rows}
+    reset_age = _manager_reset_ages(_load_table(sb, "team_context", "team_id, manager_changed_at"), fixtures)
+    lam_avg = sum(base_for.values()) / len(base_for)
     news = _load_news(sb)
     now = datetime.now(timezone.utc)
 
@@ -495,10 +631,17 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     for p in players:
         last = profiles.get(str(p["code"])) if p.get("code") is not None else None
         hist = history.get(p["fpl_id"], [])
-        prof = form_model.form_profile(hist, last, base[p["position"]])
+        ra = reset_age.get(p["team_id"])
+        prof = form_model.form_profile(hist, last, base[p["position"]], reset_age=ra)
         prof["dc90"] = dc90.get(p["fpl_id"], 0.0)
-        p["mprof"] = minutes_profile([h for h in hist if h["age"] < MINUTES_WINDOW],
-                                     last["minutes"] if last else None)
+        recent_hist = [h for h in hist if h["age"] < MINUTES_WINDOW and (ra is None or h["age"] < ra)]
+        p["mprof"] = minutes_profile(recent_hist, last["minutes"] if last and ra is None else None)
+        ret = return_ramp(hist, p)
+        if ret:
+            p["mprof"]["start_rate"] += FACTOR_WEIGHTS["return"] * (ret["ramp"] - ret["base"])
+        e = elem.get(p["fpl_id"], {})
+        extras = {"pen": e.get("penalties_order") == 1, "corner": e.get("corners_and_indirect_freekicks_order") == 1,
+                  "fk": e.get("direct_freekicks_order") == 1, "lam_avg": lam_avg}
         p["news_adj"] = news_adjustment(news.get(p["fpl_id"]), now)
         avail, fpl_avail = availability(p)
         recent = [h for h in hist if h["age"] < 5]
@@ -511,6 +654,12 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             "xg_share": round(prof["xg_share"], 3), "xa_share": round(prof["xa_share"], 3),
             "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2),
             "home_mult": {"home": round(prof["home_mult"][True], 3), "away": round(prof["home_mult"][False], 3)},
+            "return": ret, "manager_reset": ra is not None,
+            "setpieces": {"pen": extras["pen"], "corner": extras["corner"], "fk": extras["fk"]},
+            "price": price_model.price_signal(elem.get(p["fpl_id"], {}).get("transfers_in_event") or 0,
+                                              elem.get(p["fpl_id"], {}).get("transfers_out_event") or 0,
+                                              float(elem.get(p["fpl_id"], {}).get("selected_by_percent") or 0),
+                                              total_managers),
             "season": {"xg": round(sum(h["xg"] for h in hist), 2), "xa": round(sum(h["xa"] for h in hist), 2),
                        "min": int(sum(h["minutes"] for h in hist))},
             "last": ({"xg": round(last["xg"], 2), "xa": round(last["xa"], 2), "min": int(last["minutes"])}
@@ -524,19 +673,28 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 continue  # blank GW for this team
             agg: dict[str, float] = {}
             opp_short = []
-            xg_for, xg_against, with_odds, atk_mult, p_cs = [], [], [], [], []
-            for is_home, lam_for, lam_against, opp_id, has_odds in fxs:
+            xg_for, xg_against, with_odds, atk_mult, p_cs, opp_pos, rest_days = [], [], [], [], [], [], []
+            for is_home, lam_for, lam_against, opp_id, has_odds, (rot, gap) in fxs:
+                om = context_model.opp_multiplier(opp_ratios, name_by_id[opp_id], p["position"])
+                fx_extras = {**extras, "lineup": lineup.get(p["fpl_id"]) if gw == next_gw else None}
                 comp = project_fixture(p, prof, lam_for, lam_against, base_for[p["team_id"]],
-                                       base_against[p["team_id"]], is_home, form_mult=fm)
+                                       base_against[p["team_id"]], is_home, form_mult=fm, opp_mult=om,
+                                       rotation=rot, extras=fx_extras)
+                opp_pos.append(round(om, 3))
+                rest_days.append(gap)
                 xg_for.append(round(lam_for, 2))
                 xg_against.append(round(lam_against, 2))
                 with_odds.append(has_odds)
                 atk_mult.append(round(comp["fixture_adj"], 3))
                 p_cs.append(round(comp["p_cs"], 3))
-                fx_why = {"p_start": round(comp["p_start"], 3), "p_60": round(comp["p_60"], 3),
+                f_terms = {k: ({kk: round(vv, 4) for kk, vv in v.items()} if v else None) for k, v in comp["f"].items()}
+                if ret:  # start-rate level: without the ramp, and what the ramp adds at weight 1
+                    f_terms["return"] = {"base": ret["base"], "term": round(ret["ramp"] - ret["base"], 4)}
+                fx_why = {"p_start": round(comp["p_start"], 3), "p_60": round(comp["p_60"], 3), "f": f_terms,
+                          "lineup": list(fx_extras["lineup"]) if fx_extras["lineup"] else None,
                           "exp_minutes": round(comp["exp_minutes"], 1), "p_dc": round(comp["p_dc"], 3)}
                 for k, v in comp.items():
-                    if k in ("p_start", "p_60", "p_dc", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90"):
+                    if k in ("p_start", "p_start0", "p_60", "p_dc", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90", "f"):
                         continue
                     agg[k] = agg.get(k, 0.0) + v
                 opp_short.append(("" if is_home else "@") + short_by_id.get(opp_id, "?"))
@@ -555,7 +713,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "model_version": MODEL_VERSION,
                 "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3),
                                "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds,
-                               "atk_mult": atk_mult, "p_cs": p_cs, **fx_why, "why": why},
+                               "atk_mult": atk_mult, "p_cs": p_cs, "opp_pos": opp_pos, "rest_days": rest_days,
+                               **fx_why, "why": why},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],
                 "_cost": p["now_cost"],
