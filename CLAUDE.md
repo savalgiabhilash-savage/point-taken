@@ -58,5 +58,7 @@ https://claude.ai/artifact/MrVLaHc9qV1Ck19fXY58EA.
   (dry run: add `--dry-run`; offline from cache: `--dry-run --from-cache`).
 - Web: `cd web && npm run dev` → http://localhost:3000/players
 - Backtest: `uv run --directory worker python -m fpl_worker.backtest` (~10 min; replays 2023/24–2025/26,
-  reports to `worker/reports/`). Any change to model.py / fdr.py must be backtested before shipping and
-  must beat the baseline in the blueprint (section 17); update that table when a change ships.
+  reports to `worker/reports/`). Any change to model.py / form_model.py / team_model.py / context_model.py
+  must be backtested before shipping and beat the current version on RMSE (not MAE — MAE rewards simply
+  predicting lower), without hurting top-20 points or ranking; update the blueprint table (section 17).
+  Live-only factors (news, penalties, set pieces, return, line-ups) learn their weights in predict.py.
