@@ -35,7 +35,18 @@ SHARE_K = 2.0  # tuned 2023-24 (2/4/8)
 HOME_K = 6.0
 HOME_SPLIT = 0.0  # off: 0.5/1.0 made no measurable difference in the 2023-24 backtest
 BONUS_K = 6.0
+BPS_K = 6.0          # shrink a player's background BPS/90 toward his position average by 6 games
+GOAL_BPS = {"GK": 12, "DEF": 12, "MID": 18, "FWD": 24}
 MANAGER_RESET = 0.5  # factor 14: games before a managerial change (and last season) count this much
+
+
+def background_bps(bps: float, mbps: float, goals: float, assists: float, cs: float, gc: float, pos: str) -> float:
+    """BPS left after removing what FPL scores for events the bonus simulation draws itself (minutes,
+    goals, assists, clean sheets, goals conceded): passes, tackles, recoveries, saves, etc."""
+    ev = mbps + GOAL_BPS.get(pos, 18) * goals + 9 * assists     # mbps: 6 per 60'+ game, 3 per shorter one
+    if pos in ("GK", "DEF"):
+        ev += 12 * cs - 2 * gc                         # -4 per 2 conceded, on average -2 per goal
+    return bps - ev
 
 
 def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
@@ -44,7 +55,9 @@ def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
     for p in profiles.values():
         if not p.get("minutes"):
             continue
-        a = agg.setdefault(p["pos"], {"xg": 0.0, "xa": 0.0, "on": 0.0, "bonus": 0.0, "yellow": 0.0, "min": 0.0})
+        a = agg.setdefault(p["pos"], {"xg": 0.0, "xa": 0.0, "on": 0.0, "bonus": 0.0, "yellow": 0.0, "min": 0.0, "bbps": 0.0})
+        a["bbps"] += background_bps(p.get("bps", 0), p.get("mbps", 0), p.get("goals", 0),
+                                    p.get("assists", 0), p.get("cs", 0), p.get("gc", 0), p["pos"])
         a["xg"] += p["xg"]
         a["xa"] += p["xa"]
         a["on"] += p["team_xg_on"]
@@ -55,7 +68,8 @@ def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
     for pos, a in agg.items():
         n90 = a["min"] / 90.0
         out[pos] = {"xg_share": a["xg"] / a["on"] if a["on"] else 0.0, "xa_share": a["xa"] / a["on"] if a["on"] else 0.0,
-                    "bonus90": a["bonus"] / n90 if n90 else 0.0, "yellow90": a["yellow"] / n90 if n90 else 0.0}
+                    "bonus90": a["bonus"] / n90 if n90 else 0.0, "yellow90": a["yellow"] / n90 if n90 else 0.0,
+                    "bbps90": a["bbps"] / n90 if n90 else 0.0}
     return out
 
 
@@ -64,7 +78,8 @@ def _w(age: float, reset_age: int | None = None) -> float:
     return w * MANAGER_RESET if reset_age is not None and age >= reset_age else w
 
 
-def form_profile(entries: list[dict], last: dict | None, base: dict, reset_age: int | None = None) -> dict:
+def form_profile(entries: list[dict], last: dict | None, base: dict, reset_age: int | None = None,
+                 pos: str = "MID") -> dict:
     """entries: this season's per-GW history (fpl_history.entries_before / model live equivalent);
     last: last-season profile (or None); base: position averages. Returns shares, bonus and card rates,
     home/away multipliers and the evidence behind them (for the "i" pop-up). reset_age: GWs at or older
@@ -100,6 +115,19 @@ def form_profile(entries: list[dict], last: dict | None, base: dict, reset_age: 
     bonus90 = (bonus + BONUS_K * base["bonus90"]) / (n90 + BONUS_K)
     yellow90 = (yellow + BONUS_K * base["yellow90"]) / (n90 + BONUS_K)
 
+    # Background BPS per 90 (for the bonus simulation), same weighting and shrinkage idea.
+    bb = bm = 0.0
+    for e in entries:
+        w = _w(e["age"], reset_age)
+        bb += w * background_bps(e.get("bps", 0), e.get("mbps", 0), e.get("goals", 0), e.get("assists", 0),
+                                 e.get("cs", 0), e.get("gc", 0), pos)
+        bm += w * e["minutes"]
+    if lw and last.get("minutes"):
+        bb += lw * background_bps(last.get("bps", 0), last.get("mbps", 0), last.get("goals", 0),
+                                  last.get("assists", 0), last.get("cs", 0), last.get("gc", 0), pos)
+        bm += lw * last["minutes"]
+    bbps90 = (bb + BPS_K * base.get("bbps90", 0.0)) / (bm / 90.0 + BPS_K)
+
     home_mult = {True: 1.0, False: 1.0}
     if HOME_SPLIT:
         for side in (True, False):
@@ -107,5 +135,5 @@ def form_profile(entries: list[dict], last: dict | None, base: dict, reset_age: 
             side_share = (sxg + HOME_K * xg_share) / (son + HOME_K)
             home_mult[side] = (side_share / xg_share) ** HOME_SPLIT if xg_share > 0 else 1.0
 
-    return {"xg_share": xg_share, "xa_share": xa_share, "bonus90": bonus90, "yellow90": yellow90,
+    return {"xg_share": xg_share, "xa_share": xa_share, "bonus90": bonus90, "yellow90": yellow90, "bbps90": bbps90,
             "home_mult": home_mult, "team_xg_on": on, "n90": n90}

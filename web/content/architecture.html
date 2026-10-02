@@ -79,12 +79,15 @@ svg text{font-family:var(--sans)}
 .chip.high{color:var(--high);background:var(--high-soft)}
 .chip.med{color:var(--med);background:var(--med-soft)}
 .chip.low{color:var(--low);background:var(--low-soft)}
-.issue{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.issue{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .issue:last-child{border-bottom:none}
 .issue .id{font:500 12px var(--mono);color:var(--muted);padding-top:2px}
 .issue h4{margin:0;font-size:14.5px;font-weight:600}
 .issue p{grid-column:2;margin:2px 0 0;font-size:14px;color:var(--muted)}
 .issue p b{color:var(--ink);font-weight:600}
+.issue ul{grid-column:2;margin:2px 0 0;padding-left:18px;font-size:14px;color:var(--muted)}
+.issue ul b{color:var(--ink);font-weight:600}
+ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
 .issues{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 16px;margin-bottom:18px}
 .timeline{list-style:none;padding:0;margin:0;border-left:2px solid var(--line)}
 .timeline li{padding:0 0 12px 16px;position:relative}
@@ -134,9 +137,12 @@ svg text{font-family:var(--sans)}
 <header class="top">
   <div class="eyebrow">Owner reference · private</div>
   <h1>FPL Selector Blueprint</h1>
-  <p class="lede">How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice. It describes what the code does today, including where that differs from what it was meant to do.</p>
+  <ul class="lede">
+    <li>How the app is built and how it picks players: every data source, pipeline step, formula, optimizer constraint and parameter behind the buy, sell, captain and chip advice</li>
+    <li>It describes what the code does today, including where that differs from what it was meant to do</li>
+  </ul>
   <div class="meta">
-    <span>doc rev 15</span>
+    <span>doc rev 16</span>
     <span>updated 2026-09-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
@@ -148,7 +154,13 @@ svg text{font-family:var(--sans)}
 <section id="overview">
   <span class="sec-num">01</span>
   <h2>Overview</h2>
-  <p>FPL Selector is a personal Fantasy Premier League assistant. It pulls official FPL data and last-season Understat xG, projects expected points (xPts) for every player in every remaining gameweek with a transparent rules-based model, then runs a mixed-integer optimizer over <em>your</em> squad to recommend transfers, captain, hits and chip timing. A news layer and a grounded Claude chat assistant sit on top.</p>
+  <ul>
+    <li>FPL Selector is a personal Fantasy Premier League assistant</li>
+    <li>It pulls FPL data (this season and last), bookmaker odds, cup and European fixtures, news and predicted line-ups</li>
+    <li>A transparent rules-based model projects expected points (xPts) for every player in every remaining gameweek</li>
+    <li>A mixed-integer optimizer then recommends transfers, captain, hits and chip timing for <em>your</em> squad</li>
+    <li>A news layer and a grounded Claude chat assistant sit on top</li>
+  </ul>
   <div class="cols">
     <div class="card"><b>Players</b><span>Sortable table of every player with next-GW xPts, multi-GW sum, component breakdown drawer and news chip.</span></div>
     <div class="card"><b>Fixtures</b><span>8-GW ticker coloured by the custom 1–5 FDR.</span></div>
@@ -159,14 +171,28 @@ svg text{font-family:var(--sans)}
     <div class="card"><b>Guide · Settings</b><span>User help page; FPL entry ID and manual sync.</span></div>
     <div class="card"><b>Docs</b><span>This page. Visible only to the owner account.</span></div>
   </div>
-  <p>Design principles (from <code>CLAUDE.md</code>): every xPts number is a sum of stored, named components; minutes come first; underlying stats are fixture-adjusted and shrunk toward base rates; recommendations reason about the real team state (bank, free transfers, chips); sentiment stays advisory until backtested.</p>
+  <ul>
+    <li>Design principles (from <code>CLAUDE.md</code>):
+      <ul>
+        <li>Every xPts number is a sum of stored, named components</li>
+        <li>Minutes come first</li>
+        <li>Underlying stats are opponent-adjusted and shrunk toward position averages</li>
+        <li>Recommendations reason about your real team state (bank, free transfers, chips)</li>
+        <li>Every model change is backtested on RMSE before it ships; live-only factors (news, line-ups, set pieces) learn their weight from outcomes</li>
+      </ul>
+    </li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
 <section id="architecture">
   <span class="sec-num">02</span>
   <h2>Architecture</h2>
-  <p>Three deployables share one Supabase Postgres. The Python worker is the only thing that talks to the FPL API, Understat and Google News; the web app and mobile app only read Supabase (plus the few server routes listed below).</p>
+  <ul>
+    <li>Three deployables share one Supabase Postgres</li>
+    <li>The Python worker is the only thing that talks to outside sources: the FPL API, the vaastav FPL dataset, Understat, ESPN fixtures, football-data.co.uk odds, Google News and Claude</li>
+    <li>The web app and mobile app only read Supabase (plus the few server routes listed below)</li>
+  </ul>
   <figure>
     <div class="fig">
       <svg viewBox="0 0 760 420" width="760" height="420" role="img" aria-label="System architecture diagram">
@@ -237,7 +263,11 @@ svg text{font-family:var(--sans)}
       <tr><td>Scheduler</td><td>GitHub Actions (repo <code>savalgiabhilash-savage/fpl-selector</code>)</td><td><code>.github/workflows/</code></td></tr>
     </tbody>
   </table></div>
-  <p>Secrets: worker uses <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>FPL_ENTRY_ID</code>, <code>ANTHROPIC_API_KEY</code> (Actions secrets / <code>worker/.env</code>). Web uses <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GITHUB_DISPATCH_TOKEN</code> (Vercel env / <code>web/.env.local</code>). Every env read strips a UTF-8 BOM because Windows pipes added one when the values were stored.</p>
+  <ul>
+    <li>Secrets: worker uses <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>FPL_ENTRY_ID</code>, <code>ANTHROPIC_API_KEY</code> (Actions secrets / <code>worker/.env</code>)</li>
+    <li>Web uses <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>GITHUB_DISPATCH_TOKEN</code> (Vercel env / <code>web/.env.local</code>)</li>
+    <li>Every env read strips a UTF-8 BOM because Windows pipes added one when the values were stored</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -261,8 +291,14 @@ svg text{font-family:var(--sans)}
       <tr><td><b>fpl-optimize</b><br><code>optimize.yml</code></td><td><code>workflow_dispatch</code> from the web app (inputs <code>horizon</code>, <code>user_id</code>)</td><td><code>optimize --plan [--horizon N] [--user id]</code>. Concurrency is per user, and a newer dispatch cancels an older one.</td></tr>
     </tbody>
   </table></div>
-  <p>Not scheduled: <code>form --run</code> (World Cup form factor, scrapes FBref via headless Chrome, run once locally) and <code>crosswalk</code> review CSVs written to <code>worker/reports/</code>.</p>
-  <p>Local commands: <code>uv run --directory worker python -m fpl_worker.refresh --refresh</code>, add <code>--dry-run</code> or <code>--dry-run --from-cache</code> to test. Every module has <code>--dry-run</code>. Web: <code>cd web &amp;&amp; npm run dev</code>.</p>
+  <ul>
+    <li>Not scheduled: <code>form --run</code> (World Cup form factor, scrapes FBref via headless Chrome, run once locally) and <code>crosswalk</code> review CSVs written to <code>worker/reports/</code></li>
+  </ul>
+  <ul>
+    <li>Local commands: <code>uv run --directory worker python -m fpl_worker.refresh --refresh</code>, add <code>--dry-run</code> or <code>--dry-run --from-cache</code> to test</li>
+    <li>Every module has <code>--dry-run</code></li>
+    <li>Web: <code>cd web &amp;&amp; npm run dev</code></li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -287,7 +323,10 @@ svg text{font-family:var(--sans)}
       <tr><td>Claude Haiku 4.5</td><td>Sentiment classification, chat assistant, screenshot squad reader</td><td><code>sentiment.py</code>, <code>/api/assistant</code>, <code>/api/team-upload</code></td></tr>
     </tbody>
   </table></div>
-  <p>The FPL client sends a browser-like User-Agent, throttles to 1 request per second, retries 4 times with exponential backoff on 5xx and network errors, and caches raw JSON under <code>.cache/</code>. Not yet used, though planned in the original spec: The Odds API, PhysioRoom injury lookahead, vaastav/olbauday historical datasets.</p>
+  <ul>
+    <li>The FPL client sends a browser-like User-Agent, throttles to 1 request per second, retries 4 times with exponential backoff on 5xx and network errors, and caches raw JSON under <code>.cache/</code></li>
+    <li>Not yet used, though planned in the original spec: The Odds API, PhysioRoom injury lookahead, vaastav/olbauday historical datasets</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -311,9 +350,20 @@ svg text{font-family:var(--sans)}
       <tr><td>optimizer_runs</td><td class="num">id</td><td>optimize</td><td>One row per user: suggested squad, transfers (path, chips, plan points, <code>based_on</code>), captain, gain, horizon</td></tr>
     </tbody>
   </table></div>
-  <p>Created but unused: <code>player_gw_stats</code>, <code>prices</code>, <code>crosswalk</code>, <code>fixtures.is_dgw/is_bgw</code>, <code>projections.p_start/exp_minutes/fixture_adj/sentiment_adj</code>.</p>
-  <p><b>Row-level security</b> (<code>0005_rls.sql</code>): shared FPL and model tables are public-read and writable only by the service role. <code>user_team_state</code> and <code>optimizer_runs</code> are readable when <code>user_id = 'me'</code> or matches <code>auth.uid()</code>, and writable only for your own uid. <code>profiles</code> is own-row only. The worker's service-role key bypasses RLS.</p>
-  <p>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>), still synced and optimized by the worker. Migration <code>0007_private_demo_squad.sql</code> removes its public read, making personal rows own-rows only. The Expo app's My Team tab signs in and reads the user's own rows, so it doesn't depend on "me".</p>
+  <ul>
+    <li>Created but unused: <code>player_gw_stats</code>, <code>prices</code>, <code>crosswalk</code>, <code>fixtures.is_dgw/is_bgw</code>, <code>projections.p_start/exp_minutes/fixture_adj/sentiment_adj</code></li>
+  </ul>
+  <ul>
+    <li><b>Row-level security</b> (<code>0005_rls.sql</code>): shared FPL and model tables are public-read and writable only by the service role</li>
+    <li><code>user_team_state</code> and <code>optimizer_runs</code> are readable when <code>user_id = 'me'</code> or matches <code>auth.uid()</code>, and writable only for your own uid</li>
+    <li><code>profiles</code> is own-row only</li>
+    <li>The worker's service-role key bypasses RLS</li>
+  </ul>
+  <ul>
+    <li>The <code>"me"</code> user is the owner's squad (<code>FPL_ENTRY_ID</code>), still synced and optimized by the worker</li>
+    <li>Migration <code>0007_private_demo_squad.sql</code> removes its public read, making personal rows own-rows only</li>
+    <li>The Expo app's My Team tab signs in and reads the user's own rows, so it doesn't depend on "me"</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -321,22 +371,38 @@ svg text{font-family:var(--sans)}
   <span class="sec-num">06</span>
   <h2>Crosswalk &amp; custom FDR</h2>
   <h3>FPL ↔ Understat player matching (<code>crosswalk.py</code>)</h3>
-  <p>No shared ID exists, so names are fuzzy-matched after ASCII-folding.</p>
+  <ul>
+    <li>No shared ID exists, so names are fuzzy-matched after ASCII-folding</li>
+  </ul>
   <ol>
     <li><b>Team pass.</b> Candidates are restricted to the player's club, with five team names mapped (Man City, Man Utd, Newcastle, Nott'm Forest, Spurs). Score = max of <code>token_sort_ratio</code> on full name and web name, and <code>partial_ratio</code> on web name when it has 5+ letters. A surname match plus a compatible first name raises the score to 91. Accept if the score is ≥ 85 and beats the runner-up by ≥ 6.</li>
     <li><b>Global pass</b> (summer transfers): full-name <code>token_sort_ratio</code> ≥ 92 against all Understat players, margin ≥ 8.</li>
     <li>Anything else goes to <code>reports/crosswalk_review.csv</code>. The last run matched 396 players (51 via the global pass) and left 271 unmatched: 162 low score, 108 at promoted clubs, 1 ambiguous.</li>
   </ol>
-  <p>Every run clears <code>understat_id</code> first, so dropped matches don't linger.</p>
+  <ul>
+    <li>Every run clears <code>understat_id</code> first, so dropped matches don't linger</li>
+  </ul>
   <h3>Custom fixture difficulty (<code>fdr.py</code>)</h3>
-  <p>Team xG for and against per game pools 2025/26 Understat (38 games at half weight) with this season's FPL numbers: xG for = Σ players' <code>expected_goals</code>, xG against = Σ players' <code>expected_goals_conceded</code> ÷ 11, because all 11 players on the pitch accrue every chance conceded. Team rating = xG for − xG against. Promoted clubs use this season alone, or the weakest returning team's rating before their first game. For each fixture, difficulty = 1 + 4 × (opponent rating − min) / (max − min), then −0.25 at home and +0.25 away, clamped to 1–5. Current range: Arsenal +1.17 (hardest opponent) down to Sunderland −0.45.</p>
+  <ul>
+    <li>Team xG for and against per game pools 2025/26 Understat (38 games at half weight) with this season's FPL numbers: xG for = Σ players' <code>expected_goals</code>, xG against = Σ players' <code>expected_goals_conceded</code> ÷ 11, because all 11 players on the pitch accrue every chance conceded</li>
+    <li>Team rating = xG for − xG against</li>
+    <li>Promoted clubs use this season alone, or the weakest returning team's rating before their first game</li>
+    <li>For each fixture, difficulty = 1 + 4 × (opponent rating − min) / (max − min), then −0.25 at home and +0.25 away, clamped to 1–5</li>
+    <li>Current range: Arsenal +1.17 (hardest opponent) down to Sunderland −0.45</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
 <section id="model">
   <span class="sec-num">07</span>
   <h2>The xPts model (<code>model.py</code>, rules-v6)</h2>
-  <p>For every player and every fixture in the horizon, the model computes eight components and sums them. Double gameweeks sum both fixtures. Blank gameweeks write no row. The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38. Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline.</p>
+  <ul>
+    <li>For every player and every fixture in the horizon, the model computes eight components and sums them</li>
+    <li>Double gameweeks sum both fixtures</li>
+    <li>Blank gameweeks write no row</li>
+    <li>The next GW is FPL's <code>is_next</code> event (the next deadline), and the pipeline writes every GW from there to GW38</li>
+    <li>Each run also deletes projections for GWs that have started, so "lowest GW in <code>projections</code>" is always the next deadline</li>
+  </ul>
   <figure>
     <div class="fig">
       <svg viewBox="0 0 740 150" width="740" height="150" role="img" aria-label="xPts is minutes times rates times fixture, summed over eight components">
@@ -379,7 +445,11 @@ p_cameo      = (1 − p_start) × cameo_rate      (0 if unavailable)
 p_play       = min(1, p_start + p_cameo)
 E[minutes]   = p_start·start_mins + p_cameo·cameo_mins
 p_60         = p_start · p60_start</code></pre>
-  <p>Live, the history comes from FPL's <code>event/{gw}/live</code> (one call per GW, 8 per run); in the backtest, from the dataset rows. Only GWs where the player's current club played count, so a club blank isn't read as being dropped. The half-life (3 GWs) and prior strength (0.5 games) were tuned on 2023/24 and confirmed on the held-out 2024/25 and 2025/26.</p>
+  <ul>
+    <li>Live, the history comes from FPL's <code>event/{gw}/live</code> (one call per GW, 8 per run); in the backtest, from the dataset rows</li>
+    <li>Only GWs where the player's current club played count, so a club blank isn't read as being dropped</li>
+    <li>The half-life (3 GWs) and prior strength (0.5 games) were tuned on 2023/24 and confirmed on the held-out 2024/25 and 2025/26</li>
+  </ul>
 
   <h3>2. Role share and form (<code>form_model.py</code>)</h3>
 <pre><code>team_xg_on   = his team's xG in each game × his minutes / 90     (what his team made while he played)
@@ -411,7 +481,12 @@ dc90         = (DefCon actions + 3·position avg) / (n90 + 3)      this season, 
 x_defcon_pts = 2 · P(Poisson(dc90 · 82/90) ≥ T) · p_start       T: DEF 10, MID/FWD 12, GK none
 x_bonus_pts  = bonus90 · (E[min]/90) · (adj for MID/FWD | P(CS) ÷ his team's usual P(CS) for GK/DEF)
 x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yellow90·(E[min]/90)</code></pre>
-  <p>The custom FDR is only shown on the Fixtures page; the model uses the team model's expected goals. DefCon counts come from FPL <code>bootstrap-static</code> (CBIT for defenders, CBIRT for midfielders and forwards). For example, Tarkowski at 10.2 per 90 hits the threshold in about 45% of starts. Penalty and set-piece flags are deliberately unused: both Understat and FPL xG already include penalty xG, so a bonus would double-count.</p>
+  <ul>
+    <li>The custom FDR is only shown on the Fixtures page; the model uses the team model's expected goals</li>
+    <li>DefCon counts come from FPL <code>bootstrap-static</code> (CBIT for defenders, CBIRT for midfielders and forwards)</li>
+    <li>For example, Tarkowski at 10.2 per 90 hits the threshold in about 45% of starts</li>
+    <li>Penalty and set-piece duties add a separate term (section 07, live-only); because xG already includes some penalty xG, their weights are learned from outcomes and can shrink toward 0 if they double-count</li>
+  </ul>
 
   <h3>How the live-only factors learn</h3>
   <ul>
@@ -420,7 +495,9 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
     <li>Predicted line-ups and managerial changes come from <code>lineups.py</code>: one Claude Opus 5 call with web search and fetch in the 48h before a deadline (about $1–2 per GW), matched to squads and stored in <code>predicted_lineups</code> and <code>team_context</code>.</li>
   </ul>
   <h3>4. Team goals model (<code>team_model.py</code>)</h3>
-  <p>Every fixture gets both sides' expected goals from two sources, blended.</p>
+  <ul>
+    <li>Every fixture gets both sides' expected goals from two sources, blended</li>
+  </ul>
 <pre><code>fitted:  E[home xG] = exp(μ + home + att_home + def_away)
          E[away xG] = exp(μ + att_away + def_home)
          fitted on match xG, each match weighted 0.5 ^ (age in days / 90);
@@ -429,11 +506,23 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
 odds:    football-data.co.uk market-average 1X2 and over/under 2.5, margin removed;
          total goals solved from P(over 2.5), split solved from P(home) − P(away)
 blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</code></pre>
-  <p>Live, the fit uses last season's Understat match xG plus this season's matches, rebuilt from FPL's <code>event/{gw}/live</code> (a club's xG in a GW = its players' <code>expected_goals</code>, split evenly across a double). Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them. Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code>. The 90-day half-life and 0.75 odds weight were tuned on 2023/24.</p>
+  <ul>
+    <li>Live, the fit uses last season's matches from the FPL dataset (<code>fpl_history.season_matches</code>) plus this season's matches, rebuilt from FPL's <code>event/{gw}/live</code> (a club's xG in a GW = its players' <code>expected_goals</code>, split evenly across a double)</li>
+    <li>Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them</li>
+    <li>Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code></li>
+    <li>The 90-day half-life and 0.75 odds weight were tuned on 2023/24</li>
+  </ul>
 
   <h3>5. Form and calibration multipliers</h3>
-  <p><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code>. It scales xG/90 and xA/90, so it flows through goals, assists and bonus. It applies only until the player's club has played its first league game.</p>
-  <p><b>Calibration</b>: every component is multiplied by the position multiplier from <code>model_calibration</code>, so components still sum to <code>x_pts</code>. The multiplier is written to <code>components.calibration</code>.</p>
+  <ul>
+    <li><b>World Cup form</b> (<code>form.py</code>, one-off): for matched players with ≥ 90 WC minutes, <code>mult = clamp(1 + 0.12 · min(1, min/270) · clamp(GA90 − 0.35, −0.5, 0.8), 0.90, 1.12)</code></li>
+    <li>It scales xG/90 and xA/90, so it flows through goals, assists and bonus</li>
+    <li>It applies only until the player's club has played its first league game</li>
+  </ul>
+  <ul>
+    <li><b>Calibration</b>: every component is multiplied by the position multiplier from <code>model_calibration</code>, so components still sum to <code>x_pts</code></li>
+    <li>The multiplier is written to <code>components.calibration</code></li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -447,7 +536,10 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><b>News weight.</b> Score logged news cases (did he start?) and refit <code>news_weight</code> (section 12).</li>
     <li><b>Snapshot.</b> Replace the unscored <code>prediction_log</code> rows for that GW with every pool player's predicted xPts. The GW only advances at the deadline, so the last pre-deadline run is the snapshot that gets scored.</li>
   </ol>
-  <p>A GW is scored if either its per-player log or its published Best XI is still unscored. The GW1 Best XI (predicted 5.2 under the old minutes bug) is kept as an honest record.</p>
+  <ul>
+    <li>A GW is scored if either its per-player log or its published Best XI is still unscored</li>
+    <li>The GW1 Best XI (predicted 5.2 under the old minutes bug) is kept as an honest record</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -471,16 +563,31 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <h3>Objective</h3>
 <pre><code>maximise  Σ_g 0.9^g · Σ_i xp[i,g] · (start[i,g] + captain[i,g] + 0.1·bench[i,g])
           − 4 · Σ_g hits[g]</code></pre>
-  <p>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds. Output per GW: transfers in and out, hits, banked FTs, XI points including the captain. Reported "planned points" are undiscounted. "Gain" is plan points minus holding the current 15 with the best XI and captain each week. <code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change. Each GW's squad also marks a <b>vice-captain</b> (next-best starter) and a <b>bench order</b>: the sub GK first, then outfield subs by projected points.</p>
+  <ul>
+    <li>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds</li>
+    <li>Output per GW: transfers in and out, hits, banked FTs, XI points including the captain</li>
+    <li>Reported "planned points" are undiscounted</li>
+    <li>"Gain" is plan points minus holding the current 15 with the best XI and captain each week</li>
+    <li><code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change</li>
+    <li>Each GW's squad also marks a <b>vice-captain</b> (next-best starter) and a <b>bench order</b>: the sub GK first, then outfield subs by projected points</li>
+  </ul>
   <h3>Other modes</h3>
-  <p><code>--fresh</code>: best 15 from scratch for £100m. <code>--transfers</code>: single-deadline swap valued over the horizon. Both reuse the single-squad <code>_solve</code>, which the Best XI and chip evaluators also use.</p>
+  <ul>
+    <li><code>--fresh</code>: best 15 from scratch for £100m</li>
+    <li><code>--transfers</code>: single-deadline swap valued over the horizon</li>
+    <li>Both reuse the single-squad <code>_solve</code>, which the Best XI and chip evaluators also use</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
 <section id="chips">
   <span class="sec-num">10</span>
   <h2>Chip timing</h2>
-  <p>Each chip comes twice a season: one set for GW1–19, lost if unused by the GW19 deadline, and a fresh set for GW20–38. Each copy is valued as its <b>marginal</b> gain over the squad you would field on the planned transfer path, scanned across the GWs of its own half that fall in the horizon. The best GW per copy is kept.</p>
+  <ul>
+    <li>Each chip comes twice a season: one set for GW1–19, lost if unused by the GW19 deadline, and a fresh set for GW20–38</li>
+    <li>Each copy is valued as its <b>marginal</b> gain over the squad you would field on the planned transfer path, scanned across the GWs of its own half that fall in the horizon</li>
+    <li>The best GW per copy is kept</li>
+  </ul>
   <div class="tbl"><table>
     <thead><tr><th>Chip</th><th>Gain at GW g</th><th class="num">Bar</th></tr></thead>
     <tbody>
@@ -490,8 +597,22 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">8</td></tr>
     </tbody>
   </table></div>
-  <p><b>Per-week options:</b> every chip stores an option for each GW it scanned. Triple Captain: the captain. Bench Boost: the 4 bench players. Wildcard / Free Hit: the full new squad (XI, captain) plus exactly which players go out and in versus your planned squad that week. The Chips tab reads these, so you can see the moves for any week, not only the best one.</p>
-  <p>A chip is recommended only if you still hold it and its gain clears the bar. <b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window. If the horizon stops short of GW19, the "hold" advice names the first-half chips that will expire. If several do, the one with the largest gain over its bar wins. Otherwise the advice is "hold". DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW. Available chips = the four codes minus any chip played in the same half as the next deadline.</p>
+  <ul>
+    <li><b>Per-week options:</b> every chip stores an option for each GW it scanned</li>
+    <li>Triple Captain: the captain</li>
+    <li>Bench Boost: the 4 bench players</li>
+    <li>Wildcard / Free Hit: the full new squad (XI, captain) plus exactly which players go out and in versus your planned squad that week</li>
+    <li>The Chips tab reads these, so you can see the moves for any week, not only the best one</li>
+  </ul>
+  <ul>
+    <li>A chip is recommended only if you still hold it and its gain clears the bar</li>
+    <li><b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window</li>
+    <li>If the horizon stops short of GW19, the "hold" advice names the first-half chips that will expire</li>
+    <li>If several do, the one with the largest gain over its bar wins</li>
+    <li>Otherwise the advice is "hold"</li>
+    <li>DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW</li>
+    <li>Available chips = the four codes minus any chip played in the same half as the next deadline</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -511,7 +632,13 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <section id="news">
   <span class="sec-num">12</span>
   <h2>News &amp; sentiment</h2>
-  <p>Targets: players with an FPL flag (status not "a", or a chance-of-playing value) plus anyone owned by ≥ 5%, flagged players first, capped at 200. For each: Google News query <code>"web_name" Club football (injury OR fitness OR lineup OR transfer OR Premier League)</code>, up to 5 headlines from the last 21 days, then Claude Haiku 4.5 with a forced <code>record_sentiment</code> tool. It returns sentiment, topics (injury-risk, return-from-injury, rotation, suspension, form-buzz, transfer, off-pitch, none), <code>minutes_risk_adj</code> in [−1, 0], and a one-line summary. Results tagged "none" are dropped. The table is replaced in full each run (97 rows on the last run).</p>
+  <ul>
+    <li>Targets: players with an FPL flag (status not "a", or a chance-of-playing value) plus anyone owned by ≥ 5%, flagged players first, capped at 200</li>
+    <li>For each: Google News query <code>"web_name" Club football (injury OR fitness OR lineup OR transfer OR Premier League)</code>, up to 5 headlines from the last 21 days, then Claude Haiku 4.5 with a forced <code>record_sentiment</code> tool</li>
+    <li>It returns sentiment, topics (injury-risk, return-from-injury, rotation, suspension, form-buzz, transfer, off-pitch, none), <code>minutes_risk_adj</code> in [−1, 0], and a one-line summary</li>
+    <li>Results tagged "none" are dropped</li>
+    <li>The table is replaced in full each run (97 rows on the last run)</li>
+  </ul>
   <ul>
     <li>Since rules-v4, news <b>lowers availability</b> in the model (formula in section 07). It is shown in the Players table, the "i" pop-up and the assistant.</li>
     <li><code>news_weight</code> (default 1.0) is re-learned every run. <code>predict.py</code> logs each news-affected player before the deadline (<code>news_effect_log</code>). After the GW it records whether he started, then picks the weight whose start probabilities best match reality (Brier score), shrunk toward 1.0 by 30 pseudo-cases. The result is stored in <code>model_params</code>.</li>
@@ -524,7 +651,12 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <section id="assistant">
   <span class="sec-num">13</span>
   <h2>Assistant (<code>/api/assistant</code>)</h2>
-  <p>Claude Haiku 4.5 with up to 6 tool rounds. The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan. Signed-in users only: logged-out requests get 401, because every call spends Anthropic credits. There is no rate limit per user.</p>
+  <ul>
+    <li>Claude Haiku 4.5 with up to 6 tool rounds</li>
+    <li>The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan</li>
+    <li>Signed-in users only: logged-out requests get 401, because every call spends Anthropic credits</li>
+    <li>There is no rate limit per user</li>
+  </ul>
   <div class="tbl"><table>
     <thead><tr><th>Tool</th><th>Returns</th></tr></thead>
     <tbody>
@@ -535,7 +667,9 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>get_best_xi</td><td>Latest unscored Best XI, capped or uncapped</td></tr>
     </tbody>
   </table></div>
-  <p>"Next GW" everywhere in the web app is the lowest GW in <code>projections</code>, which the model keeps equal to FPL's next deadline.</p>
+  <ul>
+    <li>"Next GW" everywhere in the web app is the lowest GW in <code>projections</code>, which the model keeps equal to FPL's next deadline</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -598,23 +732,57 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <section id="issues">
   <span class="sec-num">16</span>
   <h2>Known issues (review of 2026-09-25)</h2>
-  <p>Found by reading the code and checking the live Supabase data and the <code>/best</code> page. Every issue except H7 (a Supabase dashboard setting) is fixed.</p>
+  <ul>
+    <li>Found by reading the code and checking the live Supabase data and the <code>/best</code> page</li>
+    <li>Every issue except H7 (a Supabase dashboard setting) is fixed</li>
+  </ul>
 
   <div class="issues">
     <div class="issue"><span class="id">H1·3·4·8</span><div><h4><span class="chip low">Fixed</span> Current-season data, chip halves, selling prices, uploads</h4></div>
-      <p>H1: matched players ignored this season's xG and the World Cup factor never switched off (fixed: pooled sample, factor preseason only). H3: chips assumed one set per season (fixed: per-half availability and a GW19 use-it-or-lose-it rule). H4: the budget used current prices (fixed: real selling prices from transfer history). H8: in-season uploads were ignored (fixed: saved as the next GW).</p></div>
+      <ul>
+        <li>H1: matched players ignored this season's xG and the World Cup factor never switched off (fixed: pooled sample, factor preseason only)</li>
+        <li>H3: chips assumed one set per season (fixed: per-half availability and a GW19 use-it-or-lose-it rule)</li>
+        <li>H4: the budget used current prices (fixed: real selling prices from transfer history)</li>
+        <li>H8: in-season uploads were ignored (fixed: saved as the next GW)</li>
+      </ul></div>
     <div class="issue"><span class="id">H2·5·6</span><div><h4><span class="chip low">Fixed</span> Zero attackers, pipeline order, open assistant</h4></div>
-      <p>H2: 271 unmatched players projected zero attacking output (fixed: fall back to this season's FPL xG/xA). H5: the optimizer ran before team sync (fixed: sync first). H6: <code>/api/assistant</code> was open to anyone (fixed: signed-in users only).</p></div>
+      <ul>
+        <li>H2: 271 unmatched players projected zero attacking output (fixed: fall back to this season's FPL xG/xA)</li>
+        <li>H5: the optimizer ran before team sync (fixed: sync first)</li>
+        <li>H6: <code>/api/assistant</code> was open to anyone (fixed: signed-in users only)</li>
+      </ul></div>
     <div class="issue"><span class="id">C1–4</span><div><h4><span class="chip low">Fixed</span> Critical issues from the first review</h4></div>
-      <p>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs). C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season). C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6). C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>).</p></div>
+      <ul>
+        <li>C1: the app was stuck on GW1 because old projections were never deleted (fixed: <code>is_next</code> GW, prune started GWs)</li>
+        <li>C2: projections were about 5× too low because this season's minutes were divided by a full season (fixed: minutes share per club game, blended with last season)</li>
+        <li>C3: calibration learned from a stale Aug 9 snapshot and the Best XI was reset to unscored each run (fixed: replace snapshots, never reopen scored GWs, calibrate from GW6)</li>
+        <li>C4: free transfers stored transfers made (fixed: rebuilt from history in worker and <code>/api/sync</code>)</li>
+      </ul></div>
     <div class="issue"><span class="id">H7</span><div><h4><span class="chip high">High</span> Unverified emails</h4></div>
-      <p><code>mailer_autoconfirm</code> is on, so anyone can register any address. The Docs gate trusts the email, which is safe only while an account with the owner's email already exists. Turn on "Confirm email" in Supabase Auth.</p></div>
+      <ul>
+        <li><code>mailer_autoconfirm</code> is on, so anyone can register any address</li>
+        <li>The Docs gate trusts the email, which is safe only while an account with the owner's email already exists</li>
+        <li>Turn on "Confirm email" in Supabase Auth</li>
+      </ul></div>
     <div class="issue"><span class="id">M1–5</span><div><h4><span class="chip low">Fixed</span> Medium issues</h4></div>
-      <p>M1: "next 5" totals and the optimizer's candidate ranking summed the whole season (fixed: next 5 GWs / plan horizon, per-position pool with value picks). M2: the Players page loaded ~22k rows (fixed: next 5 GWs only). M3: crude proxies (fixed: DefCon from each player's FPL rate, exact goals-conceded deduction, attack adjusted by the opponent's xG conceded, team strength updated in-season; penalty flags left unused on purpose). M4: no vice-captain or bench order (fixed). M5: runs about 4x a day (cron now every 2 h).</p></div>
+      <ul>
+        <li>M1: "next 5" totals and the optimizer's candidate ranking summed the whole season (fixed: next 5 GWs / plan horizon, per-position pool with value picks)</li>
+        <li>M2: the Players page loaded ~22k rows (fixed: next 5 GWs only)</li>
+        <li>M3: crude proxies (fixed: DefCon from each player's FPL rate, exact goals-conceded deduction, attack adjusted by the opponent's xG conceded, team strength updated in-season; penalty flags left unused on purpose)</li>
+        <li>M4: no vice-captain or bench order (fixed)</li>
+        <li>M5: runs about 4x a day (cron now every 2 h)</li>
+      </ul></div>
     <div class="issue"><span class="id">—</span><div><h4><span class="chip low">By design</span> Not bugs</h4></div>
-      <p>Price-change awareness is a new feature, planned under Phase B. Captaincy stays on maximum expected points (your choice); ownership is surfaced through the Differentials tab instead.</p></div>
+      <ul>
+        <li>Price-change awareness is a new feature, planned under Phase B</li>
+        <li>Captaincy stays on maximum expected points (your choice); ownership is surfaced through the Differentials tab instead</li>
+      </ul></div>
     <div class="issue"><span class="id">L1</span><div><h4><span class="chip low">Fixed</span> Smaller issues</h4></div>
-      <p>The assistant's player lookup now prefers an exact name, then the most-owned match, and returns the other matches; its news lookup takes the newest item; the hardcoded "preseason" prompt line is gone. Logged-out visitors get a login prompt on My Team and Optimizer instead of the owner's squad (migration <code>0007</code> closes the database side). The README is current and <code>docs/RECOMMENDATION-ENGINE.md</code> was removed in favour of this page.</p></div>
+      <ul>
+        <li>The assistant's player lookup now prefers an exact name, then the most-owned match, and returns the other matches; its news lookup takes the newest item; the hardcoded "preseason" prompt line is gone</li>
+        <li>Logged-out visitors get a login prompt on My Team and Optimizer instead of the owner's squad (migration <code>0007</code> closes the database side)</li>
+        <li>The README is current and <code>docs/RECOMMENDATION-ENGINE.md</code> was removed in favour of this page</li>
+      </ul></div>
   </div>
 </section>
 
@@ -622,17 +790,20 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <section id="ideas">
   <span class="sec-num">17</span>
   <h2>Factors &amp; accuracy plan</h2>
-  <p>This section lists everything that currently shapes a recommendation, what is left out, and a plan to make the predictions as accurate as the free data allows. FPL points are noisy (one goal swings a score by 4–6), so "most accurate" only means something against a benchmark. The plan therefore starts by measuring.</p>
+  <ul>
+    <li>This section lists everything that currently shapes a recommendation, what is left out, and a plan to make the predictions as accurate as the free data allows</li>
+    <li>FPL points are noisy (one goal swings a score by 4–6), so "most accurate" only means something against a benchmark</li>
+    <li>The plan therefore starts by measuring</li>
+  </ul>
 
   <h3>Factors the model uses today</h3>
   <div class="tbl"><table>
     <thead><tr><th>Factor</th><th>Source</th><th>How it enters</th><th>Weakness</th></tr></thead>
     <tbody>
-      <tr><td>Availability</td><td>FPL status, chance of playing, news</td><td>Multiplies P(start): FPL flag, or news if more cautious</td><td>No return-from-injury ramp yet</td></tr>
-      <tr><td>Nailedness</td><td>This season's minutes ÷ club games, last season's Understat minutes</td><td>Blend weighted by games played (K = 4) → P(start)</td><td>Season average, not recent GWs; no rotation or congestion signal</td></tr>
-      <tr><td>Minutes shape</td><td>Fixed constants</td><td>82 min per start, 20 per cameo, P(60) = 0.9·P(start)</td><td>Same for every player</td></tr>
-      <tr><td>Attacking rate</td><td>Share of team xG/xA on the pitch (FPL, this + last season)</td><td>Share × fixture expected goals; was pooled per-90, shrunk to position average (K = 12)</td><td>No recency weighting inside the season; penalties folded into xG</td></tr>
-      <tr><td>Fixture expected goals</td><td>Fitted team strengths (time-decayed xG) + bookmaker odds</td><td>Attack × xG_for ÷ team average; CS, saves, goals conceded from xG_against</td><td>Odds only for the next round; player share of team goals not modelled yet</td></tr>
+      <tr><td>Availability</td><td>FPL status, chance of playing, news</td><td>Multiplies P(start): FPL flag, or news if more cautious</td><td>News weight learned live</td></tr>
+      <tr><td>Start rate</td><td>His last 8 GWs (recent weighted), last season</td><td>Start rate, P(60 | start), start and cameo minutes per player</td><td>Return ramp and line-ups adjust it</td></tr>
+      <tr><td>Attacking rate</td><td>Share of team xG/xA on the pitch (FPL, this + last season)</td><td>Share × fixture expected goals, shrunk to position average</td><td>Recency weighting tested, no gain; penalties folded into xG</td></tr>
+      <tr><td>Fixture expected goals</td><td>Fitted team strengths (time-decayed xG) + bookmaker odds</td><td>Share × xG_for; CS, saves, goals conceded from xG_against</td><td>Odds only for the next round; player share of team goals comes from role share</td></tr>
       <tr><td>Congestion and rest</td><td>ESPN cup and European fixtures</td><td>Start chance ×0.92 when another match is within 3 days</td><td>Tuned weekly</td></tr>
       <tr><td>Penalties, set pieces</td><td>FPL taker order</td><td>Extra goals / assists, weight learned from outcomes</td><td>Live-only</td></tr>
       <tr><td>Return from injury, line-ups, manager change</td><td>Minutes history, Claude web search</td><td>Start chance and form weighting, learned</td><td>Live-only</td></tr>
@@ -640,18 +811,27 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Clean sheet</td><td>Fixture xG against</td><td>Poisson P(0)</td><td>Assumes independent goals</td></tr>
       <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
       <tr><td>Saves</td><td>Expected goals against</td><td>(2/3)·λ for goalkeepers</td><td>No shots-on-target model</td></tr>
-      <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>Not a full BPS simulation; bonus is about 10% of points</td></tr>
+      <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it's off (<code>BONUS_SIM</code>)</td></tr>
       <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
       <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
       <tr><td>Calibration</td><td>Scored predictions from GW6</td><td>One multiplier per position (±20%)</td><td>Too coarse: can't fix one component</td></tr>
       <tr><td>World Cup form</td><td>FBref WC 2026</td><td>Preseason only</td><td>Retired once the season starts</td></tr>
     </tbody>
   </table></div>
-  <p><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags.</p>
-  <p><b>Left out:</b> price changes, effective ownership, and uncertainty (every number is a single expected value).</p>
+  <ul>
+    <li><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags</li>
+  </ul>
+  <ul>
+    <li><b>Left out:</b> price changes, effective ownership, and uncertainty (every number is a single expected value)</li>
+  </ul>
 
   <h3>Backtest results</h3>
-  <p><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26. It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark. Results go to <code>worker/reports/</code>. It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it.</p>
+  <ul>
+    <li><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26</li>
+    <li>It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark</li>
+    <li>Results go to <code>worker/reports/</code></li>
+    <li>It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it</li>
+  </ul>
   <div class="tbl"><table>
     <thead><tr><th>Head-to-head (2023/24 + 2024/25)</th><th class="num">rules-v1</th><th class="num">rules-v2</th><th class="num">rules-v3</th><th class="num">rules-v6</th><th class="num">FPL xP</th></tr></thead>
     <tbody>
@@ -665,16 +845,74 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>P(start) Brier score</td><td class="num">0.116</td><td class="num">0.097</td><td class="num">0.097</td><td class="num">0.097</td><td class="num">—</td></tr>
     </tbody>
   </table></div>
-  <p>Head-to-head covers 2023/24 and 2024/25 (55,661 player-GWs). The dataset's <code>xP</code> is broken for 2025/26 (it averages 34% of actual points), so the harness drops it there automatically. Three differences favour <code>xP</code>. The dataset has no injury flags, so the replay treats everyone as available. "Last season" uses FPL xG instead of Understat. And when <code>xP</code> was recorded isn't documented, so it may include team news the replay can't see. For a clean head-to-head from now on, log FPL's <code>ep_next</code> next to each live prediction (needs a <code>prediction_log</code> column).</p>
-  <p><b>rules-v2 (minutes model, step 1):</b> over all three seasons, MAE 1.117 → 1.035 (−7.3%), rank correlation 0.633 → 0.680, P(start) Brier 0.114 → 0.097 (−15%), top-20 no-shows 10% → 7%, top-20 points 4.55 → 4.77. It improves on every season, including the held-out 2024/25 and 2025/26. The one metric that got worse, MAE among players who played (+2%), is conditioned on the outcome; the model's job is the unconditional forecast. Still behind FPL <code>xP</code>, which has injury news the replay lacks.</p>
-  <p><b>Measuring change: RMSE, not MAE.</b> Points are skewed with many zeros, so average absolute error rewards any change that simply predicts lower (its best guess is the median, often 0). The right score for an expected-points forecast is squared error. From rules-v6 on, RMSE is the headline, alongside bias, ranking and top-20 points. Re-checked this way, batch 1's game-state factor gave no RMSE gain (its MAE gain was a lower overall level), so it is now off.</p>
-  <p><b>rules-v6 (batch 2):</b> RMSE all seasons 1.967 (v3) → 1.961. 2023/24 1.975 → 1.964, 2024/25 1.952 → 1.943, 2025/26 1.972 → 1.975. Top-20 points 4.83 → 4.97, captain 7.18 → 7.33, rank correlation 0.682 → 0.679. Congestion is a small genuine gain (P(start) Brier 0.0941 → 0.0937 on 2023/24). Opponent-vs-position showed none, so it ships off. FPL xP RMSE on the head-to-head seasons is 1.684 vs 1.954.</p>
-  <p><b>rules-v5 (role share, bonus model, game state, FPL-dataset priors):</b> over all three seasons vs rules-v3, MAE 1.027 → 1.021, MAE among players who played 1.940 → 1.928, top-20 points 4.83 → 4.92, captain points 7.18 → 7.20, rank correlation 0.682 → 0.679. The held-out 2024/25 (MAE 1.055 → 1.032) and 2025/26 (1.035 → 1.028) improve; the tuning season 2023/24 is slightly worse (0.992 → 1.004). Tuning on 2023/24: bonus model +, game state +, last-season weight 1.0; recency weighting and home/away splits showed no gain, so they ship switched off.</p>
-  <p><b>rules-v3 (team goals model + odds, step 2):</b> over all three seasons, MAE 1.035 → 1.027, rank correlation 0.680 → 0.682, top-20 points 4.77 → 4.83, captain points 6.28 → 7.18 (+0.9 per GW), top-20 no-shows 7% → 6%. Gains on 2023/24 and 2025/26. The held-out 2024/25 is mixed: MAE 1.051 → 1.055 and top-20 5.11 → 4.99 slightly worse, captain 8.87 → 9.21 better. Most of the gain comes from the fitted team strengths; odds move the backtest little because they mostly agree with the fit. Live, odds also carry injury and team news, which the backtest can't show.</p>
-  <p><b>What the rules-v1 baseline said to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares). Those are steps 1–3.</p>
+  <ul>
+    <li>Head-to-head covers 2023/24 and 2024/25 (55,661 player-GWs)</li>
+    <li>The dataset's <code>xP</code> is broken for 2025/26 (it averages 34% of actual points), so the harness drops it there automatically</li>
+    <li>Three differences favour <code>xP</code></li>
+    <li>The dataset has no injury flags, so the replay treats everyone as available</li>
+    <li>No injury, penalty-taker or line-up history exists, so those live-only factors aren't in the replay</li>
+    <li>And when <code>xP</code> was recorded isn't documented, so it may include team news the replay can't see</li>
+    <li>For a clean head-to-head from now on, log FPL's <code>ep_next</code> next to each live prediction (needs a <code>prediction_log</code> column)</li>
+  </ul>
+  <ul>
+    <li><b>rules-v2 (minutes model, step 1):</b> over all three seasons, MAE 1.117 → 1.035 (−7.3%), rank correlation 0.633 → 0.680, P(start) Brier 0.114 → 0.097 (−15%), top-20 no-shows 10% → 7%, top-20 points 4.55 → 4.77</li>
+    <li>It improves on every season, including the held-out 2024/25 and 2025/26</li>
+    <li>The one metric that got worse, MAE among players who played (+2%), is conditioned on the outcome; the model's job is the unconditional forecast</li>
+    <li>Still behind FPL <code>xP</code>, which has injury news the replay lacks</li>
+  </ul>
+  <ul>
+    <li><b>Measuring change: RMSE, not MAE.</b> Points are skewed with many zeros, so average absolute error rewards any change that simply predicts lower (its best guess is the median, often 0)</li>
+    <li>The right score for an expected-points forecast is squared error</li>
+    <li>From rules-v6 on, RMSE is the headline, alongside bias, ranking and top-20 points</li>
+    <li>Re-checked this way, batch 1's game-state factor gave no RMSE gain (its MAE gain was a lower overall level), so it is now off</li>
+  </ul>
+  <ul>
+    <li><b>rules-v6 (batch 2):</b> RMSE all seasons 1.967 (v3) → 1.961</li>
+    <li>2023/24 1.975 → 1.964, 2024/25 1.952 → 1.943, 2025/26 1.972 → 1.975</li>
+    <li>Top-20 points 4.83 → 4.97, captain 7.18 → 7.33, rank correlation 0.682 → 0.679</li>
+    <li>Congestion is a small genuine gain (P(start) Brier 0.0941 → 0.0937 on 2023/24)</li>
+    <li>Opponent-vs-position showed none, so it ships off</li>
+    <li>FPL xP RMSE on the head-to-head seasons is 1.684 vs 1.954</li>
+  </ul>
+  <ul>
+    <li><b>Bonus simulation (step 4, not shipped):</b> <code>bonus_sim.py</code> simulates each match 2,000 times and ranks the BPS to award 3/2/1:
+      <ul>
+        <li>Team goals from the fixture's expected goals; scorers and assisters drawn by each player's expected goals and assists × minutes</li>
+        <li>BPS = his background BPS per 90 from history (passes, tackles, saves…) + minutes, goals, assists, clean sheet and goals-conceded BPS + noise</li>
+      </ul>
+    </li>
+    <li>Against the bonus-rate model, per season (2023/24 · 2024/25 · 2025/26):
+      <ul>
+        <li>RMSE 1.964 → 1.966 · 1.943 → 1.945 · 1.975 → 1.975</li>
+        <li>Top-20 points 5.20 → 5.06 · 5.02 → 5.05 · 4.68 → 4.71</li>
+        <li>Captain points 6.45 → 6.29 · 9.26 → 9.03 · 6.26 → 6.55</li>
+        <li>Bonus on its own is predicted slightly better (bonus RMSE 0.420 → 0.419 on average), but it under-credits midfielders, which hurts ranking</li>
+        <li>A 25–50% blend with the rate only tied on RMSE, so it ships switched off</li>
+      </ul>
+    </li>
+  </ul>
+  <ul>
+    <li><b>rules-v5 (role share, bonus model, game state, FPL-dataset priors):</b> over all three seasons vs rules-v3, MAE 1.027 → 1.021, MAE among players who played 1.940 → 1.928, top-20 points 4.83 → 4.92, captain points 7.18 → 7.20, rank correlation 0.682 → 0.679</li>
+    <li>The held-out 2024/25 (MAE 1.055 → 1.032) and 2025/26 (1.035 → 1.028) improve; the tuning season 2023/24 is slightly worse (0.992 → 1.004)</li>
+    <li>Tuning on 2023/24: bonus model +, game state +, last-season weight 1.0; recency weighting and home/away splits showed no gain, so they ship switched off</li>
+  </ul>
+  <ul>
+    <li><b>rules-v3 (team goals model + odds, step 2):</b> over all three seasons, MAE 1.035 → 1.027, rank correlation 0.680 → 0.682, top-20 points 4.77 → 4.83, captain points 6.28 → 7.18 (+0.9 per GW), top-20 no-shows 7% → 6%</li>
+    <li>Gains on 2023/24 and 2025/26</li>
+    <li>The held-out 2024/25 is mixed: MAE 1.051 → 1.055 and top-20 5.11 → 4.99 slightly worse, captain 8.87 → 9.21 better</li>
+    <li>Most of the gain comes from the fitted team strengths; odds move the backtest little because they mostly agree with the fit</li>
+    <li>Live, odds also carry injury and team news, which the backtest can't show</li>
+  </ul>
+  <ul>
+    <li><b>What the rules-v1 baseline said to fix first:</b> minutes (10% no-shows in the top 20; recent absences aren't weighted) and ranking outside the top one or two players (team-level goal expectations and player shares)</li>
+    <li>Those are steps 1–3</li>
+  </ul>
 
   <h3>The plan, in order</h3>
-  <p>Each step ships only if the backtest shows it improves accuracy. The ordering puts the biggest expected error reduction for the effort first.</p>
+  <ul>
+    <li>Each step ships only if the backtest shows it improves accuracy</li>
+    <li>The ordering puts the biggest expected error reduction for the effort first</li>
+  </ul>
   <div class="tbl"><table>
     <thead><tr><th>#</th><th>Step</th><th>What changes</th><th>Why it matters</th></tr></thead>
     <tbody>
@@ -682,7 +920,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td class="num">1</td><td><b>Minutes model</b> <span class="chip low">Done · rules-v2</span></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
       <tr><td class="num">2</td><td><b>Team goals model + odds</b> <span class="chip low">Done · rules-v3</span></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
       <tr><td class="num">3</td><td><b>Player shares</b></td><td>Player goals = team expected goals × the player's recency-weighted share of team non-penalty xG while on the pitch, and the same for assists. Penalties become a separate term: FPL <code>penalties_order</code> × team penalty rate × about 0.78 conversion.</td><td>Shares are more stable than raw per-90s, and a new penalty taker is priced immediately.</td></tr>
-      <tr><td class="num">4</td><td><b>Component models</b></td><td>Bonus: expected BPS from components, then rank within the match, via simulation. DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
+      <tr><td class="num">4</td><td><b>Component models</b> <span class="chip med">Bonus sim tested · off</span></td><td>Bonus: expected BPS from components, then rank within the match, via simulation (built, lost on RMSE; see above). DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
       <tr><td class="num">5</td><td><b>Simulation &amp; uncertainty</b></td><td>Monte Carlo each fixture (team goals → scorers and assisters → CS, bonus) to get each player's full distribution: mean, P10/P90 and P(≥ 10 pts), with teammates correlated.</td><td>Captain and Triple Captain choices depend on upside, not just the mean.</td></tr>
       <tr><td class="num">6</td><td><b>Learned correction</b></td><td>Replace the single per-position multiplier with per-component isotonic calibration. Then fit a gradient-boosted residual model on backtest features, shown as its own "correction" component so the breakdown stays explainable.</td><td>Captures patterns the rules miss, without giving up transparency.</td></tr>
     </tbody>
@@ -697,7 +935,9 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   </ul>
 
   <h3>Other ideas</h3>
-  <p>What-if planner (pin or ban players, then re-solve), deadline alerts with the plan and flagged injuries, and a mini-league rivals view.</p>
+  <ul>
+    <li>What-if planner (pin or ban players, then re-solve), deadline alerts with the plan and flagged injuries, and a mini-league rivals view</li>
+  </ul>
 </section>
 
 <!-- ===================================================================== -->
@@ -725,6 +965,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-09-28</span><br>Phase A. rules-v4: news lowers availability, with its weight re-learned each GW from who started (migration 0008). "i" pop-ups on every recommended player, built from reasoning stored on each projection. Chips tab with per-week moves for every chip. Differentials tab. Bullet-point text across the app.</li>
     <li><span class="d">2026-09-28</span><br>rules-v5 (factor batch 1): role share of team xG/xA (opponent-adjusted), own bonus rate, game-state minutes, last season from the FPL dataset by player code. Recency and home/away splits built but off after backtesting. The enrich step no longer blocks the pipeline.</li>
     <li><span class="d">2026-09-28</span><br>rules-v6 (factor batch 2): congestion from ESPN fixtures; live-learned penalty, set-piece, return-from-injury and predicted line-up factors; manager-change weighting; price-change signal; weekly re-tune workflow. RMSE becomes the headline backtest metric and game state is switched back off.</li>
+    <li><span class="d">2026-10-02</span><br>Blueprint text converted to bullets throughout; stale sections refreshed (data sources, set pieces, team model, factors table). Bonus simulation (<code>bonus_sim.py</code>) built and backtested over three seasons; it didn't beat the bonus-rate model on RMSE, so it ships switched off. History now carries BPS, goals, assists, clean sheets and goals conceded.</li>
   </ul>
 </section>
 
@@ -732,7 +973,10 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <section id="maintenance">
   <span class="sec-num">19</span>
   <h2>Keeping this current</h2>
-  <p>This file, <code>web/content/architecture.html</code>, is the single source for both the in-app Docs tab and the Claude artifact. The rule in <code>fpl-selector/CLAUDE.md</code>:</p>
+  <ul>
+    <li>This file, <code>web/content/architecture.html</code>, is the single source for both the in-app Docs tab and the Claude artifact</li>
+    <li>The rule in <code>fpl-selector/CLAUDE.md</code>:</li>
+  </ul>
   <ol>
     <li>Any commit that changes behaviour in <code>worker/</code>, <code>web/</code>, <code>mobile/</code>, <code>supabase/</code> or <code>.github/workflows/</code> updates the affected sections here in the same commit. That includes formulas, parameters, pipeline steps, tables, routes and known issues (move fixed ones out).</li>
     <li>Bump the doc revision and date in the header, and add a History entry.</li>

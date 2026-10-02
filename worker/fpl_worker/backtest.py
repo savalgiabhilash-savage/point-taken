@@ -42,7 +42,7 @@ import pandas as pd
 
 from datetime import datetime
 
-from . import context_model, form_model, fpl_history, model, schedules, team_model
+from . import bonus_sim, context_model, form_model, fpl_history, model, schedules, team_model
 
 CACHE = fpl_history.CACHE
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -100,7 +100,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         e = int(r.element)
         last = profiles.get(str(int(r.code))) if pd.notna(r.code) else None
         hist = history.get(e, [])
-        prof = form_model.form_profile(hist, last, base[r.pos])
+        prof = form_model.form_profile(hist, last, base[r.pos], pos=r.pos)
         prof["dc90"] = dc90.get(e, 0.0)
         player = {"position": r.pos, "status": "a", "chance_of_playing_next_round": None,
                   "mprof": model.minutes_profile([h for h in hist if h["age"] < model.MINUTES_WINDOW],
@@ -115,12 +115,22 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                                      team_model.average_goals_against(strengths, r.team), bool(r.was_home),
                                      opp_mult=context_model.opp_multiplier(opp_ratios, opp, r.pos), rotation=rot)
         out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"],
-                    "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP})
+                    "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP,
+                    "bonus": r.bonus, "fixture": int(r.fixture), "side": 0 if r.was_home else 1, "lam_for": lam_for,
+                    "x_bonus": comp["x_bonus_pts"], "p_play": comp["p_play"], "p_60": comp["p_60"],
+                    "xg90": comp["xg90"], "xa90": comp["xa90"], "bbps90": prof["bbps90"]})
     rows = pd.DataFrame(out)
+    if model.BONUS_SIM:
+        rows["pred"] -= rows["x_bonus"]
+        for _, m in rows.groupby("fixture"):
+            lam = tuple(m.loc[m["side"] == s, "lam_for"].iloc[0] if (m["side"] == s).any() else 0.0 for s in (0, 1))
+            rows.loc[m.index, "x_bonus"] = bonus_sim.simulate(m.to_dict("records"), lam)
+        rows["pred"] += rows["x_bonus"]
     # A double gameweek has two rows: sum points and predictions; xP is already the GW total.
     return rows.groupby(["element", "round", "pos"], as_index=False).agg(
         pred=("pred", "sum"), p_start=("p_start", "first"), actual=("actual", "sum"),
-        minutes=("minutes", "sum"), starts=("starts", "max"), xP=("xP", "first"))
+        minutes=("minutes", "sum"), starts=("starts", "max"), xP=("xP", "first"),
+        bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"))
 
 
 def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:

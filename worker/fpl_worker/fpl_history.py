@@ -21,7 +21,8 @@ BASE_URL = "https://raw.githubusercontent.com/vaastav/Fantasy-Premier-League/mas
 CACHE = Path(".cache") / "vaastav"
 POSITIONS = {"GK": "GK", "GKP": "GK", "DEF": "DEF", "MID": "MID", "FWD": "FWD"}  # drops "AM" rows
 NUMERIC = ("expected_goals", "expected_assists", "expected_goals_conceded", "defensive_contribution",
-           "yellow_cards", "starts", "minutes", "total_points", "xP", "bonus")
+           "yellow_cards", "starts", "minutes", "total_points", "xP", "bonus", "bps", "goals_scored", "assists",
+           "clean_sheets", "goals_conceded")
 
 
 def _csv(season: str, path: str) -> pd.DataFrame:
@@ -58,6 +59,8 @@ def load_season(season: str) -> pd.DataFrame:
     # The team's xG in each fixture, and the part of it created while this player was on the pitch.
     df["team_fx_xg"] = df.groupby(["fixture", "team"])["expected_goals"].transform("sum")
     df["team_xg_on"] = df["team_fx_xg"] * df["minutes"] / 90.0
+    # BPS for minutes alone (6 for 60'+, 3 for less): removed to get his background BPS (bonus_sim).
+    df["mbps"] = (df["minutes"] >= 60) * 3.0 + (df["minutes"] > 0) * 3.0
     return df
 
 
@@ -70,7 +73,9 @@ def last_season_profiles(prev: pd.DataFrame) -> dict[str, dict]:
     agg = prev.groupby("code").agg(
         pos=("pos", "last"), xg=("expected_goals", "sum"), xa=("expected_assists", "sum"),
         minutes=("minutes", "sum"), bonus=("bonus", "sum"), yellow_cards=("yellow_cards", "sum"),
-        team_xg_on=("team_xg_on", "sum"))
+        team_xg_on=("team_xg_on", "sum"), bps=("bps", "sum"), goals=("goals_scored", "sum"),
+        assists=("assists", "sum"), cs=("clean_sheets", "sum"), gc=("goals_conceded", "sum"),
+        mbps=("mbps", "sum"))
     return {str(int(c)): r._asdict() for c, r in zip(agg.index, agg.itertuples(index=False))}
 
 
@@ -80,14 +85,18 @@ def entries_before(rows: pd.DataFrame, latest_round: int) -> dict[int, list[dict
     g = rows.groupby(["element", "round"]).agg(
         games=("fixture", "size"), starts=("starts", "sum"), minutes=("minutes", "sum"),
         xg=("expected_goals", "sum"), xa=("expected_assists", "sum"), bonus=("bonus", "sum"),
-        yellow=("yellow_cards", "sum"), team_xg_on=("team_xg_on", "sum"), home=("was_home", "first")).reset_index()
+        yellow=("yellow_cards", "sum"), team_xg_on=("team_xg_on", "sum"), home=("was_home", "first"),
+        bps=("bps", "sum"), goals=("goals_scored", "sum"), assists=("assists", "sum"), cs=("clean_sheets", "sum"),
+        gc=("goals_conceded", "sum"), mbps=("mbps", "sum")).reset_index()
     out: dict[int, list[dict]] = {}
     for h in g.itertuples(index=False):
         out.setdefault(int(h.element), []).append({
             "age": latest_round - int(h.round), "games": int(h.games), "starts": float(h.starts),
             "minutes": float(h.minutes), "xg": float(h.xg), "xa": float(h.xa), "bonus": float(h.bonus),
             "yellow": float(h.yellow), "team_xg_on": float(h.team_xg_on),
-            "home": bool(h.home) if h.games == 1 else None})
+            "home": bool(h.home) if h.games == 1 else None,
+            "bps": float(h.bps), "goals": float(h.goals), "assists": float(h.assists), "cs": float(h.cs),
+            "gc": float(h.gc), "mbps": float(h.mbps)})
     return out
 
 

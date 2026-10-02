@@ -66,6 +66,7 @@ FACTOR_WEIGHTS = {"penalty": 0.5, "setpiece": 0.5, "return": 1.0, "lineup": 0.7}
 TUNED_PARAMS = {"congestion": (context_model, "CONGESTION"), "last_season_weight": (form_model, "LAST_SEASON_WEIGHT"),
                 "share_k": (form_model, "SHARE_K")}
 BONUS_MODEL = True   # factor 17: bonus from his own bonus rate (False = the old involvement proxy)
+BONUS_SIM = False    # bonus from simulating each match's BPS ranking (bonus_sim.py); backtest-only, lost on RMSE (rev 16)
 GAME_STATE = 0.0     # factor 16: start minutes x (1 - GAME_STATE x max(0, xG_for - xG_against)). Off: its MAE gain
                      # was only a lower overall level; RMSE (the right score for expected points) didn't improve
 
@@ -304,6 +305,7 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
         "x_bonus_pts": x_bonus_pts,
         "x_deductions_pts": x_deductions_pts,
         "p_start": p_start,
+        "p_play": p_play,
         "p_start0": p_start0,
         "p_60": p_60,
         "f": {"penalty": {"base": base_goals, "term": pen_term} if pen_term else None,
@@ -467,6 +469,9 @@ def season_entries(live: dict[int, list[dict]], fixtures: list[dict],
                 "age": latest - gw, "games": n, "starts": st.get("starts") or 0, "minutes": mins,
                 "xg": float(st.get("expected_goals") or 0), "xa": float(st.get("expected_assists") or 0),
                 "bonus": st.get("bonus") or 0, "yellow": st.get("yellow_cards") or 0,
+                "bps": st.get("bps") or 0, "goals": st.get("goals_scored") or 0, "assists": st.get("assists") or 0,
+                "cs": st.get("clean_sheets") or 0, "gc": st.get("goals_conceded") or 0,
+                "mbps": 6 if mins >= 60 else 3 if mins > 0 else 0,
                 "team_xg_on": team_xg.get(t, 0.0) * mins / (90.0 * n),
                 "home": home_of.get((t, gw)) if n == 1 else None,
             })
@@ -694,7 +699,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                           "lineup": list(fx_extras["lineup"]) if fx_extras["lineup"] else None,
                           "exp_minutes": round(comp["exp_minutes"], 1), "p_dc": round(comp["p_dc"], 3)}
                 for k, v in comp.items():
-                    if k in ("p_start", "p_start0", "p_60", "p_dc", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90", "f"):
+                    if k in ("p_start", "p_play", "p_start0", "p_60", "p_dc", "exp_minutes", "fixture_adj", "p_cs", "xg90", "xa90", "f"):
                         continue
                     agg[k] = agg.get(k, 0.0) + v
                 opp_short.append(("" if is_home else "@") + short_by_id.get(opp_id, "?"))
