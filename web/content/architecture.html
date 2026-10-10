@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 17</span>
+    <span>doc rev 18</span>
     <span>updated 2026-10-10</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
@@ -643,6 +643,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>It returns sentiment, topics (injury-risk, return-from-injury, rotation, suspension, form-buzz, transfer, off-pitch, none), <code>minutes_risk_adj</code> in [−1, 0], and a one-line summary</li>
     <li>Results tagged "none" are dropped</li>
     <li>The table is replaced in full each run (97 rows on the last run)</li>
+    <li>Except when more than half the classifications fail (API down or out of credits): the job then keeps the last good set and fails the step</li>
   </ul>
   <ul>
     <li>Since rules-v4, news <b>lowers availability</b> in the model (formula in section 07). It is shown in the Players table, the "i" pop-up and the assistant.</li>
@@ -984,6 +985,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-09-28</span><br>rules-v6 (factor batch 2): congestion from ESPN fixtures; live-learned penalty, set-piece, return-from-injury and predicted line-up factors; manager-change weighting; price-change signal; weekly re-tune workflow. RMSE becomes the headline backtest metric and game state is switched back off.</li>
     <li><span class="d">2026-10-02</span><br>Blueprint text converted to bullets throughout; stale sections refreshed (data sources, set pieces, team model, factors table). Bonus simulation (<code>bonus_sim.py</code>) built and backtested over three seasons; it didn't beat the bonus-rate model on RMSE, so it ships switched off. History now carries BPS, goals, assists, clean sheets and goals conceded.</li>
     <li><span class="d">2026-10-10</span><br>Team model blowout guard: one match's xG above 3.0 counts at half weight (raised by Man Utd's 5.15-xG game vs Ipswich inflating Bruno and Mbeumo). Backtest RMSE unchanged, top-20 and captain points slightly better.</li>
+    <li><span class="d">2026-10-10</span><br>Migrations 0007–0009 applied. News job no longer wipes <code>news_sentiment</code> when most classifications fail (an out-of-credits run had emptied it).</li>
   </ul>
 </section>
 

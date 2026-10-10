@@ -71,6 +71,7 @@ def run(sb, limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> None:
     client = sentiment.get_client()
     rows: list[dict] = []
     with_news = 0
+    failed = 0
 
     with news.NewsClient() as nc:
         for i, p in enumerate(targets, 1):
@@ -79,7 +80,10 @@ def run(sb, limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> None:
                 continue
             with_news += 1
             res = sentiment.classify(client, p["web_name"], p["team_name"], headlines)
-            if not res or res["topics"] == ["none"]:
+            if not res:
+                failed += 1
+                continue
+            if res["topics"] == ["none"]:
                 continue  # no FPL-relevant signal — don't store noise
             top = headlines[0]
             rows.append(
@@ -104,6 +108,10 @@ def run(sb, limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> None:
 
     if dry_run:
         return
+
+    # If most classifications failed (API down, out of credits), keep the last good set instead of wiping it.
+    if with_news and failed > with_news / 2:
+        raise SystemExit(f"{failed}/{with_news} classifications failed; kept the existing news_sentiment rows.")
 
     # No natural key on news_sentiment (identity id), so replace the whole set each run.
     sb.table("news_sentiment").delete().gt("id", 0).execute()
