@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 18</span>
+    <span>doc rev 19</span>
     <span>updated 2026-10-10</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
@@ -467,7 +467,7 @@ home/away    = off (own home and away shares built in; no measurable gain)</code
   <h3>3. Per-fixture components</h3>
 <pre><code>xG_for, xG_against = this fixture's expected goals for / against the team   (team model, below)
 adj          = xG_for / team's expected goals vs an average opponent       (shown as "attacking outlook")
-x_goals_pts  = xg_share · xG_for · form · (E[min]/90) · GOAL_PTS[pos]      GK/DEF 6, MID 5, FWD 4
+x_goals_pts  = xg_share · xG_for · form · (E[min]/90) · GOAL_PTS[pos]      GK 10, DEF 6, MID 5, FWD 4
 x_assist_pts = xa_share · xG_for · form · (E[min]/90) · 3
 penalties    = taker: + w_pen × 0.14 × (xG_for ÷ league avg) × (E[min]/90) × 0.78 goals     (factor 3, learned)
 set pieces   = corner taker + w_sp × 0.06 xA/90, direct-FK taker + w_sp × 0.02 xG/90, × fixture  (factor 4, learned)
@@ -476,7 +476,7 @@ game state   = built (heavy favourites sub early), off: no RMSE gain
 λ            = xG_against
 x_cs_pts     = e^(−λ) · CS_PTS[pos] · p_60                    GK/DEF 4, MID 1, FWD 0
 x_app_pts    = p_play + p_60
-x_saves_pts  = (2/3)·λ·p_start                                GK only
+x_saves_pts  = E[⌊S/3⌋], S ~ Poisson(2.1·λ) · p_start          GK only (1 pt per 3 saves)
 dc90         = (DefCon actions + 3·position avg) / (n90 + 3)      this season, FPL
 x_defcon_pts = 2 · P(Poisson(dc90 · 82/90) ≥ T) · p_start       T: DEF 10, MID/FWD 12, GK none
 x_bonus_pts  = bonus90 · (E[min]/90) · (adj for MID/FWD | P(CS) ÷ his team's usual P(CS) for GK/DEF)
@@ -714,6 +714,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Live factor starting weights</td><td class="num">pen 0.5 · set piece 0.5 · return 1.0 · line-up 0.7</td><td>model.py, predict.py</td><td>Re-learned every run from factor_effect_log</td></tr>
       <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
       <tr><td>XG_CAP · XG_OVER</td><td class="num">3.0 · 0.5</td><td>team_model.py</td><td>Per-match xG above the cap counts at half weight (blowout guard)</td></tr>
+      <tr><td>SAVES_PER_XGA · DEFCON_VMR</td><td class="num">2.1 · 1.0</td><td>model.py</td><td>Saves per expected goal against · DefCon variance/mean (1 = Poisson; NB tested, off)</td></tr>
       <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
       <tr><td>bonus cap</td><td class="num">1.5</td><td>model.py</td><td>Maximum bonus proxy</td></tr>
@@ -817,7 +818,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Home advantage</td><td>Fitted from data</td><td>Inside the team model (about ×1.15 this season)</td><td>Fine</td></tr>
       <tr><td>Clean sheet</td><td>Fixture xG against</td><td>Poisson P(0)</td><td>Assumes independent goals</td></tr>
       <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
-      <tr><td>Saves</td><td>Expected goals against</td><td>(2/3)·λ for goalkeepers</td><td>No shots-on-target model</td></tr>
+      <tr><td>Saves</td><td>Expected goals against</td><td>Saves ~ Poisson(2.1 × λ); only whole sets of 3 score</td><td>No shots-on-target model; 2.1 saves per xGA is a league average</td></tr>
       <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it's off (<code>BONUS_SIM</code>)</td></tr>
       <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
       <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
@@ -882,6 +883,18 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>FPL xP RMSE on the head-to-head seasons is 1.684 vs 1.954</li>
   </ul>
   <ul>
+    <li><b>Logic audit, component bias (2025/26 replay, predicted − actual pts per player-match):</b>
+      <ul>
+        <li>GK saves +0.079 (0.21 vs 0.13): the old (2/3)·λ rule ignored that only whole sets of 3 saves score → fixed</li>
+        <li>GK goals were valued at 6 pts; FPL's game_config says 10 → fixed</li>
+        <li>DefCon −0.044 DEF, −0.023 MID (about 26% low): a negative binomial (variance/mean 1.5–2.5) gained only 0.0006 RMSE and lowered captain points, so it's off; still open</li>
+        <li>FWD bonus +0.037: 2025/26 added defensive BPS, which last season's (2024/25) bonus rates predate; self-corrects now that last season is 2025/26</li>
+        <li>Not modelled (under 0.015 pts per match combined): red cards, penalties saved or missed, own goals</li>
+      </ul>
+    </li>
+    <li><b>Saves fix (shipped):</b> RMSE 1.9642 → 1.9633 · 1.9434 → 1.9430 · 1.9748 → 1.9747; GK MAE −4%; top-20 5.21 → 5.19 · 5.02 → 5.03 · 4.68 → 4.69; captain unchanged</li>
+  </ul>
+  <ul>
     <li><b>Blowout guard (team model xG cap, shipped):</b> per season (2023/24 · 2024/25 · 2025/26) vs no cap:
       <ul>
         <li>RMSE 1.9642 · 1.9434 · 1.9748, identical to 4 decimals</li>
@@ -938,7 +951,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td class="num">1</td><td><b>Minutes model</b> <span class="chip low">Done · rules-v2</span></td><td>Recency-weighted starts and minutes from each player's GW history (half-life about 3 GWs). Separate P(start), P(60+ | start) and cameo minutes per player. Return-from-injury ramp. Rotation factor for clubs with a midweek European or cup match. The news <code>minutes_risk_adj</code> is adopted only if it improves the Brier score.</td><td>A non-starter scores 0–1, so minutes errors are the largest single source of misses.</td></tr>
       <tr><td class="num">2</td><td><b>Team goals model + odds</b> <span class="chip low">Done · rules-v3</span></td><td>Fit a time-decayed Dixon-Coles Poisson model on match xG and goals, with home advantage estimated from data. Blend with bookmaker match and totals odds (The Odds API free tier, about 2 calls per GW), with the blend weight set by the backtest. Output: each side's expected goals per fixture.</td><td>One coherent number drives goals, assists, clean sheets, goals conceded, saves and bonus. Odds are the sharpest public forecast.</td></tr>
       <tr><td class="num">3</td><td><b>Player shares</b></td><td>Player goals = team expected goals × the player's recency-weighted share of team non-penalty xG while on the pitch, and the same for assists. Penalties become a separate term: FPL <code>penalties_order</code> × team penalty rate × about 0.78 conversion.</td><td>Shares are more stable than raw per-90s, and a new penalty taker is priced immediately.</td></tr>
-      <tr><td class="num">4</td><td><b>Component models</b> <span class="chip med">Bonus sim tested · off</span></td><td>Bonus: expected BPS from components, then rank within the match, via simulation (built, lost on RMSE; see above). DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
+      <tr><td class="num">4</td><td><b>Component models</b> <span class="chip med">Saves done · bonus sim, DefCon NB tested · off</span></td><td>Bonus: expected BPS from components, then rank within the match, via simulation (built, lost on RMSE; see above). DefCon: negative binomial, with an opponent-possession effect. Saves: a shots-on-target-against model. Card rates shrunk per player.</td><td>Removes the remaining crude proxies. Bonus alone is about 10% of points.</td></tr>
       <tr><td class="num">5</td><td><b>Simulation &amp; uncertainty</b></td><td>Monte Carlo each fixture (team goals → scorers and assisters → CS, bonus) to get each player's full distribution: mean, P10/P90 and P(≥ 10 pts), with teammates correlated.</td><td>Captain and Triple Captain choices depend on upside, not just the mean.</td></tr>
       <tr><td class="num">6</td><td><b>Learned correction</b></td><td>Replace the single per-position multiplier with per-component isotonic calibration. Then fit a gradient-boosted residual model on backtest features, shown as its own "correction" component so the breakdown stays explainable.</td><td>Captures patterns the rules miss, without giving up transparency.</td></tr>
     </tbody>
@@ -986,6 +999,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-02</span><br>Blueprint text converted to bullets throughout; stale sections refreshed (data sources, set pieces, team model, factors table). Bonus simulation (<code>bonus_sim.py</code>) built and backtested over three seasons; it didn't beat the bonus-rate model on RMSE, so it ships switched off. History now carries BPS, goals, assists, clean sheets and goals conceded.</li>
     <li><span class="d">2026-10-10</span><br>Team model blowout guard: one match's xG above 3.0 counts at half weight (raised by Man Utd's 5.15-xG game vs Ipswich inflating Bruno and Mbeumo). Backtest RMSE unchanged, top-20 and captain points slightly better.</li>
     <li><span class="d">2026-10-10</span><br>Migrations 0007–0009 applied. News job no longer wipes <code>news_sentiment</code> when most classifications fail (an out-of-credits run had emptied it).</li>
+    <li><span class="d">2026-10-10</span><br>Logic audit: per-component bias check against actual points. Saves now score only whole sets of 3 (saves ~ Poisson(2.1 × xGA)); GK goals worth 10. DefCon negative binomial tested and left off. Optimizer rules checked against FPL's game_config (5 FT cap, chips per half, selling prices): no changes needed.</li>
   </ul>
 </section>
 

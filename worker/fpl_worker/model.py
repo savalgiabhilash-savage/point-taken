@@ -26,11 +26,13 @@ from .fpl_client import FplClient
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
 MODEL_VERSION = "rules-v6"
 
-GOAL_PTS = {"GK": 6, "DEF": 6, "MID": 5, "FWD": 4}
+GOAL_PTS = {"GK": 10, "DEF": 6, "MID": 5, "FWD": 4}  # FPL game_config scoring (GK goal = 10 since 2025/26)
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
 ASSIST_PTS = 3
 DEFCON_PTS = 2
 DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
+DEFCON_VMR = 1.0     # DefCon variance / mean (1 = Poisson). 1.5-2.5 tested on 2025-26: RMSE gain 0.0006, captain worse; off
+SAVES_PER_XGA = 2.1   # saves ~ Poisson(2.1 x xGA), 1 pt per 3 (2.0-2.1 in 2023-26 data); None = old xGA x 2/3 rule
 DEFCON_K = 3.0  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
 LAST_GW = 38
 # Minutes model (see minutes_profile): recent gameweeks count most.
@@ -188,6 +190,30 @@ def _poisson_at_least(mean: float, k: int) -> float:
     return max(0.0, 1.0 - cdf)
 
 
+def _count_at_least(mean: float, k: int, vmr: float) -> float:
+    """P(X >= k) for a count with this mean and variance/mean ratio: Poisson when vmr <= 1, otherwise
+    negative binomial (defensive actions come in bursts: some games a defender is under siege)."""
+    if vmr <= 1.0 or mean <= 0:
+        return _poisson_at_least(mean, k)
+    r = mean / (vmr - 1.0)            # NB "size": variance = mean + mean^2 / r
+    q = r / (r + mean)                # P(X = 0) = q^r
+    term, cdf = q ** r, 0.0
+    for i in range(k):
+        cdf += term
+        term *= (i + r) / (i + 1) * (1 - q)
+    return max(0.0, 1.0 - cdf)
+
+
+def _expected_thirds(mean: float) -> float:
+    """E[floor(S/3)] for S ~ Poisson(mean): 1 FPL point per 3 saves, so 2 saves score nothing."""
+    total, term = 0.0, math.exp(-mean)
+    for k in range(0, 30):
+        if k:
+            term *= mean / k
+        total += (k // 3) * term
+    return total
+
+
 def _expected_half_goals(lam: float) -> float:
     """E[floor(GC/2)] for GC ~ Poisson(lam): the GK/DEF deduction is -1 per 2 goals conceded, which is
     less than lam/2 (1 goal conceded costs nothing)."""
@@ -269,11 +295,16 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
     x_appearance_pts = p_play * 1.0 + p_60 * 1.0
 
     # saves (GK, rough)
-    x_saves_pts = (lam * 2.0 / 3.0) * p_start if pos == "GK" else 0.0
+    if pos != "GK":
+        x_saves_pts = 0.0
+    elif SAVES_PER_XGA is None:
+        x_saves_pts = (lam * 2.0 / 3.0) * p_start
+    else:  # saves scale with the chances he faces; only whole sets of 3 score
+        x_saves_pts = _expected_thirds(SAVES_PER_XGA * lam) * p_start
 
     # defensive contributions: P(reaching the threshold in a start) from the player's per-90 rate
     thr = DEFCON_THRESHOLD.get(pos)
-    p_dc = _poisson_at_least(prof.get("dc90", 0.0) * 82 / 90, thr) if thr else 0.0
+    p_dc = _count_at_least(prof.get("dc90", 0.0) * 82 / 90, thr, DEFCON_VMR) if thr else 0.0
     x_defcon_pts = DEFCON_PTS * p_dc * p_start
 
     # bonus: his own bonus rate, scaled by how the fixture suits his role (attack for MID/FWD, clean
