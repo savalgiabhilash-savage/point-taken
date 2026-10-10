@@ -34,6 +34,10 @@ PRIOR_MATCHES = 3.0
 PROMOTED_PRIOR = {"att": -0.25, "def": 0.25}  # roughly the weakest returning side
 ODDS_WEIGHT = 0.75     # tuned on 2023-24 (0.5-1.0 all close; 0.75 best MAE)
 FIT_ITERATIONS = 40
+# One-off blowouts: a side's xG above XG_CAP in a single match only counts XG_OVER of the excess, so
+# one 5-xG game can't define a team's attack for months. None = off.
+XG_CAP: float | None = 3.0   # tuned on 2023-24 (2.0-3.0 tested; RMSE unchanged, 3.0 best top-20 / captain)
+XG_OVER = 0.5
 
 # football-data.co.uk names that differ from FPL's; others match exactly or as a prefix
 # ("Coventry" -> "Coventry City"), which FPL uses for some seasons' promoted clubs but not others.
@@ -43,6 +47,11 @@ FD_UPCOMING = f"{FD_BASE}/fixtures.csv"
 
 
 # --- fitting --------------------------------------------------------------------------------------
+
+def _damp(x: float) -> float:
+    """Soft cap on one side's xG in one match (see XG_CAP)."""
+    return x if XG_CAP is None or x <= XG_CAP else XG_CAP + XG_OVER * (x - XG_CAP)
+
 
 def fit(matches: list[dict], ref: datetime, teams: list[str], promoted: set[str] | None = None) -> dict:
     """matches: {home, away, hxg, axg, date (datetime)}; returns {mu, home, att: {team}, def: {team}}.
@@ -55,7 +64,8 @@ def fit(matches: list[dict], ref: datetime, teams: list[str], promoted: set[str]
     rows = []
     for m in matches:
         age = max(0.0, (ref - m["date"]).total_seconds() / 86400.0)
-        rows.append((m["home"], m["away"], float(m["hxg"]), float(m["axg"]), 0.5 ** (age / HALF_LIFE_DAYS)))
+        rows.append((m["home"], m["away"], _damp(float(m["hxg"])), _damp(float(m["axg"])),
+                     0.5 ** (age / HALF_LIFE_DAYS)))
 
     att = {t: prior[t]["att"] for t in teams}
     dfn = {t: prior[t]["def"] for t in teams}

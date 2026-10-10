@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 16</span>
-    <span>updated 2026-10-02</span>
+    <span>doc rev 17</span>
+    <span>updated 2026-10-10</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
     <span>season 2026/27 · next GW6</span>
@@ -511,6 +511,11 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them</li>
     <li>Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code></li>
     <li>The 90-day half-life and 0.75 odds weight were tuned on 2023/24</li>
+    <li>Blowout guard: a side's xG above 3.0 in one match counts only half of the excess (<code>XG_CAP</code>, <code>XG_OVER</code>), so one 5-xG game can't define a team's attack
+      <ul>
+        <li>Example: Man Utd's 5.15 xG vs Ipswich (GW2) counts as 4.08; their attack vs an average side drops 1.74 → 1.65 goals</li>
+      </ul>
+    </li>
   </ul>
 
   <h3>5. Form and calibration multipliers</h3>
@@ -707,6 +712,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>CONGESTION · SHORT_GAP_DAYS</td><td class="num">0.08 · 3 days (re-tuned weekly)</td><td>context_model.py</td><td>Start-chance cut when another match is near</td></tr>
       <tr><td>Live factor starting weights</td><td class="num">pen 0.5 · set piece 0.5 · return 1.0 · line-up 0.7</td><td>model.py, predict.py</td><td>Re-learned every run from factor_effect_log</td></tr>
       <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
+      <tr><td>XG_CAP · XG_OVER</td><td class="num">3.0 · 0.5</td><td>team_model.py</td><td>Per-match xG above the cap counts at half weight (blowout guard)</td></tr>
       <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
       <tr><td>bonus cap</td><td class="num">1.5</td><td>model.py</td><td>Maximum bonus proxy</td></tr>
@@ -875,6 +881,17 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>FPL xP RMSE on the head-to-head seasons is 1.684 vs 1.954</li>
   </ul>
   <ul>
+    <li><b>Blowout guard (team model xG cap, shipped):</b> per season (2023/24 · 2024/25 · 2025/26) vs no cap:
+      <ul>
+        <li>RMSE 1.9642 · 1.9434 · 1.9748, identical to 4 decimals</li>
+        <li>Top-20 points 5.20 → 5.21 · 5.017 → 5.020 · 4.675 → 4.682</li>
+        <li>Captain points 6.45 → 6.68 · 9.26 = · 6.26 =</li>
+        <li>Caps of 2.0–3.0 tested on 2023/24; 2.0 hurt top-20, 3.0 was best</li>
+        <li>Shipped on a tie in RMSE because it's no worse anywhere and better on decisions; penalty xG can't be separated in the dataset, so a non-penalty version wasn't testable</li>
+      </ul>
+    </li>
+  </ul>
+  <ul>
     <li><b>Bonus simulation (step 4, not shipped):</b> <code>bonus_sim.py</code> simulates each match 2,000 times and ranks the BPS to award 3/2/1:
       <ul>
         <li>Team goals from the fixture's expected goals; scorers and assisters drawn by each player's expected goals and assists × minutes</li>
@@ -966,6 +983,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-09-28</span><br>rules-v5 (factor batch 1): role share of team xG/xA (opponent-adjusted), own bonus rate, game-state minutes, last season from the FPL dataset by player code. Recency and home/away splits built but off after backtesting. The enrich step no longer blocks the pipeline.</li>
     <li><span class="d">2026-09-28</span><br>rules-v6 (factor batch 2): congestion from ESPN fixtures; live-learned penalty, set-piece, return-from-injury and predicted line-up factors; manager-change weighting; price-change signal; weekly re-tune workflow. RMSE becomes the headline backtest metric and game state is switched back off.</li>
     <li><span class="d">2026-10-02</span><br>Blueprint text converted to bullets throughout; stale sections refreshed (data sources, set pieces, team model, factors table). Bonus simulation (<code>bonus_sim.py</code>) built and backtested over three seasons; it didn't beat the bonus-rate model on RMSE, so it ships switched off. History now carries BPS, goals, assists, clean sheets and goals conceded.</li>
+    <li><span class="d">2026-10-10</span><br>Team model blowout guard: one match's xG above 3.0 counts at half weight (raised by Man Utd's 5.15-xG game vs Ipswich inflating Bruno and Mbeumo). Backtest RMSE unchanged, top-20 and captain points slightly better.</li>
   </ul>
 </section>
 
