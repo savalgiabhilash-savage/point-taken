@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 19</span>
-    <span>updated 2026-10-10</span>
+    <span>doc rev 20</span>
+    <span>updated 2026-10-11</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
     <span>season 2026/27 · next GW6</span>
@@ -714,6 +714,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Live factor starting weights</td><td class="num">pen 0.5 · set piece 0.5 · return 1.0 · line-up 0.7</td><td>model.py, predict.py</td><td>Re-learned every run from factor_effect_log</td></tr>
       <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
       <tr><td>XG_CAP · XG_OVER</td><td class="num">3.0 · 0.5</td><td>team_model.py</td><td>Per-match xG above the cap counts at half weight (blowout guard)</td></tr>
+      <tr><td>FORM_BLEND · DEFCON_LAST_W · CS_DISP</td><td class="num">off · 0 · 0</td><td>model.py</td><td>Recent-points blend · last season's DefCon in the rate · clean-sheet uncertainty; all backtested 2026-10-11, no gain</td></tr>
       <tr><td>SAVES_PER_XGA · DEFCON_VMR</td><td class="num">2.1 · 1.0</td><td>model.py</td><td>Saves per expected goal against · DefCon variance/mean (1 = Poisson; NB tested, off)</td></tr>
       <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
@@ -835,7 +836,8 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 
   <h3>Backtest results</h3>
   <ul>
-    <li><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26</li>
+    <li><code>python -m fpl_worker.backtest</code> replays the production model over every gameweek of 2023/24–2025/26 and the season in progress (2026/27 to date)</li>
+    <li>The vaastav repo lags in-season, so <code>--refresh-current</code> rebuilds this season's files from FPL's <code>event/{gw}/live</code> (<code>fpl_history.build_current_season</code>)</li>
     <li>It uses only what was known before each deadline (previous season + this season to GW−1) and scores against actual points, with FPL's own <code>xP</code> as the benchmark</li>
     <li>Results go to <code>worker/reports/</code></li>
     <li>It calls <code>model.py</code>/<code>fdr.py</code> directly, so any model change is measured by rerunning it</li>
@@ -881,8 +883,20 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Congestion is a small genuine gain (P(start) Brier 0.0941 → 0.0937 on 2023/24)</li>
     <li>Opponent-vs-position showed none, so it ships off</li>
     <li>FPL xP RMSE on the head-to-head seasons is 1.684 vs 1.954</li>
+    <li>Caveat: the dataset's <code>xP</code> very likely contains post-gameweek information. FPL's expected points are mostly recent form, yet a leak-free recent-form predictor only reaches top-20 4.1 pts and RMSE 2.14–2.17, against xP's 7.5 and 1.68. Treat xP as an upper bound, not a fair benchmark</li>
   </ul>
   <ul>
+    <li><b>GW6 review and remodel tests (2026-10-11):</b>
+      <ul>
+        <li>The wildcard squad had 16 pts with 6 of 11 starters (Haaland included) still to play; captain Bruno scored 1</li>
+        <li>This season to date (GW1–5 replay): RMSE 2.241, ρ 0.608, top-20 4.77. Past seasons' GW1–5: top-20 4.18–5.39, ρ 0.62–0.64. Normal early-season accuracy; RMSE is higher because scoring is higher (1.44 pts per player-match vs 1.18–1.28)</li>
+        <li>This season's bias: DEF −0.19 pts per match (clean sheets −0.11, DefCon −0.09), MID −0.12, FWD goals +0.13</li>
+        <li>Recent-points blend (<code>FORM_BLEND</code>), trained on earlier seasons and tested on later ones: RMSE and ρ slightly better, but top-20 worse in 3 of 4 seasons; a light 0.05 weight was a wash; weights ≥ 0.2 clearly hurt picks. Off</li>
+        <li>DefCon from last season (<code>DEFCON_LAST_W</code> 1–2) on 2026/27: RMSE 2.2406 → 2.2445, top-20 4.77 → 4.57. Off</li>
+        <li>Gamma-mixed clean sheets (<code>CS_DISP</code> 0.1–0.35) on 2023/24: RMSE and top-20 worse at every value. Off</li>
+        <li>Conclusion: the underlying-numbers model holds up against the remodels tested; GW6 so far is within normal week-to-week noise</li>
+      </ul>
+    </li>
     <li><b>Logic audit, component bias (2025/26 replay, predicted − actual pts per player-match):</b>
       <ul>
         <li>GK saves +0.079 (0.21 vs 0.13): the old (2/3)·λ rule ignored that only whole sets of 3 saves score → fixed</li>
@@ -1000,6 +1014,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-10</span><br>Team model blowout guard: one match's xG above 3.0 counts at half weight (raised by Man Utd's 5.15-xG game vs Ipswich inflating Bruno and Mbeumo). Backtest RMSE unchanged, top-20 and captain points slightly better.</li>
     <li><span class="d">2026-10-10</span><br>Migrations 0007–0009 applied. News job no longer wipes <code>news_sentiment</code> when most classifications fail (an out-of-credits run had emptied it).</li>
     <li><span class="d">2026-10-10</span><br>Logic audit: per-component bias check against actual points. Saves now score only whole sets of 3 (saves ~ Poisson(2.1 × xGA)); GK goals worth 10. DefCon negative binomial tested and left off. Optimizer rules checked against FPL's game_config (5 FT cap, chips per half, selling prices): no changes needed.</li>
+    <li><span class="d">2026-10-11</span><br>GW6 review. The backtest now replays the season in progress (rebuilt from FPL's live endpoints). Remodels tested on this and earlier seasons (recent-points blend, last-season DefCon, clean-sheet uncertainty) didn't beat rules-v6, so they ship switched off. Dataset xP flagged as an unfair benchmark (likely post-GW data).</li>
   </ul>
 </section>
 

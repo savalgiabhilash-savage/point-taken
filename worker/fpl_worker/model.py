@@ -33,7 +33,17 @@ DEFCON_PTS = 2
 DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
 DEFCON_VMR = 1.0     # DefCon variance / mean (1 = Poisson). 1.5-2.5 tested on 2025-26: RMSE gain 0.0006, captain worse; off
 SAVES_PER_XGA = 2.1   # saves ~ Poisson(2.1 x xGA), 1 pt per 3 (2.0-2.1 in 2023-26 data); None = old xGA x 2/3 rule
-DEFCON_K = 3.0  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
+DEFCON_K = 3.0
+DEFCON_LAST_W = 0.0  # last season's DefCon in a player's rate; 1-2 tested on 2026-27 (worse RMSE, top-20), off
+CS_DISP = 0.0        # gamma-mixed clean sheets; 0.1-0.35 tested on 2023-24 (worse RMSE), off = plain Poisson
+# Recent-points blend (accuracy plan step 6, first piece): per position, x_pts' = a·x_pts + b·form4 + c, where
+# form4 = his average FPL points over his club's last 4 GWs (last season's points per game before that).
+# Fitted by least squares on past seasons (see backtest); None = off.
+# Tested 2026-10-11 on 2023-24 .. 2026-27 GW1-5, off: least-squares fits (a 0.82-0.95, b 0.06-0.15) lowered
+# RMSE slightly but cost top-20 points in 3 of 4 seasons; a light b = 0.05 was a wash (RMSE -0.002 at best,
+# one season's captain points -0.8); b >= 0.2 clearly hurts the picks. Chasing recent points loses to the
+# underlying-numbers model. e.g. {"MID": (1.0, 0.05, -0.061), ...}
+FORM_BLEND: dict[str, tuple[float, float, float]] | None = None  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
 LAST_GW = 38
 # Minutes model (see minutes_profile): recent gameweeks count most.
 MINUTES_WINDOW = 8          # most recent finished gameweeks used
@@ -225,22 +235,37 @@ def _expected_half_goals(lam: float) -> float:
     return total
 
 
-def defcon_rates(elements: list[dict]) -> dict[int, float]:
+def defcon_rates(elements: list[dict], last: dict[str, dict] | None = None) -> dict[int, float]:
     """{fpl_id: DefCon actions per 90}, shrunk toward the position average. From FPL bootstrap, which
-    counts CBIT for defenders and CBIRT for midfielders/forwards: the same count the threshold uses."""
+    counts CBIT for defenders and CBIRT for midfielders/forwards: the same count the threshold uses.
+    `last` (last-season profiles by player code) adds last season's actions and minutes at DEFCON_LAST_W,
+    so early-season rates aren't near zero; ignored when last season had no DefCon (before 2025/26)."""
     pos = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+    use_last = bool(last) and DEFCON_LAST_W > 0 and sum(p.get("dc", 0) for p in last.values()) > 0
+    totals = {}
+    for e in elements:
+        dc, mins = float(e.get("defensive_contribution") or 0), float(e.get("minutes") or 0)
+        lp = last.get(str(e.get("code"))) if use_last else None
+        if lp:
+            dc += DEFCON_LAST_W * lp.get("dc", 0)
+            mins += DEFCON_LAST_W * lp.get("minutes", 0)
+        totals[e["id"]] = (pos[e["element_type"]], dc, mins)
     agg: dict[str, list[float]] = {}
-    for e in elements:
-        a = agg.setdefault(pos[e["element_type"]], [0.0, 0.0])
-        a[0] += e.get("defensive_contribution") or 0
-        a[1] += e.get("minutes") or 0
+    for p, dc, mins in totals.values():
+        a = agg.setdefault(p, [0.0, 0.0])
+        a[0] += dc
+        a[1] += mins
     base = {p: (dc / (m / 90.0) if m else 0.0) for p, (dc, m) in agg.items()}
-    out = {}
-    for e in elements:
-        n90 = (e.get("minutes") or 0) / 90.0
-        b = base[pos[e["element_type"]]]
-        out[e["id"]] = ((e.get("defensive_contribution") or 0) + DEFCON_K * b) / (n90 + DEFCON_K)
-    return out
+    return {i: (dc + DEFCON_K * base[p]) / (mins / 90.0 + DEFCON_K) for i, (p, dc, mins) in totals.items()}
+
+
+def form4(entries: list[dict], last: dict | None) -> float:
+    """His average FPL points over his club's last 4 GWs this season; before he has any, last season's
+    points per game (0 for a newcomer)."""
+    recent = sorted(entries, key=lambda e: e["age"])[:4]
+    if recent:
+        return sum(e.get("pts", 0) for e in recent) / len(recent)
+    return last["pts"] / last["rows"] if last and last.get("rows") else 0.0
 
 
 # --- base-rate blending ------------------------------------------------------
@@ -288,7 +313,9 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
 
     # clean sheet, saves and goals-conceded deductions all use the fixture's expected goals against
     lam = lam_against
-    p_cs = math.exp(-lam)
+    # P(clean sheet): Poisson zero, mixed over uncertainty in lam (gamma, CS_DISP) — an uncertain lam makes
+    # a shut-out likelier than exp(-lam) (Jensen), which plain Poisson understated in the backtest.
+    p_cs = (1 + CS_DISP * lam) ** (-1 / CS_DISP) if CS_DISP > 0 else math.exp(-lam)
     x_cs_pts = p_cs * CS_PTS[pos] * p_60
 
     # appearance
@@ -502,7 +529,7 @@ def season_entries(live: dict[int, list[dict]], fixtures: list[dict],
                 "bonus": st.get("bonus") or 0, "yellow": st.get("yellow_cards") or 0,
                 "bps": st.get("bps") or 0, "goals": st.get("goals_scored") or 0, "assists": st.get("assists") or 0,
                 "cs": st.get("clean_sheets") or 0, "gc": st.get("goals_conceded") or 0,
-                "mbps": 6 if mins >= 60 else 3 if mins > 0 else 0,
+                "mbps": 6 if mins >= 60 else 3 if mins > 0 else 0, "pts": st.get("total_points") or 0,
                 "team_xg_on": team_xg.get(t, 0.0) * mins / (90.0 * n),
                 "home": home_of.get((t, gw)) if n == 1 else None,
             })
@@ -576,7 +603,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         boot = client.bootstrap_static()
         live = fetch_live(client, fixtures)
     history = season_entries(live, fixtures, team_by_player)
-    dc90 = defcon_rates(boot["elements"])
+    dc90 = defcon_rates(boot["elements"], profiles)
     elem = {e["id"]: e for e in boot["elements"]}
     total_managers = boot.get("total_players") or 0
 
@@ -680,6 +707,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                   "fk": e.get("direct_freekicks_order") == 1, "lam_avg": lam_avg}
         p["news_adj"] = news_adjustment(news.get(p["fpl_id"]), now)
         avail, fpl_avail = availability(p)
+        f4 = form4(hist, last)
         recent = [h for h in hist if h["age"] < 5]
         # Explanation inputs stored on every projection (the web's "i" pop-up turns these into bullets).
         why = {
@@ -688,7 +716,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             "recent_minutes": sum(h["minutes"] for h in recent),
             "fpl_avail": round(fpl_avail, 2), "news_adj": round(p["news_adj"], 3), "avail": round(avail, 3),
             "xg_share": round(prof["xg_share"], 3), "xa_share": round(prof["xa_share"], 3),
-            "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2),
+            "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2), "form4": round(f4, 2),
             "home_mult": {"home": round(prof["home_mult"][True], 3), "away": round(prof["home_mult"][False], 3)},
             "return": ret, "manager_reset": ra is not None,
             "setpieces": {"pen": extras["pen"], "corner": extras["corner"], "fk": extras["fk"]},
@@ -716,6 +744,15 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 comp = project_fixture(p, prof, lam_for, lam_against, base_for[p["team_id"]],
                                        base_against[p["team_id"]], is_home, form_mult=fm, opp_mult=om,
                                        rotation=rot, extras=fx_extras)
+                if FORM_BLEND:
+                    # Recent-points blend: shrink the components by a, add b·form4 + c (only as available as
+                    # he is — an injured player's past points don't score this week). Shown as "Recent form".
+                    a, b, c = FORM_BLEND[p["position"]]
+                    for k in _CALIB_FIELDS[1:]:
+                        comp[k] *= a
+                    parts = sum(comp[k] for k in _CALIB_FIELDS[1:])
+                    comp["x_form_pts"] = max(avail * (b * f4 + c), -parts)
+                    comp["x_pts"] = parts + comp["x_form_pts"]
                 opp_pos.append(round(om, 3))
                 rest_days.append(gap)
                 xg_for.append(round(lam_for, 2))
@@ -750,6 +787,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3),
                                "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds,
                                "atk_mult": atk_mult, "p_cs": p_cs, "opp_pos": opp_pos, "rest_days": rest_days,
+                               "form_pts": round(agg.get("x_form_pts", 0.0), 3),
                                **fx_why, "why": why},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],

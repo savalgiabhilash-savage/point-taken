@@ -57,7 +57,8 @@ https://claude.ai/artifact/MrVLaHc9qV1Ck19fXY58EA.
 - Worker: `uv run --directory worker python -m fpl_worker.refresh --refresh`
   (dry run: add `--dry-run`; offline from cache: `--dry-run --from-cache`).
 - Web: `cd web && npm run dev` → http://localhost:3000/players
-- Backtest: `uv run --directory worker python -m fpl_worker.backtest` (~10 min; replays 2023/24–2025/26,
+- Backtest: `uv run --directory worker python -m fpl_worker.backtest` (~10 min; replays 2023/24–2025/26 plus the season in progress — add
+  `--refresh-current` to rebuild it from the FPL API first;
   reports to `worker/reports/`). Any change to model.py / form_model.py / team_model.py / context_model.py
   must be backtested before shipping and beat the current version on RMSE (not MAE — MAE rewards simply
   predicting lower), without hurting top-20 points or ranking; update the blueprint table (section 17).

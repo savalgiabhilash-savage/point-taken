@@ -26,7 +26,8 @@ Known differences from live running (read the results with these in mind):
     track actual closely), so xP is checked per season and dropped where it doesn't line up. The
     head-to-head scope "vs_xP" only covers seasons where the benchmark is valid.
 
-    python -m fpl_worker.backtest                          # 2023-24, 2024-25, 2025-26
+    python -m fpl_worker.backtest                          # 2023-24 .. 2026-27 (season in progress)
+    python -m fpl_worker.backtest --refresh-current        # first rebuild 2026-27 from the FPL API
     python -m fpl_worker.backtest --seasons 2025-26 --from-gw 4
 """
 
@@ -46,7 +47,7 @@ from . import bonus_sim, context_model, form_model, fpl_history, model, schedule
 
 CACHE = fpl_history.CACHE
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
-DEFAULT_SEASONS = ["2023-24", "2024-25", "2025-26"]
+DEFAULT_SEASONS = ["2023-24", "2024-25", "2025-26", "2026-27"]  # the last is the season in progress
 ELEMENT_TYPE = {"GK": 1, "DEF": 2, "MID": 3, "FWD": 4}
 DEFCON_FROM_SEASON = "2025-26"
 TOP_K = 20
@@ -90,10 +91,12 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
     dc90: dict[int, float] = {}
     if season >= DEFCON_FROM_SEASON:
         cur = past.groupby("element")[["minutes", "defensive_contribution"]].sum()
+        code = now.groupby("element")["code"].first()
         els = [{"id": int(e), "element_type": ELEMENT_TYPE[p], "minutes": cur.loc[e, "minutes"] if e in cur.index else 0,
-                "defensive_contribution": cur.loc[e, "defensive_contribution"] if e in cur.index else 0}
+                "defensive_contribution": cur.loc[e, "defensive_contribution"] if e in cur.index else 0,
+                "code": int(code[e]) if pd.notna(code[e]) else None}
                for e, p in now.groupby("element")["pos"].first().items()]
-        dc90 = model.defcon_rates(els)
+        dc90 = model.defcon_rates(els, profiles)
 
     out = []
     for r in now.itertuples(index=False):
@@ -114,7 +117,11 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                                      team_model.average_goals_for(strengths, r.team),
                                      team_model.average_goals_against(strengths, r.team), bool(r.was_home),
                                      opp_mult=context_model.opp_multiplier(opp_ratios, opp, r.pos), rotation=rot)
-        out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"],
+        f4 = model.form4(hist, last)
+        if model.FORM_BLEND:
+            a, b, c = model.FORM_BLEND[r.pos]
+            comp["x_pts"] = max(0.0, a * comp["x_pts"] + b * f4 + c)
+        out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"], "form4": f4,
                     "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP,
                     "bonus": r.bonus, "fixture": int(r.fixture), "side": 0 if r.was_home else 1, "lam_for": lam_for,
                     "x_bonus": comp["x_bonus_pts"], "p_play": comp["p_play"], "p_60": comp["p_60"],
@@ -130,7 +137,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
     return rows.groupby(["element", "round", "pos"], as_index=False).agg(
         pred=("pred", "sum"), p_start=("p_start", "first"), actual=("actual", "sum"),
         minutes=("minutes", "sum"), starts=("starts", "max"), xP=("xP", "first"),
-        bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"))
+        bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"), form4=("form4", "first"))
 
 
 def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
@@ -253,7 +260,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Backtest the xPts model against past seasons.")
     parser.add_argument("--seasons", nargs="+", default=DEFAULT_SEASONS)
     parser.add_argument("--from-gw", type=int, default=1, help="skip gameweeks before this one")
+    parser.add_argument("--refresh-current", action="store_true",
+                        help="rebuild the last season's files from the FPL API first (the vaastav repo lags)")
     args = parser.parse_args()
+    if args.refresh_current:
+        fpl_history.build_current_season(args.seasons[-1])
 
     per_season = []
     results = {}
