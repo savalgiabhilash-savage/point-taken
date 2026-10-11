@@ -19,7 +19,9 @@ from dotenv import load_dotenv
 
 from datetime import datetime, timezone
 
-from . import context_model, db, form_model, fpl_history, price_model, schedules, team_model
+import numpy as np
+
+from . import context_model, db, form_model, fpl_history, outcomes, price_model, schedules, team_model
 from .fpl_client import FplClient
 
 # rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
@@ -691,6 +693,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     now = datetime.now(timezone.utc)
 
     rows = []
+    rng = np.random.default_rng(next_gw)  # fixed seed per GW: ranges don't jitter between runs
     for p in players:
         last = profiles.get(str(p["code"])) if p.get("code") is not None else None
         hist = history.get(p["fpl_id"], [])
@@ -736,6 +739,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             if not fxs:
                 continue  # blank GW for this team
             agg: dict[str, float] = {}
+            samples = np.zeros(outcomes.N)  # range of outcomes: simulated GW totals (outcomes.py)
             opp_short = []
             xg_for, xg_against, with_odds, atk_mult, p_cs, opp_pos, rest_days = [], [], [], [], [], [], []
             for is_home, lam_for, lam_against, opp_id, has_odds, (rot, gap) in fxs:
@@ -753,6 +757,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                     parts = sum(comp[k] for k in _CALIB_FIELDS[1:])
                     comp["x_form_pts"] = max(avail * (b * f4 + c), -parts)
                     comp["x_pts"] = parts + comp["x_form_pts"]
+                samples += outcomes.sample_fixture(comp, p["position"], lam_against, prof["yellow90"], rng,
+                                                   GOAL_PTS[p["position"]], CS_PTS[p["position"]], SAVES_PER_XGA)
                 opp_pos.append(round(om, 3))
                 rest_days.append(gap)
                 xg_for.append(round(lam_for, 2))
@@ -793,6 +799,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "_pos": p["position"],
                 "_cost": p["now_cost"],
                 "_opp": ",".join(opp_short),
+                "_samples": samples,
             })
 
     # Transparent calibration: scale each projection by its position's learned multiplier so
@@ -805,6 +812,9 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 for k in _CALIB_FIELDS:
                     r[k] = round(r[k] * m, 3)
             r["components"]["calibration"] = round(m, 3)
+    # Floor / median / ceiling and haul / blank chances, on the same calibrated scale as x_pts.
+    for r in rows:
+        r["components"]["range"] = outcomes.summarise(r.pop("_samples") * calib.get(r["_pos"], 1.0))
 
     if dry_run:
         _print_top(rows, next_gw)

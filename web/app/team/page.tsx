@@ -2,6 +2,7 @@ import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
+import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +75,7 @@ export default async function TeamPage() {
       .in("fpl_id", els),
     supabase
       .from("projections")
-      .select("player_id, gw, x_pts")
+      .select("player_id, gw, x_pts, components")
       .eq("model_version", MODEL)
       .in("player_id", els),
   ]);
@@ -82,7 +83,13 @@ export default async function TeamPage() {
   const projs = projRes.data ?? [];
   const nextGw = projs.length ? Math.min(...projs.map((p) => p.gw)) : null;
   const xpByPlayer = new Map<number, number>();
-  for (const r of projs) if (r.gw === nextGw) xpByPlayer.set(r.player_id, r.x_pts ?? 0);
+  const rangeByPlayer = new Map<number, OutcomeRange>();
+  for (const r of projs) {
+    if (r.gw !== nextGw) continue;
+    xpByPlayer.set(r.player_id, r.x_pts ?? 0);
+    const range = (r.components as { range?: OutcomeRange } | null)?.range;
+    if (range) rangeByPlayer.set(r.player_id, range);
+  }
   const pmap = new Map((playersRes.data ?? []).map((p) => [p.fpl_id, p as Record<string, unknown>]));
 
   const squad = picks.map((pk) => {
@@ -107,6 +114,12 @@ export default async function TeamPage() {
     .filter((s) => s.pick_position > 11)
     .sort((a, b) => a.pick_position - b.pick_position);
   const byPos = (pos: Position) => starting.filter((s) => s.position === pos);
+
+  // Captain options: the five starters with the highest average, each with his simulated range.
+  const capOptions = [...starting]
+    .filter((s) => s.xp_next != null)
+    .sort((a, b) => (b.xp_next ?? 0) - (a.xp_next ?? 0))
+    .slice(0, 5);
 
   const base = starting.reduce((sum, p) => sum + (p.xp_next ?? 0), 0);
   const capXp = starting.find((s) => s.is_captain)?.xp_next ?? 0;
@@ -175,6 +188,47 @@ export default async function TeamPage() {
       <div className="mt-6">
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
       </div>
+
+      {capOptions.length > 0 && nextGw != null && (
+        <section className="mt-8 rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Captain options · GW{nextGw}</h2>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            <li>• Ranked by average points: the pick that scores most over a season</li>
+            <li>• Range = 8 weeks in 10 land inside it (simulated); points shown before the captain doubles them</li>
+          </ul>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[460px] text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="py-1.5 pr-3 font-medium">Player</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Avg</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Range</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">10+ pts</th>
+                  <th className="py-1.5 text-right font-medium">≤ 2 pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {capOptions.map((p, i) => {
+                  const r = rangeByPlayer.get(p.fpl_id);
+                  return (
+                    <tr key={p.fpl_id} className="border-t border-border/40">
+                      <td className="py-1.5 pr-3">
+                        {p.web_name} <span className="text-xs text-muted-foreground">{p.team_short}</span>
+                        {i === 0 && <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-500">best</span>}
+                        {p.is_captain && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs">your C</span>}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{(p.xp_next ?? 0).toFixed(1)}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r ? `${r.p10}–${r.p90}` : "—"}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r ? `${Math.round(r.p_haul * 100)}%` : "—"}</td>
+                      <td className="py-1.5 text-right tabular-nums">{r ? `${Math.round(r.p_blank * 100)}%` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="mt-8 max-w-md border-t border-border/50 pt-6">
         <TeamUpload

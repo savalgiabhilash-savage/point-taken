@@ -24,6 +24,15 @@ const STATUS: Record<string, string> = {
 };
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const f1 = (x: number) => x.toFixed(1);
+
+// Simulated spread of his GW points (worker/fpl_worker/outcomes.py).
+export type OutcomeRange = { p10: number; p50: number; p90: number; p_haul: number; p_blank: number };
+
+const rangeBullets = (r: OutcomeRange): string[] => [
+  `Likely range ${r.p10}–${r.p90} pts (8 weeks in 10), median ${r.p50}`,
+  `${pct(r.p_haul)} chance of 10+ pts (20+ as captain)`,
+  `${pct(r.p_blank)} chance of 2 pts or fewer`,
+];
 const f2 = (x: number) => x.toFixed(2);
 
 type Why = {
@@ -62,6 +71,7 @@ type Comp = {
   exp_minutes?: number;
   p_dc?: number;
   calibration?: number;
+  range?: OutcomeRange;
   rest_days?: (number | null)[];
   lineup?: [boolean, number] | null;
   f?: Record<string, { base: number; term: number } | null>;
@@ -264,6 +274,17 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
     });
     if (c.calibration != null && c.calibration !== 1) fx.push(`Position calibration ×${c.calibration} from past accuracy`);
     sections.push({ title: "Fixture", bullets: fx });
+  }
+
+  // 5b. Range of outcomes
+  if (c.range) {
+    sections.push({
+      title: `Range of outcomes, GW${next!.gw}`,
+      bullets: [
+        ...rangeBullets(c.range),
+        "Captain choice uses the average (most expected points); the range shows the risk around it",
+      ],
+    });
   }
 
   // 6. Points breakdown
