@@ -72,20 +72,24 @@ def season_odds(season: str, names: list[str]) -> dict:
 # --- one gameweek -------------------------------------------------------------
 
 def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], profiles: dict,
-               base: dict, tm: dict) -> pd.DataFrame:
-    """Model predictions for every player-row of GW g, using only rows from GWs before g."""
-    past = df[df["round"] < g]
+               base: dict, tm: dict, asof: int | None = None) -> pd.DataFrame:
+    """Model predictions for every player-row of GW g, using only rows from GWs before `asof` (default g).
+    asof < g projects ahead, as the live optimizer does: odds are then left out (they only exist for the
+    next round live)."""
+    asof = g if asof is None else asof
+    past = df[df["round"] < asof]
     now = df[df["round"] == g]
     id_to_name = {t["fpl_id"]: t["name"] for t in team_list}
 
-    # Team goals model fitted on last season + this season's matches before GW g, dated at g's first kickoff.
-    ref = min(datetime.fromisoformat(str(k).replace("Z", "+00:00")) for k in now["kickoff_time"])
-    fitted = [m for m in tm["cur"] if m["round"] < g]
+    # Team goals model fitted on last season + this season's matches before `asof`, dated at its first kickoff.
+    deadline_rows = df[df["round"] == asof] if (df["round"] == asof).any() else now
+    ref = min(datetime.fromisoformat(str(k).replace("Z", "+00:00")) for k in deadline_rows["kickoff_time"])
+    fitted = [m for m in tm["cur"] if m["round"] < asof]
     strengths = team_model.fit(tm["prev"] + fitted, ref, tm["teams"], tm["promoted"])
 
     # This season's per-GW history per player — the same shape the live model builds from event/{gw}/live.
-    history = fpl_history.entries_before(past, g - 1)
-    opp_ratios = context_model.opp_position_ratios(tm["opp_prev"] + [r[:4] for r in tm["opp_cur"] if r[4] < g])
+    history = fpl_history.entries_before(past, asof - 1)
+    opp_ratios = context_model.opp_position_ratios(tm["opp_prev"] + [r[:4] for r in tm["opp_cur"] if r[4] < asof])
 
     # DefCon per-90 (2025/26 rules onward), from this season's counts so far.
     dc90: dict[int, float] = {}
@@ -110,7 +114,8 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                                                  last["minutes"] if last else None)}
         opp = id_to_name[int(r.opponent_team)]
         h, a = (r.team, opp) if r.was_home else (opp, r.team)
-        lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, h, a), tm["odds"].get((h, a)))
+        lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, h, a),
+                                        tm["odds"].get((h, a)) if g == asof else None)
         lam_for, lam_against = (lam_h, lam_a) if r.was_home else (lam_a, lam_h)
         rot, _ = context_model.rotation_factor(tm["dates"].get(r.team, []), date.fromisoformat(str(r.kickoff_time)[:10]))
         comp = model.project_fixture(player, prof, lam_for, lam_against,
@@ -140,7 +145,8 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"), form4=("form4", "first"))
 
 
-def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
+def season_setup(season: str) -> tuple:
+    """Everything predict_gw needs for a season: (df, team_list, profiles, base, tm)."""
     df = load_season(season)
     prev = load_season(_prev(season))
     profiles = fpl_history.last_season_profiles(prev)
@@ -166,7 +172,11 @@ def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
     league = list(df[["team", "kickoff_time"]].drop_duplicates().itertuples(index=False, name=None))
     tm["dates"] = schedules.team_dates(schedules.season_matches(season, start, end),
                                        [(t, str(k)) for t, k in league], names)
+    return df, team_list, profiles, base, tm
 
+
+def run_season(season: str, from_gw: int = 1) -> pd.DataFrame:
+    df, team_list, profiles, base, tm = season_setup(season)
     frames = []
     for g in sorted(df["round"].unique()):
         if g < from_gw:

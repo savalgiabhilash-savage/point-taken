@@ -331,7 +331,8 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
         tf = sum(buy[i][g] for i in range(n))     # transfers made this GW (= number bought)
         h.addConstr(pen[g] >= tf - free[g])        # anything over the free allowance is a hit
         if g == 0:
-            h.addConstr(free[0] <= ft0)            # your actual FT (or unlimited, preseason)
+            h.addConstr(free[0] == ft0)            # your actual FT (or unlimited, preseason); fixed, so the
+                                                   # 1% solver gap can't leave a pointless hit in the plan
         elif ft_unlimited and g == 1:
             # Preseason is unlimited only before GW1; the in-season FT clock then starts at 1.
             h.addConstr(free[1] <= 1)
@@ -384,7 +385,8 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
     for g in range(H):
         ins = [_slim(universe[i]) for i in range(n) if round(h.val(buy[i][g])) == 1]
         outs = [_slim(universe[i]) for i in range(n) if round(h.val(sell[i][g])) == 1]
-        hits_g = round(h.val(pen[g]))
+        # FPL's rule, not the solver's slack variable: a hit is each transfer beyond the free ones.
+        hits_g = max(0, len(ins) - round(h.val(free[g])))
         hits_total += hits_g
         xi_g = sum(xp[i][g] for i in range(n) if round(h.val(start[i][g])) == 1)
         cap_g = sum(xp[i][g] for i in range(n) if round(h.val(cap[i][g])) == 1)
