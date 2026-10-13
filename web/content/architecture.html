@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 22</span>
-    <span>updated 2026-10-12</span>
+    <span>doc rev 23</span>
+    <span>updated 2026-10-13</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
     <span>season 2026/27 · next GW6</span>
@@ -642,7 +642,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <span class="sec-num">11</span>
   <h2>Team sync &amp; personalisation</h2>
   <ul>
-    <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and free transfers for the next deadline, rebuilt from <code>history.current</code>: the first GW played is unlimited, then +1 per GW capped at 5, minus free transfers used (transfers − hit cost ÷ 4). Wildcard and Free Hit weeks keep the banked transfers. Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
+    <li><b>Scheduled sync</b> (<code>sync_team.py</code>): for "me" and every profile, read <code>entry</code>, <code>history</code> and picks for <code>current_event</code>, then upsert <code>user_team_state</code> for that GW. Stored: bank, value, rank, chips, and free transfers for the next deadline, rebuilt from <code>history.current</code>: the first GW played is unlimited, then +1 per GW capped at 5, minus free transfers used (transfers − hit cost ÷ 4). A Wildcard or Free Hit week freezes the banked transfers: none used and no +1 (fixed 2026-10-13; it used to add the +1). Preseason, squads are private, so it keeps or copies the latest snapshot for the same entry.</li>
     <li><b>Manual sync</b> (<code>POST /api/sync</code>): the same logic for the logged-in user, then dispatches <code>fpl-optimize</code>.</li>
     <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Preseason it's saved as <code>gw = 0</code> with all chips. In-season it's saved as the latest synced GW + 1, with bank, free transfers and chips carried over, so it overrides the synced squad until that deadline, when FPL's real picks replace it. Uploaded rows have no <code>fpl_entry_id</code>. Then re-optimized.</li>
     <li><b>On-demand optimize</b> (<code>POST /api/optimize</code>, signed in): validates horizon 1–38 and dispatches the workflow for that user. The Optimizer page polls <code>optimizer_runs</code> until the new plan lands, in about 1–2 minutes.</li>
@@ -1051,6 +1051,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-11</span><br>GW6 review. The backtest now replays the season in progress (rebuilt from FPL's live endpoints). Remodels tested on this and earlier seasons (recent-points blend, last-season DefCon, clean-sheet uncertainty) didn't beat rules-v6, so they ship switched off. Dataset xP flagged as an unfair benchmark (likely post-GW data).</li>
     <li><span class="d">2026-10-11</span><br>Range of outcomes (accuracy plan step 5): every projection stores P10 / median / P90, P(10+) and P(≤ 2) from 2,000 simulated GWs (<code>outcomes.py</code>). Shown in the "i" pop-up and a new Captain options card on My Team. Captain still chosen by average (backtest: beats choosing by haul chance).</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
+    <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
   </ul>
 </section>
 

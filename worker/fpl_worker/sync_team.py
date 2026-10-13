@@ -74,17 +74,18 @@ def free_transfers_next(history: dict) -> int:
 
     Rules (2024/25+): the first GW you play is unlimited; after each GW you gain +1, capped at 5.
     Transfers beyond your free ones cost 4 pts each (event_transfers_cost), so free ones used =
-    transfers − cost/4. Playing a Wildcard or Free Hit keeps your banked free transfers."""
+    transfers − cost/4. Playing a Wildcard or Free Hit keeps your banked free transfers exactly as they
+    were: that gameweek neither uses them nor adds the usual +1."""
     chip_gws = {c["event"] for c in history.get("chips", []) if c.get("name") in ("wildcard", "freehit")}
     events = sorted(history.get("current", []), key=lambda e: e["event"])
     if not events:
         return 1
     ft = 1  # after your first gameweek (its transfers were unlimited)
     for e in events[1:]:
-        if e["event"] not in chip_gws:
-            used_free = e.get("event_transfers", 0) - (e.get("event_transfers_cost", 0) // 4)
-            ft = max(0, ft - used_free)
-        ft = min(FT_CAP, ft + 1)
+        if e["event"] in chip_gws:
+            continue  # frozen: no transfers used, no +1
+        used_free = e.get("event_transfers", 0) - (e.get("event_transfers_cost", 0) // 4)
+        ft = min(FT_CAP, max(0, ft - used_free) + 1)
     return ft
 
 

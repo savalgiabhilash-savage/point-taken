@@ -22,18 +22,17 @@ type HistoryEvent = { event: number; event_transfers?: number; event_transfers_c
 
 // Free transfers for the next deadline, rebuilt from the entry history (mirrors worker sync_team.py).
 // entry_history.event_transfers is transfers MADE, not available. First GW played is unlimited; +1 per GW
-// after, capped at 5; hits (cost/4) don't use free ones; Wildcard / Free Hit keep your banked transfers.
+// after, capped at 5; hits (cost/4) don't use free ones; a Wildcard / Free Hit week freezes your banked
+// transfers (none used, no +1).
 function freeTransfersNext(history: { current?: HistoryEvent[]; chips?: { event: number; name: string }[] }): number {
   const chipGws = new Set((history.chips ?? []).filter((c) => c.name === "wildcard" || c.name === "freehit").map((c) => c.event));
   const events = [...(history.current ?? [])].sort((a, b) => a.event - b.event);
   if (!events.length) return 1;
   let ft = 1;
   for (const e of events.slice(1)) {
-    if (!chipGws.has(e.event)) {
-      const usedFree = (e.event_transfers ?? 0) - Math.floor((e.event_transfers_cost ?? 0) / 4);
-      ft = Math.max(0, ft - usedFree);
-    }
-    ft = Math.min(FT_CAP, ft + 1);
+    if (chipGws.has(e.event)) continue;
+    const usedFree = (e.event_transfers ?? 0) - Math.floor((e.event_transfers_cost ?? 0) / 4);
+    ft = Math.min(FT_CAP, Math.max(0, ft - usedFree) + 1);
   }
   return ft;
 }
