@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 23</span>
+    <span>doc rev 24</span>
     <span>updated 2026-10-13</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
@@ -628,7 +628,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   </ul>
   <ul>
     <li>A chip is recommended only if you still hold it and its gain clears the bar</li>
-    <li><b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window</li>
+    <li><b>Use it or lose it:</b> when the horizon reaches GW19, a first-half chip you still hold has its bar dropped to 0, so it gets recommended at its best remaining window; the same applies to second-half chips once the horizon reaches GW38 (added 2026-10-13: before, they could expire unused)</li>
     <li>If the horizon stops short of GW19, the "hold" advice names the first-half chips that will expire</li>
     <li>If several do, the one with the largest gain over its bar wins</li>
     <li>Otherwise the advice is "hold"</li>
@@ -746,7 +746,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>HIT_COST · FT_CAP</td><td class="num">4 · 5</td><td>optimize.py</td><td>Points per extra transfer · FT bank limit</td></tr>
       <tr><td>DECAY</td><td class="num">0.9 per GW</td><td>optimize.py</td><td>Future-GW discount</td></tr>
       <tr><td>POOL_TOP · POOL_VALUE</td><td class="num">8/25/25/15 · 4/8/8/5</td><td>optimize.py</td><td>Candidates per GK/DEF/MID/FWD by points · by points per £</td></tr>
-      <tr><td>Chip bars</td><td class="num">TC 12 · BB 18 · WC 8 · FH 8</td><td>optimize.py</td><td>Marginal xPts needed to recommend</td></tr>
+      <tr><td>Chip bars</td><td class="num">TC 6 · BB 9 · WC 4 · FH 4</td><td>optimize.py</td><td>Marginal xPts needed to recommend</td></tr>
       <tr><td>Crosswalk thresholds</td><td class="num">85/6 · 91 · 92/8</td><td>crosswalk.py</td><td>Team pass/margin · structured · global/margin</td></tr>
       <tr><td>NEWS_TOPIC_WEIGHT · FRESH/STALE · news_weight</td><td class="num">1 / 0.75 / 0.5 · 3 d / 14 d · 1.0 (learned)</td><td>model.py, predict.py</td><td>How news cuts availability</td></tr>
       <tr><td>News targeting</td><td class="num">own ≥ 5% · 200 · 21 d</td><td>news_job.py</td><td>Threshold · cap · headline age</td></tr>
@@ -845,7 +845,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     </tbody>
   </table></div>
   <ul>
-    <li><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 expiry and fixed bars (TC 12, BB 18, WC 8, FH 8), DGW/BGW flags</li>
+    <li><b>Optimizer factors:</b> horizon (you choose), 0.9 per-GW discount, bench at 0.1 weight, −4 per hit, free-transfer rollover (cap 5), selling prices, £ budget, 3-per-club, formation, two chip sets with GW19 and GW38 expiry and backtested bars (TC 6, BB 9, WC 4, FH 4), DGW/BGW flags</li>
   </ul>
   <ul>
     <li><b>Left out:</b> price changes, effective ownership, and uncertainty (every number is a single expected value)</li>
@@ -910,6 +910,14 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
         <li>Consistent signal: charging hits at the real −4 beat a −6 safety margin by 86 pts on average across the grid, so the hit bar stays</li>
         <li>Horizon: 3 GWs 6,672, 5 GWs 6,721, 8 GWs 6,836 (one season +161, the other two worse); default stays 5, user-selectable</li>
         <li>Found and fixed a solver-gap bug: a plan could show a −4 hit on a single transfer while a free transfer was available</li>
+      </ul>
+    </li>
+    <li><b>Chip bars (replay with chips, 2026-10-13):</b> each GW runs the live chip plan and plays the recommended chip when its best GW arrives
+      <ul>
+        <li>With chips at the old bars: 6,909–6,975 pts over three seasons vs 6,721 without chips (+190 to +250)</li>
+        <li>Bars ×0 / ×0.5 / ×1 / ×1.5 / ×2: 6,898 / <b>7,064</b> / 6,909 / 6,842 / 6,861; ×0.5 beat ×1 in all three seasons (2,356 vs 2,315 · 2,649 vs 2,561 · 2,059 vs 2,033)</li>
+        <li>Without the GW38 expiry rule, 2024/25's second-half Triple Captain, Bench Boost and Wildcard were never played</li>
+        <li>Caveat: the replay's 20 s solver limit makes runs slightly non-deterministic under load (about ±60 pts between runs); comparisons are made within one run</li>
       </ul>
     </li>
     <li><b>Range of outcomes (step 5), validated on 2023/24–2026/27 (89,981 player-fixtures):</b>
@@ -1007,7 +1015,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 
   <h3>Decision quality (optimizer)</h3>
   <ul>
-    <li><s>Tune the 0.9 discount and the hit threshold on backtested decisions</s>: done 2026-10-12 (section 17 results), current values kept. Chip bars still to tune.</li>
+    <li><s>Tune the 0.9 discount and the hit threshold on backtested decisions</s>: done 2026-10-12 (section 17 results), current values kept. <s>Chip bars</s>: done 2026-10-13, halved.</li>
     <li>Replace the flat 0.1 bench weight with each bench slot's expected autosub value: P(a starter misses) × that sub's points, in bench order.</li>
     <li>Price-change model from net transfers (<code>transfers_in_event</code> / <code>transfers_out_event</code>), so buy and sell timing can protect team value.</li>
     <li>Captaincy with effective ownership and a rank-goal toggle, using the step 5 distributions.</li>
@@ -1052,6 +1060,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-11</span><br>Range of outcomes (accuracy plan step 5): every projection stores P10 / median / P90, P(10+) and P(≤ 2) from 2,000 simulated GWs (<code>outcomes.py</code>). Shown in the "i" pop-up and a new Captain options card on My Team. Captain still chosen by average (backtest: beats choosing by haul chance).</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
+    <li><span class="d">2026-10-13</span><br>Chip bars halved (TC 6, BB 9, WC 4, FH 4) after the season replay with chips beat the old bars in all three seasons; second-half chips now get the same use-it-or-lose-it rule at GW38. The replay (<code>optimizer_backtest.py --chips</code>) plays Triple Captain, Bench Boost, Free Hit and Wildcard.</li>
   </ul>
 </section>
 

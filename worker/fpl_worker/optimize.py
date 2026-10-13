@@ -45,7 +45,9 @@ POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 # A chip is recommended only if its MARGINAL gain (vs playing normally with your free transfers)
 # clears a per-chip bar — set so ordinary single-gameweek plays don't fire. Chips are saved for
 # Double/Blank gameweeks, where a Bench Boost / Triple Captain haul or a Free Hit swing is large.
-CHIP_THRESHOLDS = {"Triple Captain": 12.0, "Bench Boost": 18.0, "Wildcard": 8.0, "Free Hit": 8.0}
+# Halved 2026-10-13 after the season replay (optimizer_backtest --chips): bars x0.5 beat x1 in all three of
+# 2023-24 .. 2025-26 (7,064 vs 6,909 pts); x0, x1.5 and x2 were worse.
+CHIP_THRESHOLDS = {"Triple Captain": 6.0, "Bench Boost": 9.0, "Wildcard": 4.0, "Free Hit": 4.0}
 
 # Map our chip display names to FPL's internal codes (as they appear in chips_available).
 CHIP_CODES = {"Triple Captain": "3xc", "Bench Boost": "bboost", "Wildcard": "wildcard", "Free Hit": "freehit"}
@@ -560,6 +562,10 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
             if half == 1 and current_half and gws[-1] >= CHIP_HALF_END and c["available"]:
                 c["threshold"] = 0.0
                 c["detail"] += f"; expires after GW{CHIP_HALF_END} — best window left before it's lost"
+            # Same for second-half chips once the horizon reaches the last GW: they expire with the season.
+            if half == 2 and current_half and gws[-1] >= LAST_GW and c["available"]:
+                c["threshold"] = 0.0
+                c["detail"] += f"; expires after GW{LAST_GW} — best window left before it's lost"
             chips.append(c)
     for c in chips:
         # Only attach Double/Blank-GW language to a gameweek the FIXTURE DATA actually confirms as one.
