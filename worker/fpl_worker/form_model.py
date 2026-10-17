@@ -35,6 +35,15 @@ SHARE_K = 2.0  # tuned 2023-24 (2/4/8)
 HOME_K = 6.0
 HOME_SPLIT = 0.0  # off: 0.5/1.0 made no measurable difference in the 2023-24 backtest
 BONUS_K = 6.0
+# Player blowout guard: in one match, a player's xG above PLAYER_XG_CAP counts at half (one 2-xG game,
+# often penalties, otherwise sets his share for weeks). None = off.
+PLAYER_XG_CAP: float | None = None  # 0.6-1.0 tested 2026-10-18: top-20 and captain worse in most seasons; off
+
+
+def cap_xg(x: float) -> float:
+    return x if PLAYER_XG_CAP is None or x <= PLAYER_XG_CAP else PLAYER_XG_CAP + 0.5 * (x - PLAYER_XG_CAP)
+
+
 BPS_K = 6.0          # shrink a player's background BPS/90 toward his position average by 6 games
 GOAL_BPS = {"GK": 12, "DEF": 12, "MID": 18, "FWD": 24}
 MANAGER_RESET = 0.5  # factor 14: games before a managerial change (and last season) count this much

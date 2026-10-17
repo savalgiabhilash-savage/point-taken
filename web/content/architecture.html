@@ -142,10 +142,10 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 25</span>
-    <span>updated 2026-10-17</span>
+    <span>doc rev 26</span>
+    <span>updated 2026-10-18</span>
     <span>code @ all fixed except H7</span>
-    <span>model rules-v6</span>
+    <span>model rules-v7</span>
     <span>season 2026/27 · next GW6</span>
   </div>
 </header>
@@ -530,6 +530,19 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>The multiplier is written to <code>components.calibration</code></li>
   </ul>
 
+  <h3>Crowd signal (rules-v7)</h3>
+  <ul>
+    <li>Adds what the model tends to get wrong, predicted from the crowd: <code>x_pts' = x_pts + avail · (b·own + c·net + d)</code> per position (<code>CROWD</code>)
+      <ul>
+        <li><code>own</code> = his ownership ÷ the most-owned player's; <code>net</code> = this window's transfers in − out ÷ the most-owned player's owner count</li>
+        <li>Coefficients (b, c, d): GK 0.93, 28.9, −0.08 · DEF 0.14, 20.3, 0.00 · MID 0.75, 14.5, 0.04 · FWD 0.02, 13.2, 0.05; net transfers carry most of it</li>
+        <li>Net transfers react to team news, injuries and form faster than any of our inputs; ownership adds a little for popular players</li>
+      </ul>
+    </li>
+    <li>Stored as <code>components.crowd_pts</code> (and <code>why.own</code>, <code>why.net</code>); shown as the "Crowd signal" line in every points breakdown; it also shifts the range of outcomes</li>
+    <li>Live, net transfers build up through the week, so the signal is weakest just after a deadline and strongest at the next one, which is what the backtest data (each round's pre-deadline totals) represents</li>
+  </ul>
+
   <h3>6. Range of outcomes (<code>outcomes.py</code>)</h3>
   <ul>
     <li>Each fixture is simulated 2,000 times from the same components, so the simulated average equals <code>x_pts</code>:
@@ -733,6 +746,8 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Live factor starting weights</td><td class="num">pen 0.5 · set piece 0.5 · return 1.0 · line-up 0.7</td><td>model.py, predict.py</td><td>Re-learned every run from factor_effect_log</td></tr>
       <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
       <tr><td>XG_CAP · XG_OVER</td><td class="num">3.0 · 0.5</td><td>team_model.py</td><td>Per-match xG above the cap counts at half weight (blowout guard)</td></tr>
+      <tr><td>CROWD</td><td class="num">per position (b, c, d)</td><td>model.py</td><td>Crowd signal: ownership and net-transfer weights, intercept (section 07)</td></tr>
+      <tr><td>PLAYER_XG_CAP</td><td class="num">off</td><td>form_model.py</td><td>Per-match player xG soft cap; 0.6–1.0 tested 2026-10-18, top-20 and captain worse</td></tr>
       <tr><td>FORM_BLEND · DEFCON_LAST_W · CS_DISP</td><td class="num">off · 0 · 0</td><td>model.py</td><td>Recent-points blend · last season's DefCon in the rate · clean-sheet uncertainty; all backtested 2026-10-11, no gain</td></tr>
       <tr><td>SAVES_PER_XGA · DEFCON_VMR</td><td class="num">2.1 · 1.0</td><td>model.py</td><td>Saves per expected goal against · DefCon variance/mean (1 = Poisson; NB tested, off)</td></tr>
       <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
@@ -839,6 +854,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Clean sheet</td><td>Fixture xG against</td><td>Poisson P(0)</td><td>Assumes independent goals</td></tr>
       <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
       <tr><td>Saves</td><td>Expected goals against</td><td>Saves ~ Poisson(2.1 × λ); only whole sets of 3 score</td><td>No shots-on-target model; 2.1 saves per xGA is a league average</td></tr>
+      <tr><td>Crowd</td><td>Ownership, net transfers this window</td><td>b·own + c·net + d per position</td><td>Net transfers are weak early in a window</td></tr>
       <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it's off (<code>BONUS_SIM</code>)</td></tr>
       <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
       <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
@@ -905,6 +921,16 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Caveat: the dataset's <code>xP</code> very likely contains post-gameweek information. FPL's expected points are mostly recent form, yet a leak-free recent-form predictor only reaches top-20 4.1 pts and RMSE 2.14–2.17, against xP's 7.5 and 1.68. Treat xP as an upper bound, not a fair benchmark</li>
   </ul>
   <ul>
+    <li><b>rules-v7 crowd signal (2026-10-18), out of sample</b> (fit on two seasons, tested on the third):
+      <ul>
+        <li>2024/25: RMSE 1.9430 → 1.9394, ρ 0.682 → 0.686, top-20 5.03 → 5.13, captain 9.26 → 9.40</li>
+        <li>2025/26: RMSE 1.9747 → 1.9692, ρ 0.692 → 0.696, top-20 4.69 → 4.77, captain 6.26 → 6.97</li>
+        <li>2023/24: RMSE 1.9633 → 1.9544, ρ 0.665 → 0.670, top-20 5.19 → 5.25, captain 6.68 → 6.11</li>
+        <li>Leakage check: a round's net transfers track the previous round's points (rank corr 0.18) and the change in ownership into the round (0.94), so they're pre-deadline</li>
+        <li>Full backtest, all four seasons (three in-sample): RMSE 1.972 → 1.964, ρ 0.677 → 0.681, top-20 4.96 → 5.08, captain 7.47 → 7.67</li>
+        <li>Also tested and off: a per-player match xG cap (0.6–1.0) lowered top-20 and captain points in most seasons</li>
+      </ul>
+    </li>
     <li><b>Optimizer replay (<code>optimizer_backtest.py</code>, 2026-10-12):</b> follows the live transfer MILP every GW of a past season, with projections made only from data before each deadline (8 GWs ahead), real weekly prices and selling prices, rolling FTs, auto-subs and captain/vice; no chips, no injury flags
       <ul>
         <li>Current settings (DECAY 0.9, BENCH_WEIGHT 0.1, hit −4, 5-GW horizon): 2,277 · 2,433 · 2,011 pts (2023/24 · 2024/25 · 2025/26), total 6,721</li>
@@ -1061,6 +1087,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-11</span><br>GW6 review. The backtest now replays the season in progress (rebuilt from FPL's live endpoints). Remodels tested on this and earlier seasons (recent-points blend, last-season DefCon, clean-sheet uncertainty) didn't beat rules-v6, so they ship switched off. Dataset xP flagged as an unfair benchmark (likely post-GW data).</li>
     <li><span class="d">2026-10-11</span><br>Range of outcomes (accuracy plan step 5): every projection stores P10 / median / P90, P(10+) and P(≤ 2) from 2,000 simulated GWs (<code>outcomes.py</code>). Shown in the "i" pop-up and a new Captain options card on My Team. Captain still chosen by average (backtest: beats choosing by haul chance).</li>
     <li><span class="d">2026-10-17</span><br>Wildcard review quick wins: live-only factors in shadow mode (weight grows with gameweeks of evidence); decision log of each deadline's plan and FPL's own expected points (migration 0010); Deadline check card on My Team.</li>
+    <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
     <li><span class="d">2026-10-13</span><br>Chip bars halved (TC 6, BB 9, WC 4, FH 4) after the season replay with chips beat the old bars in all three seasons; second-half chips now get the same use-it-or-lose-it rule at GW38. The replay (<code>optimizer_backtest.py --chips</code>) plays Triple Captain, Bench Boost, Free Hit and Wildcard.</li>

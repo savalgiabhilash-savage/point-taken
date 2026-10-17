@@ -47,6 +47,8 @@ type Why = {
   xg_share?: number;
   xa_share?: number;
   bonus90?: number;
+  own?: number;
+  net?: number;
   home_mult?: { home: number; away: number };
   price?: { net: number; pressure: number; p_rise: number; p_fall: number };
   return?: { base: number; ramp: number; absent: number } | null;
@@ -299,6 +301,11 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
       ["Bonus", next.x_bonus_pts],
       ["Deductions (cards, goals conceded)", next.x_deductions_pts],
     ];
+    // Crowd signal (model.CROWD): the part of x_pts beyond the components above.
+    const crowd = next.x_pts - parts.reduce((s, [, v]) => s + (v ?? 0), 0);
+    const crowdWhy =
+      why?.net != null ? ` (net transfers ${why.net >= 0 ? "+" : ""}${(why.net * 100).toFixed(1)}% of the top player's owners)` : "";
+    parts.push([`Crowd signal${crowdWhy}`, crowd]);
     sections.push({
       title: `Where the GW${next.gw} points come from`,
       bullets: parts.filter(([, v]) => Math.abs(v ?? 0) >= 0.05).map(([k, v]) => `${k}: ${v > 0 ? "+" : ""}${f2(v)}`),

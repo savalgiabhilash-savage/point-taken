@@ -63,7 +63,7 @@ async function fetchAllProjections(
 }
 
 function components(r: ProjRow): BreakdownComponent[] {
-  return [
+  const parts: BreakdownComponent[] = [
     { label: "Appearance", value: r.x_appearance_pts ?? 0 },
     { label: "Goals", value: r.x_goals_pts ?? 0 },
     { label: "Assists", value: r.x_assist_pts ?? 0 },
@@ -73,6 +73,10 @@ function components(r: ProjRow): BreakdownComponent[] {
     { label: "Saves", value: r.x_saves_pts ?? 0 },
     { label: "Deductions", value: r.x_deductions_pts ?? 0 },
   ];
+  // The crowd signal (ownership + net transfers, worker model.CROWD) isn't a stored column: it's what x_pts
+  // adds beyond the components.
+  const crowd = (r.x_pts ?? 0) - parts.reduce((s, p) => s + p.value, 0);
+  return Math.abs(crowd) >= 0.005 ? [...parts, { label: "Crowd signal", value: crowd }] : parts;
 }
 
 export default async function PlayersPage() {

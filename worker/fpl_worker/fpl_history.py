@@ -70,8 +70,10 @@ def teams(season: str) -> pd.DataFrame:
 
 def last_season_profiles(prev: pd.DataFrame) -> dict[str, dict]:
     """{code: {pos, xg, xa, minutes, bonus, yellow_cards, team_xg_on}} season totals."""
+    from .form_model import cap_xg
+    prev = prev.assign(xg_c=prev["expected_goals"].map(cap_xg))
     agg = prev.groupby("code").agg(
-        pos=("pos", "last"), xg=("expected_goals", "sum"), xa=("expected_assists", "sum"),
+        pos=("pos", "last"), xg=("xg_c", "sum"), xa=("expected_assists", "sum"),
         minutes=("minutes", "sum"), bonus=("bonus", "sum"), yellow_cards=("yellow_cards", "sum"),
         team_xg_on=("team_xg_on", "sum"), bps=("bps", "sum"), goals=("goals_scored", "sum"),
         assists=("assists", "sum"), cs=("clean_sheets", "sum"), gc=("goals_conceded", "sum"),
@@ -83,9 +85,11 @@ def last_season_profiles(prev: pd.DataFrame) -> dict[str, dict]:
 def entries_before(rows: pd.DataFrame, latest_round: int) -> dict[int, list[dict]]:
     """This season's per-GW history for each player (by element) from dataset rows:
     {age, games, starts, minutes, xg, xa, bonus, yellow, team_xg_on, home (None in a double)}."""
+    from .form_model import cap_xg
+    rows = rows.assign(xg_c=rows["expected_goals"].map(cap_xg))
     g = rows.groupby(["element", "round"]).agg(
         games=("fixture", "size"), starts=("starts", "sum"), minutes=("minutes", "sum"),
-        xg=("expected_goals", "sum"), xa=("expected_assists", "sum"), bonus=("bonus", "sum"),
+        xg=("xg_c", "sum"), xa=("expected_assists", "sum"), bonus=("bonus", "sum"),
         yellow=("yellow_cards", "sum"), team_xg_on=("team_xg_on", "sum"), home=("was_home", "first"),
         bps=("bps", "sum"), goals=("goals_scored", "sum"), assists=("assists", "sum"), cs=("clean_sheets", "sum"),
         gc=("goals_conceded", "sum"), mbps=("mbps", "sum"), pts=("total_points", "sum")).reset_index()

@@ -102,6 +102,8 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                for e, p in now.groupby("element")["pos"].first().items()]
         dc90 = model.defcon_rates(els, profiles)
 
+    # Crowd inputs, relative to the most-owned player that round (live: bootstrap selected / transfers).
+    top = float(now["selected"].max()) if "selected" in now and now["selected"].notna().any() else 0.0
     out = []
     for r in now.itertuples(index=False):
         e = int(r.element)
@@ -123,6 +125,10 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                                      team_model.average_goals_against(strengths, r.team), bool(r.was_home),
                                      opp_mult=context_model.opp_multiplier(opp_ratios, opp, r.pos), rotation=rot)
         f4 = model.form4(hist, last)
+        if model.CROWD:
+            own = float(getattr(r, "selected", 0) or 0) / top if top else 0.0
+            net = float(getattr(r, "transfers_balance", 0) or 0) / top if top else 0.0
+            comp["x_pts"] = max(0.0, comp["x_pts"] + model.crowd_term(r.pos, own, net))
         if model.FORM_BLEND:
             a, b, c = model.FORM_BLEND[r.pos]
             comp["x_pts"] = max(0.0, a * comp["x_pts"] + b * f4 + c)

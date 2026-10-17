@@ -24,9 +24,9 @@ import numpy as np
 from . import context_model, db, form_model, fpl_history, outcomes, price_model, schedules, team_model
 from .fpl_client import FplClient
 
-# rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
+# rules-v7: crowd signal (CROWD: ownership + net transfers). rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
-MODEL_VERSION = "rules-v6"
+MODEL_VERSION = "rules-v7"
 
 GOAL_PTS = {"GK": 10, "DEF": 6, "MID": 5, "FWD": 4}  # FPL game_config scoring (GK goal = 10 since 2025/26)
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -45,7 +45,23 @@ CS_DISP = 0.0        # gamma-mixed clean sheets; 0.1-0.35 tested on 2023-24 (wor
 # RMSE slightly but cost top-20 points in 3 of 4 seasons; a light b = 0.05 was a wash (RMSE -0.002 at best,
 # one season's captain points -0.8); b >= 0.2 clearly hurts the picks. Chasing recent points loses to the
 # underlying-numbers model. e.g. {"MID": (1.0, 0.05, -0.061), ...}
-FORM_BLEND: dict[str, tuple[float, float, float]] | None = None  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
+FORM_BLEND: dict[str, tuple[float, float, float]] | None = None
+# Crowd signal (rules-v7): what the model gets wrong, predicted from ownership and this window's net transfers,
+# both relative to the most-owned player's count. x_pts' = x_pts + b·own + c·net + d per position, as available
+# as he is. Net transfers react to team news, injuries and form faster than any of our inputs.
+# Fitted on 2023-24 .. 2025-26; out of sample (train two seasons, test the third, each way) RMSE, rank
+# correlation and top-20 points were better in all three seasons. Backtest data uses each round's
+# pre-deadline transfers (they track the previous round's points and the change in ownership into the round).
+CROWD: dict[str, tuple[float, float, float]] | None = {
+    "GK": (0.929, 28.893, -0.076), "DEF": (0.14, 20.257, 0.002), "MID": (0.749, 14.518, 0.038), "FWD": (0.022, 13.176, 0.052)}
+
+
+def crowd_term(pos: str, own: float, net: float) -> float:
+    """Points the crowd signal adds before availability: b·own + c·net + d (0 when off)."""
+    if not CROWD:
+        return 0.0
+    b, c, d = CROWD[pos]
+    return b * own + c * net + d  # shrink a player's DefCon per-90 toward the position average by 3 virtual 90s
 LAST_GW = 38
 # Minutes model (see minutes_profile): recent gameweeks count most.
 MINUTES_WINDOW = 8          # most recent finished gameweeks used
@@ -527,7 +543,8 @@ def season_entries(live: dict[int, list[dict]], fixtures: list[dict],
             mins = st.get("minutes") or 0
             out.setdefault(e["id"], []).append({
                 "age": latest - gw, "games": n, "starts": st.get("starts") or 0, "minutes": mins,
-                "xg": float(st.get("expected_goals") or 0), "xa": float(st.get("expected_assists") or 0),
+                "xg": form_model.cap_xg(float(st.get("expected_goals") or 0)),
+                "xa": float(st.get("expected_assists") or 0),
                 "bonus": st.get("bonus") or 0, "yellow": st.get("yellow_cards") or 0,
                 "bps": st.get("bps") or 0, "goals": st.get("goals_scored") or 0, "assists": st.get("assists") or 0,
                 "cs": st.get("clean_sheets") or 0, "gc": st.get("goals_conceded") or 0,
@@ -608,6 +625,9 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     dc90 = defcon_rates(boot["elements"], profiles)
     elem = {e["id"]: e for e in boot["elements"]}
     total_managers = boot.get("total_players") or 0
+    # Crowd inputs, relative to the most-owned player (the same scale the backtest fitted on).
+    top_own = max((float(e.get("selected_by_percent") or 0) for e in boot["elements"]), default=0.0)
+    top_count = top_own / 100.0 * total_managers
 
     # Team goals model: fit strengths on last season's match xG + this season's FPL xG, then blend each
     # upcoming fixture with bookmaker odds where they're published.
@@ -711,6 +731,10 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         p["news_adj"] = news_adjustment(news.get(p["fpl_id"]), now)
         avail, fpl_avail = availability(p)
         f4 = form4(hist, last)
+        e_boot = elem.get(p["fpl_id"], {})
+        own = float(e_boot.get("selected_by_percent") or 0) / top_own if top_own else 0.0
+        net = (((e_boot.get("transfers_in_event") or 0) - (e_boot.get("transfers_out_event") or 0)) / top_count
+               if top_count else 0.0)
         recent = [h for h in hist if h["age"] < 5]
         # Explanation inputs stored on every projection (the web's "i" pop-up turns these into bullets).
         why = {
@@ -720,6 +744,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             "fpl_avail": round(fpl_avail, 2), "news_adj": round(p["news_adj"], 3), "avail": round(avail, 3),
             "xg_share": round(prof["xg_share"], 3), "xa_share": round(prof["xa_share"], 3),
             "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2), "form4": round(f4, 2),
+            "own": round(own, 3), "net": round(net, 4),
             "home_mult": {"home": round(prof["home_mult"][True], 3), "away": round(prof["home_mult"][False], 3)},
             "return": ret, "manager_reset": ra is not None,
             "setpieces": {"pen": extras["pen"], "corner": extras["corner"], "fk": extras["fk"]},
@@ -757,8 +782,12 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                     parts = sum(comp[k] for k in _CALIB_FIELDS[1:])
                     comp["x_form_pts"] = max(avail * (b * f4 + c), -parts)
                     comp["x_pts"] = parts + comp["x_form_pts"]
+                # Crowd signal: shown as its own line ("Crowd signal"), never pushing x_pts below 0.
+                comp["x_crowd_pts"] = max(avail * crowd_term(p["position"], own, net), -comp["x_pts"])
+                comp["x_pts"] += comp["x_crowd_pts"]
                 samples += outcomes.sample_fixture(comp, p["position"], lam_against, prof["yellow90"], rng,
                                                    GOAL_PTS[p["position"]], CS_PTS[p["position"]], SAVES_PER_XGA)
+                samples += comp["x_crowd_pts"]  # shifts his whole range by the same amount
                 opp_pos.append(round(om, 3))
                 rest_days.append(gap)
                 xg_for.append(round(lam_for, 2))
@@ -794,6 +823,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                                "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds,
                                "atk_mult": atk_mult, "p_cs": p_cs, "opp_pos": opp_pos, "rest_days": rest_days,
                                "form_pts": round(agg.get("x_form_pts", 0.0), 3),
+                               "crowd_pts": round(agg.get("x_crowd_pts", 0.0), 3),
                                **fx_why, "why": why},
                 "_web_name": p["web_name"],
                 "_pos": p["position"],
