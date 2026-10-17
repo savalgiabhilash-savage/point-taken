@@ -23,6 +23,26 @@ type Pick = {
   is_vice_captain: boolean;
 };
 
+type CheckPlayer = { fpl_id: number; web_name: string; position: Position | null; xp_next: number | null };
+
+// Best legal XI (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD) from the 15 by projected points, as worker optimize._best_xi.
+function bestXi<T extends CheckPlayer>(squad: T[]): T[] {
+  const by = (pos: Position) =>
+    squad.filter((p) => p.position === pos).sort((a, b) => (b.xp_next ?? 0) - (a.xp_next ?? 0));
+  const [gk, def, mid, fwd] = [by("GK"), by("DEF"), by("MID"), by("FWD")];
+  let best: T[] = [];
+  let bestVal = -Infinity;
+  for (let d = 3; d <= 5; d++)
+    for (let m = 2; m <= 5; m++) {
+      const f = 10 - d - m;
+      if (f < 1 || f > 3 || def.length < d || mid.length < m || fwd.length < f || !gk.length) continue;
+      const xi = [gk[0], ...def.slice(0, d), ...mid.slice(0, m), ...fwd.slice(0, f)];
+      const val = xi.reduce((s, p) => s + (p.xp_next ?? 0), 0);
+      if (val > bestVal) [best, bestVal] = [xi, val];
+    }
+  return best;
+}
+
 export default async function TeamPage() {
   const supabase = await createServerSupabase();
   const { data: authData } = await supabase.auth.getUser();
@@ -115,6 +135,26 @@ export default async function TeamPage() {
     .sort((a, b) => a.pick_position - b.pick_position);
   const byPos = (pos: Position) => starting.filter((s) => s.position === pos);
 
+  // Deadline check: your current XI and captain vs the best of the same 15 on the latest projections.
+  const best = bestXi(squad);
+  const bestIds = new Set(best.map((p) => p.fpl_id));
+  const startIn = best.filter((p) => !starting.some((s) => s.fpl_id === p.fpl_id));
+  const benchOut = starting.filter((p) => !bestIds.has(p.fpl_id)).sort((a, b) => (a.xp_next ?? 0) - (b.xp_next ?? 0));
+  const bestCap = [...best].sort((a, b) => (b.xp_next ?? 0) - (a.xp_next ?? 0))[0];
+  const curCap = starting.find((s) => s.is_captain);
+  // Pair each swap with a dropped starter of the same position where possible (GK for GK), else the weakest left.
+  const pool = [...benchOut];
+  const checks: string[] = startIn.map((p) => {
+    const k = pool.findIndex((o) => o.position === p.position);
+    const o = pool.splice(k >= 0 ? k : 0, 1)[0];
+    const gain = (p.xp_next ?? 0) - (o?.xp_next ?? 0);
+    return `Start ${p.web_name} (${(p.xp_next ?? 0).toFixed(1)}) instead of ${o?.web_name ?? "?"} (${(o?.xp_next ?? 0).toFixed(1)}): +${gain.toFixed(1)} pts`;
+  });
+  if (bestCap && curCap && bestCap.fpl_id !== curCap.fpl_id && (bestCap.xp_next ?? 0) > (curCap.xp_next ?? 0))
+    checks.push(
+      `Captain ${bestCap.web_name} (${(bestCap.xp_next ?? 0).toFixed(1)}) instead of ${curCap.web_name} (${(curCap.xp_next ?? 0).toFixed(1)}): +${((bestCap.xp_next ?? 0) - (curCap.xp_next ?? 0)).toFixed(1)} pts`,
+    );
+
   // Captain options: the five starters with the highest average, each with his simulated range.
   const capOptions = [...starting]
     .filter((s) => s.xp_next != null)
@@ -188,6 +228,26 @@ export default async function TeamPage() {
       <div className="mt-6">
         <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
       </div>
+
+      {nextGw != null && best.length === 11 && (
+        <section
+          className={`mt-8 rounded-xl border p-4 shadow-sm ${checks.length ? "border-amber-500/40 bg-amber-500/10" : "border-border/60 bg-card"}`}
+        >
+          <h2 className="text-base font-semibold">Deadline check · GW{nextGw}</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {checks.length ? (
+              checks.map((c) => <li key={c}>• {c}</li>)
+            ) : (
+              <li>• Your XI and captain are already the best of your 15 on the latest projections</li>
+            )}
+          </ul>
+          <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+            <li>• Compares the line-up FPL shows for your last deadline with the latest projections (refreshed every 2 hours)</li>
+            <li>• Transfers you&apos;ve made since aren&apos;t visible to the app until the deadline passes</li>
+            <li>• Check again shortly before the deadline: late team news can change projections</li>
+          </ul>
+        </section>
+      )}
 
       {capOptions.length > 0 && nextGw != null && (
         <section className="mt-8 rounded-xl border border-border/60 bg-card p-4 shadow-sm">

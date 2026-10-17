@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 24</span>
-    <span>updated 2026-10-13</span>
+    <span>doc rev 25</span>
+    <span>updated 2026-10-17</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v6</span>
     <span>season 2026/27 · next GW6</span>
@@ -344,6 +344,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
       <tr><td>gw_predictions</td><td class="num">gw, variant</td><td>predict</td><td>Best XI (capped/uncapped), predicted vs actual</td></tr>
       <tr><td>prediction_log</td><td class="num">gw, player_id</td><td>predict</td><td>Per-player predicted xPts, actual points and minutes</td></tr>
       <tr><td>model_calibration</td><td class="num">position</td><td>predict</td><td>Per-position multiplier, n_gws, sums</td></tr>
+      <tr><td>decision_log</td><td class="num">user_id, gw</td><td>optimize</td><td>The last pre-deadline plan per user and GW (squad, transfers, captain, chip advice), kept for post-mortems. Migration 0010; own rows only.</td></tr>
       <tr><td>news_sentiment</td><td class="num">id</td><td>news_job</td><td>Sentiment, topics, summary, minutes_risk_adj, source URL. Replaced in full each run.</td></tr>
       <tr><td>profiles</td><td class="num">id (auth uid)</td><td>web</td><td>FPL entry ID per account</td></tr>
       <tr><td>user_team_state</td><td class="num">user_id, gw</td><td>sync_team, web</td><td>Picks jsonb, bank, value, free_transfers, chips_available, rank. <code>gw = 0</code> means an uploaded or preseason squad.</td></tr>
@@ -491,7 +492,7 @@ x_deductions = −E[⌊GC/2⌋ | GC ~ Poisson(λ)]·p_start [GK/DEF]  −  yello
   <h3>How the live-only factors learn</h3>
   <ul>
     <li>Penalties, set pieces, return from injury and predicted line-ups can't be backtested: there's no GW-by-GW taker, injury or line-up history. So every player one touches is logged before the deadline (<code>factor_effect_log</code>, migration 0009) with his prediction without the factor and what it adds.</li>
-    <li>After the GW, <code>predict.py</code> records what happened (goals, goals+assists, or started) and refits each weight to best match reality: squared error for goals, Brier for starts. The weight is shrunk toward its starting value (penalty 0.5, set piece 0.5, return 1.0, line-up 0.7) by 40 pseudo-cases.</li>
+    <li>After the GW, <code>predict.py</code> records what happened (goals, goals+assists, or started) and refits each weight to best match reality: squared error for goals, Brier for starts. <b>Shadow mode</b> (since 2026-10-17): a factor's weight = best fit × g / (g + 3), where g is the gameweeks of evidence, so it counts 0 with none, a quarter after one GW and half after three. Until then factors started unproven at 0.5–1.0; after GW6 the best fits were 0 for penalty, set piece and return and 0.3 for line-ups, and the line-ups had made P(start) worse (Brier 0.1020 → 0.1042).</li>
     <li>Predicted line-ups and managerial changes come from <code>lineups.py</code>: one Claude Opus 5 call with web search and fetch in the 48h before a deadline (about $1–2 per GW), matched to squads and stored in <code>predicted_lineups</code> and <code>team_context</code>.</li>
   </ul>
   <h3>4. Team goals model (<code>team_model.py</code>)</h3>
@@ -542,6 +543,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     </li>
     <li>A double GW adds its fixtures' draws; the position calibration multiplier scales them like <code>x_pts</code></li>
     <li>Stored as <code>components.range</code>: P10, median, P90, P(10+ pts) and P(≤ 2 pts); shown in the "i" pop-up and the Captain options card on My Team</li>
+    <li>My Team also shows a <b>Deadline check</b>: the best legal XI and captain of your 15 on the latest projections, against the line-up FPL shows for your last deadline, listing each swap and its projected gain</li>
     <li>The captain is still chosen by the average: in the backtest, captaining by P(10+) or by P90 scored less (6.60 and 6.68 vs 7.17 pts per GW)</li>
   </ul>
 </section>
@@ -555,7 +557,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><b>Calibrate.</b> Over scored rows from GW6 on (<code>CALIB_FROM_GW</code>; earlier logs are unusable) with predicted xPts ≥ 2, per position: <code>raw = clamp(Σactual / Σpredicted, 0.5, 2)</code>, <code>mult = clamp((n·raw + 3) / (n + 3), 0.8, 1.2)</code> where n = GWs scored. The next model run applies it. With no usable data, every multiplier is reset to ×1.0.</li>
     <li><b>Best XI.</b> For the next GW, solve the single-squad MILP twice, with a £100.0m budget ("capped") and with no budget ("uncapped"). Upsert into <code>gw_predictions</code>, unless that GW is already scored.</li>
     <li><b>News weight.</b> Score logged news cases (did he start?) and refit <code>news_weight</code> (section 12).</li>
-    <li><b>Snapshot.</b> Replace the unscored <code>prediction_log</code> rows for that GW with every pool player's predicted xPts. The GW only advances at the deadline, so the last pre-deadline run is the snapshot that gets scored.</li>
+    <li><b>Snapshot.</b> Replace the unscored <code>prediction_log</code> rows for that GW with every pool player's predicted xPts, plus FPL's own <code>ep_next</code> as <code>fpl_ep</code> (migration 0010), a leak-free benchmark. The GW only advances at the deadline, so the last pre-deadline run is the snapshot that gets scored.</li>
   </ol>
   <ul>
     <li>A GW is scored if either its per-player log or its published Best XI is still unscored</li>
@@ -1058,6 +1060,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-10</span><br>Logic audit: per-component bias check against actual points. Saves now score only whole sets of 3 (saves ~ Poisson(2.1 × xGA)); GK goals worth 10. DefCon negative binomial tested and left off. Optimizer rules checked against FPL's game_config (5 FT cap, chips per half, selling prices): no changes needed.</li>
     <li><span class="d">2026-10-11</span><br>GW6 review. The backtest now replays the season in progress (rebuilt from FPL's live endpoints). Remodels tested on this and earlier seasons (recent-points blend, last-season DefCon, clean-sheet uncertainty) didn't beat rules-v6, so they ship switched off. Dataset xP flagged as an unfair benchmark (likely post-GW data).</li>
     <li><span class="d">2026-10-11</span><br>Range of outcomes (accuracy plan step 5): every projection stores P10 / median / P90, P(10+) and P(≤ 2) from 2,000 simulated GWs (<code>outcomes.py</code>). Shown in the "i" pop-up and a new Captain options card on My Team. Captain still chosen by average (backtest: beats choosing by haul chance).</li>
+    <li><span class="d">2026-10-17</span><br>Wildcard review quick wins: live-only factors in shadow mode (weight grows with gameweeks of evidence); decision log of each deadline's plan and FPL's own expected points (migration 0010); Deadline check card on My Team.</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
     <li><span class="d">2026-10-13</span><br>Chip bars halved (TC 6, BB 9, WC 4, FH 4) after the season replay with chips beat the old bars in all three seasons; second-half chips now get the same use-it-or-lose-it rule at GW38. The replay (<code>optimizer_backtest.py --chips</code>) plays Triple Captain, Bench Boost, Free Hit and Wildcard.</li>

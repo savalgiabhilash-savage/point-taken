@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import highspy
 from dotenv import load_dotenv
@@ -853,6 +854,16 @@ def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, ch
         }
     ).execute()
     print("\nWrote optimizer_runs.")
+    # Decision log: the latest plan for this GW, replaced on each run until the deadline, then kept for
+    # post-mortems (optimizer_runs itself only holds the latest run).
+    try:
+        run = {"horizon": horizon, "objective": objective, "suggested_squad": squad, "transfers": transfers,
+               "chip_reco": chip_reco, "captain_id": captain["fpl_id"] if captain else None, "expected_gain": gain}
+        sb.table("decision_log").upsert({"user_id": user_id, "gw": gw, "run": run,
+                                         "updated_at": datetime.now(timezone.utc).isoformat()},
+                                        on_conflict="user_id,gw").execute()
+    except Exception as exc:  # noqa: BLE001 — needs migration 0010
+        print(f"  decision log skipped ({exc.__class__.__name__}); run supabase/migrations/0010 to enable")
 
 
 def _all_user_ids(sb) -> list[str]:

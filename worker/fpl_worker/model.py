@@ -75,7 +75,7 @@ RETURN_RAMP = 0.7        # first games back: this share of his pre-absence start
 RETURN_MIN_ABSENT = 2    # consecutive club games missed to count as an absence
 RETURN_PRE_RATE = 0.6    # ...by a player who was starting at least this often before it
 LINEUP_TARGET = {True: 0.92, False: 0.10}  # start chance when named / left out of a predicted XI
-FACTOR_WEIGHTS = {"penalty": 0.5, "setpiece": 0.5, "return": 1.0, "lineup": 0.7}
+FACTOR_WEIGHTS = {"penalty": 0.0, "setpiece": 0.0, "return": 0.0, "lineup": 0.0}  # shadow mode until learned (predict.py)
 # model_params keys the weekly re-tune (tune.py) may override.
 TUNED_PARAMS = {"congestion": (context_model, "CONGESTION"), "last_season_weight": (form_model, "LAST_SEASON_WEIGHT"),
                 "share_k": (form_model, "SHARE_K")}

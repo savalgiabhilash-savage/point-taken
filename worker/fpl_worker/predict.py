@@ -157,16 +157,22 @@ def log_best_squads(sb, pool, xp_by_gw, gw) -> None:
         print(f"  best XI {variant:8} GW{gw}: {predicted} predicted pts, £{cost:.1f}m")
 
 
-def snapshot_predictions(sb, pool, xp_by_gw, gw) -> None:
+def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None = None) -> None:
+    """fpl_ep: FPL's own expected points for this GW (bootstrap ep_next), stored alongside as a benchmark."""
     rows = [{"gw": gw, "player_id": p["fpl_id"], "position": p["position"],
-             "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3)}
+             "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3),
+             **({"fpl_ep": fpl_ep.get(p["fpl_id"])} if fpl_ep is not None else {})}
             for p in pool if gw in xp_by_gw.get(p["fpl_id"], {})]
     # Replace the unscored snapshot for this GW rather than upserting over it, so players who have
     # since dropped out of the pool (injured, left the league) don't keep a stale prediction.
     # The GW only changes at the deadline (model uses FPL's is_next), so the last pre-deadline run is
     # the snapshot that gets scored.
     sb.table("prediction_log").delete().eq("gw", gw).eq("scored", False).execute()
-    db.upsert(sb, "prediction_log", rows, on_conflict="gw,player_id")
+    try:
+        db.upsert(sb, "prediction_log", rows, on_conflict="gw,player_id")
+    except Exception:  # noqa: BLE001 — fpl_ep needs migration 0010; store our prediction regardless
+        db.upsert(sb, "prediction_log", [{k: v for k, v in r.items() if k != "fpl_ep"} for r in rows],
+                  on_conflict="gw,player_id")
     print(f"  snapshotted {len(rows)} player predictions for GW{gw}")
 
 
@@ -260,8 +266,11 @@ def learn_news_weight(sb, client: FplClient, finished: set[int]) -> None:
 # --- live-only factor weights: learned from outcomes --------------------------------
 
 # Starting belief per factor (model.FACTOR_WEIGHTS) and how many observations it's worth.
-FACTOR_PRIOR = {"penalty": 0.5, "setpiece": 0.5, "return": 1.0, "lineup": 0.7}
-FACTOR_PRIOR_N = 40
+# Shadow mode: a live-only factor earns its weight. It's logged from day one, but its weight is the best fit
+# so far x g / (g + FACTOR_EVIDENCE_GWS), with g = gameweeks of evidence: 0 with none, 1/4 of the fit after
+# one GW, half after three. (Until 2026-10-13 they started at 0.5-1.0 unproven; GW6 showed that hurt.)
+FACTORS = ("penalty", "setpiece", "return", "lineup")
+FACTOR_EVIDENCE_GWS = 3
 FACTOR_GRID = [i / 10 for i in range(0, 16)]
 # What each factor predicts: expected goals (penalty), goals+assists (set pieces), or P(start).
 FACTOR_OUTCOME = {"penalty": "goals", "setpiece": "goals+assists", "return": "started", "lineup": "started"}
@@ -287,7 +296,8 @@ def log_factor_effects(sb, gw: int) -> None:
 
 def learn_factor_weights(sb, client: FplClient, finished: set[int]) -> None:
     """Score logged cases and refit each factor's weight w: the value for which base + w x term best matches
-    what happened (squared error for goal counts, Brier for starts), shrunk toward the prior by sample size."""
+    what happened (squared error for goal counts, Brier for starts), shrunk toward 0 until there are a few
+    gameweeks of evidence (shadow mode, FACTOR_EVIDENCE_GWS)."""
     try:
         pending = _all(sb, "factor_effect_log", "gw, player_id, factor", eq=("scored", False))
     except Exception:  # noqa: BLE001 — migration 0009 not applied yet
@@ -306,8 +316,8 @@ def learn_factor_weights(sb, client: FplClient, finished: set[int]) -> None:
             upd.append({"gw": gw, "player_id": r["player_id"], "factor": r["factor"], "actual": actual, "scored": True})
         if upd:
             db.upsert(sb, "factor_effect_log", upd, on_conflict="gw,player_id,factor")
-    rows = _all(sb, "factor_effect_log", "factor, base, term, actual", eq=("scored", True))
-    for factor, prior in FACTOR_PRIOR.items():
+    rows = _all(sb, "factor_effect_log", "gw, factor, base, term, actual", eq=("scored", True))
+    for factor in FACTORS:
         cases = [r for r in rows if r["factor"] == factor]
         if not cases:
             continue
@@ -323,12 +333,13 @@ def learn_factor_weights(sb, client: FplClient, finished: set[int]) -> None:
             return tot / len(cases)
 
         best = min(FACTOR_GRID, key=err)
-        n = len(cases)
-        w = (n * best + FACTOR_PRIOR_N * prior) / (n + FACTOR_PRIOR_N)
+        n, g = len(cases), len({r["gw"] for r in cases})
+        w = best * g / (g + FACTOR_EVIDENCE_GWS)
         sb.table("model_params").upsert({"key": f"{factor}_weight", "value": round(w, 3), "n": n, "updated_at": _now(),
-                                         "note": f"best fit {best} on {n} cases (error {err(best):.4f} vs {err(prior):.4f} at prior)"},
+                                         "note": f"best fit {best} on {n} cases over {g} GW(s) (error {err(best):.4f} vs "
+                                                 f"{err(0.0):.4f} at 0); counts at {g}/{g + FACTOR_EVIDENCE_GWS} of it"},
                                         on_conflict="key").execute()
-        print(f"  {factor} weight: {w:.3f} (best fit {best} on {n} cases)")
+        print(f"  {factor} weight: {w:.3f} (best fit {best} on {n} cases, {g} GWs)")
 
 
 def run(sb, dry_run: bool = False) -> None:
@@ -355,12 +366,15 @@ def run(sb, dry_run: bool = False) -> None:
         return
     with FplClient() as client:
         score_finished(sb, client)
-        finished = {e["id"] for e in client.bootstrap_static().get("events", []) if e.get("finished")}
+        boot = client.bootstrap_static()
+        finished = {e["id"] for e in boot.get("events", []) if e.get("finished")}
+        # ep_next is FPL's expectation for the next GW, the same GW as next_gw (both follow FPL's is_next)
+        fpl_ep = {e["id"]: float(e["ep_next"]) for e in boot.get("elements", []) if e.get("ep_next") is not None}
         learn_news_weight(sb, client, finished)
         learn_factor_weights(sb, client, finished)
     update_calibration(sb)
     log_best_squads(sb, pool, xp_by_gw, next_gw)
-    snapshot_predictions(sb, pool, xp_by_gw, next_gw)
+    snapshot_predictions(sb, pool, xp_by_gw, next_gw, fpl_ep)
     log_news_effects(sb, next_gw)
     log_factor_effects(sb, next_gw)
 
