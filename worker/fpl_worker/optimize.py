@@ -35,7 +35,9 @@ SQUAD_QUOTA = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
 FORMATION_MIN = {"GK": 1, "DEF": 3, "MID": 2, "FWD": 1}
 FORMATION_MAX = {"GK": 1, "DEF": 5, "MID": 5, "FWD": 3}
 EXCLUDE_STATUS = {"i", "s", "u", "n"}
-BENCH_WEIGHT = 0.1
+BENCH_WEIGHT = 0.1      # outfield bench: the share of his points expected to come on as an auto-sub
+BENCH_WEIGHT_GK = 0.1   # bench GK: only plays if your starting GK misses. 0 / 0.03 tested 2026-10-18: one season
+                        # +140-160, another -70; no consistent gain. Outfield 0.2 / 0.3 were worse almost everywhere.
 HIT_COST = 4
 FT_CAP = 5              # 2026/27: free transfers accumulate up to 5
 DECAY = 0.9            # discount future GWs in the objective (uncertainty grows with distance)
@@ -48,6 +50,9 @@ POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 # Double/Blank gameweeks, where a Bench Boost / Triple Captain haul or a Free Hit swing is large.
 # Halved 2026-10-13 after the season replay (optimizer_backtest --chips): bars x0.5 beat x1 in all three of
 # 2023-24 .. 2025-26 (7,064 vs 6,909 pts); x0, x1.5 and x2 were worse.
+# Wildcard value with follow-on transfers: after the rebuild week, keep making the plan's free transfers
+# (banked FTs survive a Wildcard) instead of freezing the rebuilt squad, which undervalued the chip.
+WC_FOLLOW_ON = True   # replay 2023-26 with chips: 7,059 vs 6,965 pts (won 2 of 3 seasons, -9 in the third)
 CHIP_THRESHOLDS = {"Triple Captain": 6.0, "Bench Boost": 9.0, "Wildcard": 4.0, "Free Hit": 4.0}
 
 # Map our chip display names to FPL's internal codes (as they appear in chips_available).
@@ -212,12 +217,17 @@ def _gw_flags(sb, gws) -> dict[int, dict]:
     return flags
 
 
+def _bench_w(position: str) -> float:
+    return BENCH_WEIGHT_GK if position == "GK" else BENCH_WEIGHT
+
+
 # --- single-squad MILP (used by --fresh, --transfers, and the chip evaluators) --
 
 def _solve(universe: list[dict], budget: int, current_count: int, free_transfers: int) -> dict:
     """Core MILP over `universe` (each entry has cost/xp5/xpn/position/team_id/is_current)."""
     h = highspy.Highs()
     h.setOptionValue("output_flag", False)
+    h.setOptionValue("threads", 1)  # deterministic: same inputs, same plan (parallel search varies run to run)
     n = len(universe)
     squad = [h.addBinary() for _ in range(n)]
     start = [h.addBinary() for _ in range(n)]
@@ -257,7 +267,7 @@ def _solve(universe: list[dict], budget: int, current_count: int, free_transfers
     h.maximize(
         sum(val[i] * start[i] for i in range(n))
         + sum(vnext[i] * cap[i] for i in range(n))
-        + BENCH_WEIGHT * sum(val[i] * (squad[i] - start[i]) for i in range(n))
+        + sum(_bench_w(pos[i]) * val[i] * (squad[i] - start[i]) for i in range(n))
         - HIT_COST * paid
     )
     if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
@@ -287,6 +297,7 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
     H = len(gws)
     h = highspy.Highs()
     h.setOptionValue("output_flag", False)
+    h.setOptionValue("threads", 1)  # deterministic: same inputs, same plan (parallel search varies run to run)
     h.setOptionValue("time_limit", time_limit)
     h.setOptionValue("mip_rel_gap", 0.01)
     n = len(universe)
@@ -348,7 +359,7 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
 
     obj = (
         sum(DECAY ** g * (xp[i][g] * start[i][g] + xp[i][g] * cap[i][g]
-                          + BENCH_WEIGHT * xp[i][g] * (own[i][g] - start[i][g]))
+                          + _bench_w(pos[i]) * xp[i][g] * (own[i][g] - start[i][g]))
             for i in range(n) for g in range(H))
         - HIT_COST * sum(pen[g] for g in range(H))
     )
@@ -469,7 +480,7 @@ def _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs):
     return best
 
 
-def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs):
+def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs, frees_by_gw=None):
     """Marginal value of a free full rebuild vs continuing your planned transfers: the extra points
     the rebuild reaches PLUS any hits it saves. ≈0 when your free transfers already reach the
     optimal squad (e.g. preseason, when transfers are unlimited)."""
@@ -481,6 +492,14 @@ def _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idx
                 "xpn": xp_by_gw.get(u["fpl_id"], {}).get(g, 0.0)} for u in universe]
         fresh = _solve(uni, budget, current_count=0, free_transfers=15)["squad"]
         fresh_val = sum(_plan_val_at(fresh, xp_by_gw, w)["xi_cap"] for w in window)
+        if WC_FOLLOW_ON and frees_by_gw and len(window) > 1:
+            # From the rebuilt 15, plan the remaining weeks with the FTs you still hold (frozen by the chip).
+            after = _solve_path(uni, budget, {p["fpl_id"] for p in fresh}, max(1, frees_by_gw[gi]), window[1:],
+                                xp_by_gw, time_limit=30.0)
+            follow = (_plan_val_at(fresh, xp_by_gw, g)["xi_cap"]
+                      + sum(_plan_val_at(sq, xp_by_gw, w)["xi_cap"] for sq, w in zip(after["plan_squads"], window[1:]))
+                      - HIT_COST * after["hits_total"])
+            fresh_val = max(fresh_val, follow)
         plan_val = sum(_plan_val_at(plan_squads[gj], xp_by_gw, gws[gj])["xi_cap"] for gj in range(gi, len(gws)))
         hits_saved = sum(hits_by_gw[gj] for gj in range(gi, len(gws)))
         gain = round(fresh_val - plan_val + HIT_COST * hits_saved, 2)
@@ -513,14 +532,15 @@ def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs):
     return best
 
 
-def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None):
+def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None,
+               frees_by_gw=None):
     # Each chip comes twice: one copy for GW1-19 and one for GW20-38. Value each copy only inside its
     # own half of the horizon. chips_available describes the half of the next deadline (gws[0]); a
     # later half in the horizon starts with a fresh full set.
     evaluators = [
         lambda idxs: _chip_triple_captain(plan_squads, xp_by_gw, gws, idxs),
         lambda idxs: _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs),
-        lambda idxs: _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs),
+        lambda idxs: _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs, frees_by_gw),
         lambda idxs: _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs),
     ]
     avail = set(chips_available) if chips_available else None  # None (preseason) -> all available
@@ -807,7 +827,8 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     dgw_bgw = [f"GW{g}:{fl['type']}" for g, fl in sorted(gw_flags.items()) if fl["type"]]
     if dgw_bgw:
         print(f"  Fixture flags: {', '.join(dgw_bgw)}")
-    chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail, gw_flags)
+    chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail, gw_flags,
+                       frees_by_gw=[step["free"] for step in path_res["path"]])
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"

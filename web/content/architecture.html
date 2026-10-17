@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 26</span>
+    <span>doc rev 27</span>
     <span>updated 2026-10-18</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v7</span>
@@ -600,7 +600,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
 <pre><code>maximise  Σ_g 0.9^g · Σ_i xp[i,g] · (start[i,g] + captain[i,g] + 0.1·bench[i,g])
           − 4 · Σ_g hits[g]</code></pre>
   <ul>
-    <li>The solver runs with a 1% relative gap and a time limit of <code>min(300, 45 + 7·H)</code> seconds</li>
+    <li>The solver runs with a 1% relative gap, a time limit of <code>min(300, 45 + 7·H)</code> seconds and a single thread, so the same inputs always give the same plan (parallel search varied run to run)</li>
     <li>Output per GW: transfers in and out, hits, banked FTs, XI points including the captain</li>
     <li>Hits are reported by FPL's rule (transfers beyond the free ones), not from the solver's slack variable</li>
     <li>Reported "planned points" are undiscounted</li>
@@ -628,10 +628,10 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <div class="tbl"><table>
     <thead><tr><th>Chip</th><th>Gain at GW g</th><th class="num">Bar</th></tr></thead>
     <tbody>
-      <tr><td>Triple Captain</td><td>Captain's xPts that GW (one extra ×1)</td><td class="num">12</td></tr>
-      <tr><td>Bench Boost</td><td>Sum of the 4 bench players' xPts</td><td class="num">18</td></tr>
-      <tr><td>Wildcard</td><td>Fresh optimal 15 for GWs g…end − planned path over the same window + 4 × hits the path takes from g</td><td class="num">8</td></tr>
-      <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">8</td></tr>
+      <tr><td>Triple Captain</td><td>Captain's xPts that GW (one extra ×1)</td><td class="num">6</td></tr>
+      <tr><td>Bench Boost</td><td>Sum of the 4 bench players' xPts</td><td class="num">9</td></tr>
+      <tr><td>Wildcard</td><td>Fresh optimal 15 for GWs g…end, then the free transfers you'd still make each later week (FTs survive the chip), − planned path over the same window + 4 × hits the path takes from g</td><td class="num">4</td></tr>
+      <tr><td>Free Hit</td><td>One-week optimal 15 at GW g − the planned squad at g</td><td class="num">4</td></tr>
     </tbody>
   </table></div>
   <ul>
@@ -921,6 +921,12 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Caveat: the dataset's <code>xP</code> very likely contains post-gameweek information. FPL's expected points are mostly recent form, yet a leak-free recent-form predictor only reaches top-20 4.1 pts and RMSE 2.14–2.17, against xP's 7.5 and 1.68. Treat xP as an upper bound, not a fair benchmark</li>
   </ul>
   <ul>
+    <li><b>Bench weights and Wildcard follow-on (deterministic replay, 2026-10-18):</b>
+      <ul>
+        <li>Bench GK × outfield weights (0 / 0.03 / 0.1 × 0.1 / 0.2 / 0.3): current 0.1 / 0.1 scores 6,721; GK 0 and 0.03 total 6,853 and 6,849 but one season carries it (+140–160) and another loses up to 70; outfield 0.2 / 0.3 worse almost everywhere. Kept at 0.1 / 0.1</li>
+        <li>Wildcard valued with follow-on free transfers after the rebuild (<code>WC_FOLLOW_ON</code>), chips on: 2,410 · 2,640 · 2,009 vs 2,356 · 2,649 · 1,960, total 7,059 vs 6,965. Shipped</li>
+      </ul>
+    </li>
     <li><b>rules-v7 crowd signal (2026-10-18), out of sample</b> (fit on two seasons, tested on the third):
       <ul>
         <li>2024/25: RMSE 1.9430 → 1.9394, ρ 0.682 → 0.686, top-20 5.03 → 5.13, captain 9.26 → 9.40</li>
@@ -945,7 +951,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
         <li>With chips at the old bars: 6,909–6,975 pts over three seasons vs 6,721 without chips (+190 to +250)</li>
         <li>Bars ×0 / ×0.5 / ×1 / ×1.5 / ×2: 6,898 / <b>7,064</b> / 6,909 / 6,842 / 6,861; ×0.5 beat ×1 in all three seasons (2,356 vs 2,315 · 2,649 vs 2,561 · 2,059 vs 2,033)</li>
         <li>Without the GW38 expiry rule, 2024/25's second-half Triple Captain, Bench Boost and Wildcard were never played</li>
-        <li>Caveat: the replay's 20 s solver limit makes runs slightly non-deterministic under load (about ±60 pts between runs); comparisons are made within one run</li>
+        <li>Caveat: the replay's 20 s solver limit made runs slightly non-deterministic under load (about ±60 pts between runs); fixed 2026-10-18 (single thread, 120 s limit), two simultaneous runs now match exactly</li>
       </ul>
     </li>
     <li><b>Range of outcomes (step 5), validated on 2023/24–2026/27 (89,981 player-fixtures):</b>
@@ -1088,6 +1094,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-11</span><br>Range of outcomes (accuracy plan step 5): every projection stores P10 / median / P90, P(10+) and P(≤ 2) from 2,000 simulated GWs (<code>outcomes.py</code>). Shown in the "i" pop-up and a new Captain options card on My Team. Captain still chosen by average (backtest: beats choosing by haul chance).</li>
     <li><span class="d">2026-10-17</span><br>Wildcard review quick wins: live-only factors in shadow mode (weight grows with gameweeks of evidence); decision log of each deadline's plan and FPL's own expected points (migration 0010); Deadline check card on My Team.</li>
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
+    <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
     <li><span class="d">2026-10-13</span><br>Chip bars halved (TC 6, BB 9, WC 4, FH 4) after the season replay with chips beat the old bars in all three seasons; second-half chips now get the same use-it-or-lose-it rule at GW38. The replay (<code>optimizer_backtest.py --chips</code>) plays Triple Captain, Bench Boost, Free Hit and Wildcard.</li>

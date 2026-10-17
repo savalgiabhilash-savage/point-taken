@@ -37,6 +37,7 @@ from . import backtest, optimize
 CUBE = Path(".cache") / "optcube"
 H_MAX = 8
 GRID = {"DECAY": [0.8, 0.9, 1.0], "BENCH_WEIGHT": [0.05, 0.1, 0.2], "HIT_COST": [4, 6]}
+BENCH_GRID = {"BENCH_WEIGHT_GK": [0.0, 0.03, 0.1], "BENCH_WEIGHT": [0.1, 0.2, 0.3]}  # --bench-grid
 
 
 def projection_cube(season: str) -> pd.DataFrame:
@@ -143,13 +144,14 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
         universe = optimize._bounded_universe(current, pool)
         budget = sum(sell.values()) + bank
         plan = optimize._solve_path(universe, budget, owned, ft, gws, xp_by_gw, ft_unlimited=(g == rounds[0]),
-                                    time_limit=20.0)
+                                    time_limit=120.0)  # generous, so a busy machine doesn't change the plan
         step = plan["path"][0]
         new = plan["gw0_squad"]
         chip, gw_squad = None, None
         if chips and g != rounds[0]:
             codes = [optimize.CHIP_CODES[c] for c in held]
-            cp = optimize._chip_plan(plan["plan_squads"], plan["hits_by_gw"], universe, budget, xp_by_gw, gws, codes)
+            cp = optimize._chip_plan(plan["plan_squads"], plan["hits_by_gw"], universe, budget, xp_by_gw, gws, codes,
+                                     frees_by_gw=[step["free"] for step in plan["path"]])
             best = cp["best"]
             if best and best["gw"] == g and best["chip"] in held:
                 chip = best["chip"]
@@ -200,14 +202,18 @@ def main() -> None:
     parser.add_argument("--seasons", nargs="+", default=["2023-24", "2024-25", "2025-26"])
     parser.add_argument("--horizon", type=int, default=5)
     parser.add_argument("--grid", action="store_true", help="run every combination in GRID")
+    parser.add_argument("--bench-grid", action="store_true", help="run every combination in BENCH_GRID")
     parser.add_argument("--chips", action="store_true", help="play chips as the live chip plan recommends")
     parser.add_argument("--chip-scales", nargs="+", type=float, default=[1.0],
                         help="with --chips: multiply every chip's bar (CHIP_THRESHOLDS) by each value in turn")
+    parser.add_argument("--wc-follow-on", action="store_true", help="value the Wildcard with follow-on transfers")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+    optimize.WC_FOLLOW_ON = args.wc_follow_on
     for s in args.seasons:
         projection_cube(s)
-    combos = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())] if args.grid else [{}]
+    grid = GRID if args.grid else BENCH_GRID if args.bench_grid else None
+    combos = [dict(zip(grid, v)) for v in itertools.product(*grid.values())] if grid else [{}]
     base_bars = dict(optimize.CHIP_THRESHOLDS)
     for combo in combos:
         for k, v in combo.items():
