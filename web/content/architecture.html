@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 27</span>
+    <span>doc rev 28</span>
     <span>updated 2026-10-18</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v7</span>
@@ -511,7 +511,8 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Live, the fit uses last season's matches from the FPL dataset (<code>fpl_history.season_matches</code>) plus this season's matches, rebuilt from FPL's <code>event/{gw}/live</code> (a club's xG in a GW = its players' <code>expected_goals</code>, split evenly across a double)</li>
     <li>Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them</li>
     <li>Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code></li>
-    <li>The 90-day half-life and 0.75 odds weight were tuned on 2023/24</li>
+    <li>The 90-day half-life and 0.75 odds weight were tuned on 2023/24, and the half-life was re-checked on all four seasons on 2026-10-18 (below)</li>
+    <li>Results can be blended into team form (<code>GOALS_WEIGHT</code>: chances = (1 − w)·xG + w·goals); tested and off. Live, team goals come from players' goals plus the opponent's own goals</li>
     <li>Blowout guard: a side's xG above 3.0 in one match counts only half of the excess (<code>XG_CAP</code>, <code>XG_OVER</code>), so one 5-xG game can't define a team's attack
       <ul>
         <li>Example: Man Utd's 5.15 xG vs Ipswich (GW2) counts as 4.08; their attack vs an average side drops 1.74 → 1.65 goals</li>
@@ -921,6 +922,13 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Caveat: the dataset's <code>xP</code> very likely contains post-gameweek information. FPL's expected points are mostly recent form, yet a leak-free recent-form predictor only reaches top-20 4.1 pts and RMSE 2.14–2.17, against xP's 7.5 and 1.68. Treat xP as an upper bound, not a fair benchmark</li>
   </ul>
   <ul>
+    <li><b>Team form (2026-10-18, raised by Man Utd: 7 pts from 7 games, ~1.1 xG a game over four games, still rated on a 5.15-xG win in GW2):</b>
+      <ul>
+        <li>Half-life 30 / 45 / 60 / 90 days × goals blend 0 / 0.25 / 0.5, next GW, four seasons: all within ±0.002 RMSE of current, no consistent top-20 or captain gain (odds, 75% of next-GW expected goals, already price form)</li>
+        <li>Projections 1 and 3 GWs ahead (no odds, where team form drives the numbers): current 90 days / xG only RMSE 2.014 · 1.988 · 2.026 · 2.290, top-20 this season 4.60; 45 days 2.015 · 1.988 · 2.028 · 2.296, 4.34; goals 0.25 2.013 · 1.989 · 2.026 · 2.290, 4.41; 30 days + goals 0.5 2.015 · 1.991 · 2.029 · 2.300, 4.16</li>
+        <li>Reacting faster to form or to results made picks worse, so team form stays at a 90-day half-life on xG; recent form is also reflected through the crowd signal (net transfers) and next-GW odds</li>
+      </ul>
+    </li>
     <li><b>Bench weights and Wildcard follow-on (deterministic replay, 2026-10-18):</b>
       <ul>
         <li>Bench GK × outfield weights (0 / 0.03 / 0.1 × 0.1 / 0.2 / 0.3): current 0.1 / 0.1 scores 6,721; GK 0 and 0.03 total 6,853 and 6,849 but one season carries it (+140–160) and another loses up to 70; outfield 0.2 / 0.3 worse almost everywhere. Kept at 0.1 / 0.1</li>
@@ -1095,6 +1103,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-17</span><br>Wildcard review quick wins: live-only factors in shadow mode (weight grows with gameweeks of evidence); decision log of each deadline's plan and FPL's own expected points (migration 0010); Deadline check card on My Team.</li>
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
+    <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
     <li><span class="d">2026-10-13</span><br>Chip bars halved (TC 6, BB 9, WC 4, FH 4) after the season replay with chips beat the old bars in all three seasons; second-half chips now get the same use-it-or-lose-it rule at GW38. The replay (<code>optimizer_backtest.py --chips</code>) plays Triple Captain, Bench Boost, Free Hit and Wildcard.</li>

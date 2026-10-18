@@ -562,11 +562,15 @@ def season_team_matches(live: dict[int, list[dict]], fixtures: list[dict], team_
     Players are credited to their current club, so a mid-season transfer's earlier xG moves with him."""
     games = _club_games(fixtures)
     xg: dict[tuple[int, int], float] = {}
+    goals: dict[tuple[int, int], float] = {}   # goals its players scored
+    ogs: dict[tuple[int, int], float] = {}     # own goals its players conceded (credited to the opponent)
     for gw, elements in live.items():
         for e in elements:
             t = team_by_player.get(e["id"])
             if t is not None:
                 xg[(t, gw)] = xg.get((t, gw), 0.0) + float(e["stats"].get("expected_goals") or 0)
+                goals[(t, gw)] = goals.get((t, gw), 0.0) + float(e["stats"].get("goals_scored") or 0)
+                ogs[(t, gw)] = ogs.get((t, gw), 0.0) + float(e["stats"].get("own_goals") or 0)
     out = []
     for f in fixtures:
         if not f["finished"] or f["gw"] is None or not f.get("kickoff_time"):
@@ -574,6 +578,8 @@ def season_team_matches(live: dict[int, list[dict]], fixtures: list[dict], team_
         h, a, gw = f["team_h"], f["team_a"], f["gw"]
         out.append({"home": name_by_id[h], "away": name_by_id[a],
                     "hxg": xg.get((h, gw), 0.0) / games[(h, gw)], "axg": xg.get((a, gw), 0.0) / games[(a, gw)],
+                    "hg": (goals.get((h, gw), 0.0) + ogs.get((a, gw), 0.0)) / games[(h, gw)],
+                    "ag": (goals.get((a, gw), 0.0) + ogs.get((h, gw), 0.0)) / games[(a, gw)],
                     "date": datetime.fromisoformat(f["kickoff_time"].replace("Z", "+00:00"))})
     return out
 

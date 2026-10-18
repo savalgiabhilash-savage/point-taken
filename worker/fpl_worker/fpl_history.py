@@ -110,13 +110,15 @@ def season_matches(df: pd.DataFrame) -> list[dict]:
     for the team goals model."""
     side = df.groupby(["fixture", "was_home"]).agg(
         team=("team", "first"), xg=("expected_goals", "sum"),
-        kickoff=("kickoff_time", "first"), round=("round", "first")).reset_index()
+        kickoff=("kickoff_time", "first"), round=("round", "first"),
+        hg=("team_h_score", "first"), ag=("team_a_score", "first")).reset_index()
     home = side[side["was_home"]].set_index("fixture")
     away = side[~side["was_home"]].set_index("fixture")
     out = []
     for f in home.index.intersection(away.index):
         h, a = home.loc[f], away.loc[f]
         out.append({"home": h["team"], "away": a["team"], "hxg": h["xg"], "axg": a["xg"], "round": int(h["round"]),
+                    "hg": None if pd.isna(h["hg"]) else float(h["hg"]), "ag": None if pd.isna(h["ag"]) else float(h["ag"]),
                     "date": datetime.fromisoformat(str(h["kickoff"]).replace("Z", "+00:00"))})
     return out
 
@@ -156,7 +158,8 @@ def build_current_season(season: str) -> None:
                 home = f["team_h"] == e["team"]
                 row = {"name": e["web_name"], "position": pos[e["element_type"]], "team": team_name[e["team"]],
                        "element": p["id"], "fixture": f["id"], "round": g, "GW": g, "kickoff_time": f["kickoff_time"],
-                       "opponent_team": f["team_a"] if home else f["team_h"], "was_home": home, "xP": None}
+                       "opponent_team": f["team_a"] if home else f["team_h"], "was_home": home, "xP": None,
+                       "team_h_score": f["team_h_score"], "team_a_score": f["team_a_score"]}
                 for k in stat_cols:
                     row[k] = float(p["stats"].get(k) or 0) / len(fxs)
                 rows.append(row)
