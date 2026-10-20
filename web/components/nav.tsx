@@ -14,6 +14,7 @@ const ITEMS = [
   { href: "/chips", label: "Chips" },
   { href: "/differentials", label: "Differentials" },
   { href: "/best", label: "Best XI" },
+  { href: "/accuracy", label: "Accuracy" },
   { href: "/assistant", label: "Assistant" },
   { href: "/guide", label: "Guide" },
 ];
