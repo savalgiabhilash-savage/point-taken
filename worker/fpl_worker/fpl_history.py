@@ -124,48 +124,32 @@ def season_matches(df: pd.DataFrame) -> list[dict]:
 
 
 def build_current_season(season: str) -> None:
-    """Rebuild the dataset files for the season in progress from the FPL API (bootstrap, fixtures,
-    event/{gw}/live), in the same shape as the vaastav files, so the backtest can replay this season too.
-    The vaastav repo lags (often only GW1 early on). xP is left empty (no leak-free benchmark).
-    A double gameweek's stats are split evenly across its two fixtures (event/live only has GW totals)."""
+    """Rebuild the dataset files for the season in progress from the FPL API, in the same shape as the
+    vaastav files (which lag in-season, often only GW1), so the backtest can replay this season too.
+    Per-match rows come from each player's element-summary history: stats, ownership (`selected`), the
+    pre-deadline transfers into that round (`transfers_balance`) and price (`value`). Matches count once
+    played (finished_provisional). xP is left empty (no leak-free benchmark)."""
     import httpx
 
     base = "https://fantasy.premierleague.com/api/"
     with httpx.Client(timeout=30, headers={"User-Agent": "Mozilla/5.0"}) as c:
         bs = c.get(base + "bootstrap-static/").json()
-        fixtures = c.get(base + "fixtures/").json()
-        finished = [e["id"] for e in bs["events"] if e["finished"]]
-        live = {g: c.get(base + f"event/{g}/live/").json()["elements"] for g in finished}
-    team_name = {t["id"]: t["name"] for t in bs["teams"]}
-    pos = {t["id"]: t["singular_name_short"] for t in bs["element_types"]}
-    els = {e["id"]: e for e in bs["elements"]}
-    by_team_gw: dict[tuple[int, int], list[dict]] = {}
-    for f in fixtures:
-        if f["event"] in live and f["finished"]:
-            by_team_gw.setdefault((f["team_h"], f["event"]), []).append(f)
-            by_team_gw.setdefault((f["team_a"], f["event"]), []).append(f)
-    stat_cols = ("total_points", "minutes", "starts", "goals_scored", "assists", "clean_sheets", "goals_conceded",
-                 "own_goals", "penalties_saved", "penalties_missed", "yellow_cards", "red_cards", "saves", "bonus",
-                 "bps", "expected_goals", "expected_assists", "expected_goals_conceded", "defensive_contribution")
-    rows = []
-    for g, elements in live.items():
-        for p in elements:
-            e = els.get(p["id"])
-            if e is None:
+        done = {f["id"] for f in c.get(base + "fixtures/").json() if f["finished_provisional"]}
+        team_name = {t["id"]: t["name"] for t in bs["teams"]}
+        pos = {t["id"]: t["singular_name_short"] for t in bs["element_types"]}
+        rows = []
+        for e in bs["elements"]:
+            if e["element_type"] not in pos or pos[e["element_type"]] not in POSITIONS:
                 continue
-            fxs = by_team_gw.get((e["team"], g), [])
-            for f in fxs:
-                home = f["team_h"] == e["team"]
-                row = {"name": e["web_name"], "position": pos[e["element_type"]], "team": team_name[e["team"]],
-                       "element": p["id"], "fixture": f["id"], "round": g, "GW": g, "kickoff_time": f["kickoff_time"],
-                       "opponent_team": f["team_a"] if home else f["team_h"], "was_home": home, "xP": None,
-                       "team_h_score": f["team_h_score"], "team_a_score": f["team_a_score"]}
-                for k in stat_cols:
-                    row[k] = float(p["stats"].get(k) or 0) / len(fxs)
-                rows.append(row)
+            for h in c.get(base + f"element-summary/{e['id']}/").json().get("history", []):
+                if h["fixture"] not in done:
+                    continue
+                rows.append({**h, "name": e["web_name"], "position": pos[e["element_type"]],
+                             "team": team_name[e["team"]], "GW": h["round"], "xP": None})
     out = CACHE / season
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(out / "gws_merged_gw.csv", index=False)
     pd.DataFrame([{"id": e["id"], "code": e["code"]} for e in bs["elements"]]).to_csv(out / "players_raw.csv", index=False)
     pd.DataFrame([{"id": t["id"], "name": t["name"]} for t in bs["teams"]]).to_csv(out / "teams.csv", index=False)
-    print(f"Rebuilt {season} from the FPL API: GW{min(finished)}-{max(finished)}, {len(rows)} player-fixture rows")
+    rounds = sorted({r["round"] for r in rows})
+    print(f"Rebuilt {season} from the FPL API: GW{rounds[0]}-{rounds[-1]}, {len(rows)} player-fixture rows")
