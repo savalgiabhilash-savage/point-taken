@@ -24,9 +24,9 @@ import numpy as np
 from . import context_model, db, form_model, fpl_history, outcomes, price_model, schedules, team_model
 from .fpl_client import FplClient
 
-# rules-v7: crowd signal (CROWD: ownership + net transfers). rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
+# rules-v8: price-based priors for players with no FPL history (form_model.NEWCOMER_PRIOR). rules-v7: crowd signal (CROWD: ownership + net transfers). rules-v6: congestion, live-learned set pieces/return/line-ups/manager change, price signal. rules-v5: role share, bonus rate, game state, FPL-dataset priors (form_model.py). rules-v4: news lowers availability (news_adjustment). rules-v3: team goals model + odds (team_model.py). rules-v2: recency-weighted minutes (minutes_profile). Bump on any change to how xPts is computed,
 # together with MODEL_VERSION in web/lib/supabase.ts and mobile/src/lib/supabase.ts.
-MODEL_VERSION = "rules-v7"
+MODEL_VERSION = "rules-v8"
 
 GOAL_PTS = {"GK": 10, "DEF": 6, "MID": 5, "FWD": 4}  # FPL game_config scoring (GK goal = 10 since 2025/26)
 CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
@@ -110,7 +110,7 @@ def _availability(status: str | None, chance: int | None) -> float:
     return 0.5 if status == "d" else 1.0  # 'd' doubtful, else available
 
 
-def minutes_profile(history: list[dict], last_minutes: float | None) -> dict:
+def minutes_profile(history: list[dict], last_minutes: float | None, fallback_prior: float | None = None) -> dict:
     """A player's minutes profile from their recent gameweeks.
 
     `history` has one entry per recent finished GW in which the player's club played:
@@ -126,7 +126,8 @@ def minutes_profile(history: list[dict], last_minutes: float | None) -> dict:
       cameo_rate  = share of non-start GWs with a sub appearance   } early sub-off or cameo doesn't
       cameo_mins  = average minutes of those appearances           } swing the profile
     GWs with a mix of starts and non-starts (a double) count toward the start rate only."""
-    prior = min(1.0, last_minutes / 2600) if last_minutes else None  # ~29 full games = nailed
+    prior = min(1.0, last_minutes / 2600) if last_minutes else fallback_prior  # ~29 full games = nailed;
+    # fallback_prior: a newcomer's start rate from his price (form_model.prior_start), else none
     wg = ws = 0.0
     w_start = start_min = start_60 = 0.0
     w_bench = w_cameo = cameo_min = 0.0
@@ -619,6 +620,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     prev = fpl_history.load_season(fpl_history.prev_season(fpl_history.season_of(int(first_kickoff[:4]))))
     profiles = fpl_history.last_season_profiles(prev)
     base = form_model.base_rates(profiles)
+    pri = form_model.price_priors(prev)
     if dry_run:
         print("Position averages (shrinkage prior): " + ", ".join(
             f"{pos} xG share {b['xg_share']:.3f} bonus/90 {b['bonus90']:.2f}" for pos, b in base.items()))
@@ -724,10 +726,13 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         last = profiles.get(str(p["code"])) if p.get("code") is not None else None
         hist = history.get(p["fpl_id"], [])
         ra = reset_age.get(p["team_id"])
-        prof = form_model.form_profile(hist, last, base[p["position"]], reset_age=ra)
+        price = p.get("now_cost")
+        prof = form_model.form_profile(hist, last, form_model.prior_base(base[p["position"]], pri.get(p["position"]),
+                                                                         price, last is not None), reset_age=ra)
         prof["dc90"] = dc90.get(p["fpl_id"], 0.0)
         recent_hist = [h for h in hist if h["age"] < MINUTES_WINDOW and (ra is None or h["age"] < ra)]
-        p["mprof"] = minutes_profile(recent_hist, last["minutes"] if last and ra is None else None)
+        p["mprof"] = minutes_profile(recent_hist, last["minutes"] if last and ra is None else None,
+                                     form_model.prior_start(pri.get(p["position"]), price) if not last else None)
         ret = return_ramp(hist, p)
         if ret:
             p["mprof"]["start_rate"] += FACTOR_WEIGHTS["return"] * (ret["ramp"] - ret["base"])

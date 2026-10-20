@@ -28,4 +28,4 @@ if (Platform.OS !== 'web') {
   });
 }
 
-export const MODEL_VERSION = 'rules-v7'; // must match worker/fpl_worker/model.py
+export const MODEL_VERSION = 'rules-v8'; // must match worker/fpl_worker/model.py

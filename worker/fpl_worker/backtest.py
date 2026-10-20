@@ -109,11 +109,15 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         e = int(r.element)
         last = profiles.get(str(int(r.code))) if pd.notna(r.code) else None
         hist = history.get(e, [])
-        prof = form_model.form_profile(hist, last, base[r.pos], pos=r.pos)
+        price = float(r.value) if pd.notna(getattr(r, "value", None)) else None
+        pri = tm["price_priors"].get(r.pos)
+        prof = form_model.form_profile(hist, last, form_model.prior_base(base[r.pos], pri, price, last is not None),
+                                       pos=r.pos)
         prof["dc90"] = dc90.get(e, 0.0)
         player = {"position": r.pos, "status": "a", "chance_of_playing_next_round": None,
                   "mprof": model.minutes_profile([h for h in hist if h["age"] < model.MINUTES_WINDOW],
-                                                 last["minutes"] if last else None)}
+                                                 last["minutes"] if last else None,
+                                                 form_model.prior_start(pri, price) if not last else None)}
         opp = id_to_name[int(r.opponent_team)]
         h, a = (r.team, opp) if r.was_home else (opp, r.team)
         lam_h, lam_a = team_model.blend(team_model.model_goals(strengths, h, a),
@@ -157,6 +161,7 @@ def season_setup(season: str) -> tuple:
     prev = load_season(_prev(season))
     profiles = fpl_history.last_season_profiles(prev)
     base = form_model.base_rates(profiles)
+    price_pri = form_model.price_priors(prev)
     team_list = [{"fpl_id": int(r.id), "name": r.name} for r in teams(season).itertuples(index=False)]
     names = [t["name"] for t in team_list]
     prev_names = list(teams(_prev(season))["name"])
@@ -166,6 +171,7 @@ def season_setup(season: str) -> tuple:
         "teams": sorted(set(names) | set(prev_names)),
         "promoted": set(names) - set(prev_names),
         "odds": season_odds(season, names),
+        "price_priors": price_pri,
     }
     # Opponent-vs-position records (opponent, position, xG+xA, match key[, round]) and all-competition dates.
     prev_ids = {int(t.id): t.name for t in teams(_prev(season)).itertuples(index=False)}

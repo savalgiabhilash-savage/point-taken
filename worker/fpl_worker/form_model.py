@@ -58,6 +58,54 @@ def background_bps(bps: float, mbps: float, goals: float, assists: float, cs: fl
     return bps - ev
 
 
+# Newcomer priors (improvement plan phase 2): a player's starting point from his price instead of the
+# position average. "new" = only players with no last-season FPL data; "all" = everyone's prior; "off".
+NEWCOMER_PRIOR = "new"  # rules-v8: replay 7,736 vs 7,472 pts (won all 3 seasons); RMSE, rank corr, top-20 better in all 4
+
+
+def price_priors(prev) -> dict[str, dict[str, tuple[float, float]]]:
+    """Per position, linear fits on price (tenths of £m) from last season's players: share of team xG and
+    xA while on the pitch, and start rate (starts per club fixture registered). {pos: {key: (a, b)}}."""
+    import numpy as np
+
+    g = prev.groupby("code").agg(pos=("pos", "last"), price=("value", "mean"), xg=("expected_goals", "sum"),
+                                 xa=("expected_assists", "sum"), on=("team_xg_on", "sum"), starts=("starts", "sum"),
+                                 rows=("fixture", "size"), minutes=("minutes", "sum"))
+    out: dict[str, dict[str, tuple[float, float]]] = {}
+    for pos, t in g.groupby("pos"):
+        def wls(x, y, w):
+            X = np.column_stack([np.ones(len(x)), x])
+            W = np.sqrt(w)
+            a, b = np.linalg.lstsq(X * W[:, None], y * W, rcond=None)[0]
+            return float(a), float(b)
+        sh = t[(t.minutes >= 450) & (t.on > 1)]
+        st = t[t.rows >= 10]
+        out[pos] = {"xg": wls(sh.price.values, (sh.xg / sh.on).values, sh.on.values),
+                    "xa": wls(sh.price.values, (sh.xa / sh.on).values, sh.on.values),
+                    "start": wls(st.price.values, (st.starts / st.rows).values, st.rows.values)}
+    return out
+
+
+def priced(fit: tuple[float, float], price: float, lo: float, hi: float) -> float:
+    a, b = fit
+    return min(hi, max(lo, a + b * price))
+
+
+def prior_base(base: dict, pri: dict | None, price: float | None, has_last: bool) -> dict:
+    """The position base rates, with the attacking shares replaced by the price fit when NEWCOMER_PRIOR
+    applies to this player."""
+    if not pri or price is None or NEWCOMER_PRIOR == "off" or (NEWCOMER_PRIOR == "new" and has_last):
+        return base
+    return {**base, "xg_share": priced(pri["xg"], price, 0.0, 0.6), "xa_share": priced(pri["xa"], price, 0.0, 0.6)}
+
+
+def prior_start(pri: dict | None, price: float | None) -> float | None:
+    """Start-rate prior from price for a player with no last-season minutes (None when off)."""
+    if not pri or price is None or NEWCOMER_PRIOR == "off":
+        return None
+    return priced(pri["start"], price, 0.02, 0.95)
+
+
 def base_rates(profiles: dict[str, dict]) -> dict[str, dict]:
     """Position averages from last-season profiles: xg_share, xa_share, bonus90, yellow90."""
     agg: dict[str, dict] = {}
