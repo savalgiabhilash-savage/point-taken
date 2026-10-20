@@ -36,6 +36,7 @@ from . import backtest, optimize
 
 CUBE = Path(".cache") / "optcube"
 H_MAX = 8
+TOP_SHRINK: tuple[float, float] | None = None  # (t, k): above t keep k of the excess (--top-shrink)
 GRID = {"DECAY": [0.8, 0.9, 1.0], "BENCH_WEIGHT": [0.05, 0.1, 0.2], "HIT_COST": [4, 6]}
 BENCH_GRID = {"BENCH_WEIGHT_GK": [0.0, 0.03, 0.1], "BENCH_WEIGHT": [0.1, 0.2, 0.3]}  # --bench-grid
 
@@ -123,6 +124,9 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
         now = g_rows[g_rows["round"] == g].set_index("element")
         gws = [r for r in rounds if g <= r < g + horizon]
         c = cube[(cube["asof"] == g) & (cube["round"].isin(gws))]
+        if TOP_SHRINK:  # test a monotone top-end correction on the projections the optimizer sees
+            t, k = TOP_SHRINK
+            c = c.assign(pred=c["pred"].where(c["pred"] <= t, t + k * (c["pred"] - t)))
         xp_by_gw: dict[int, dict[int, float]] = {}
         for e, r, v in c[["element", "round", "pred"]].itertuples(index=False):
             xp_by_gw.setdefault(int(e), {})[int(r)] = xp_by_gw.get(int(e), {}).get(int(r), 0.0) + float(v)
@@ -206,10 +210,11 @@ def main() -> None:
     parser.add_argument("--chips", action="store_true", help="play chips as the live chip plan recommends")
     parser.add_argument("--chip-scales", nargs="+", type=float, default=[1.0],
                         help="with --chips: multiply every chip's bar (CHIP_THRESHOLDS) by each value in turn")
-    parser.add_argument("--wc-follow-on", action="store_true", help="value the Wildcard with follow-on transfers")
+    parser.add_argument("--top-shrink", nargs=2, type=float, metavar=("T", "K"), help="test a top-end shrink")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    optimize.WC_FOLLOW_ON = args.wc_follow_on
+    global TOP_SHRINK
+    TOP_SHRINK = tuple(args.top_shrink) if args.top_shrink else None
     for s in args.seasons:
         projection_cube(s)
     grid = GRID if args.grid else BENCH_GRID if args.bench_grid else None

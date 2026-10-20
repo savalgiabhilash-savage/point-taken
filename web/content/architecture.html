@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 29</span>
+    <span>doc rev 30</span>
     <span>updated 2026-10-20</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v7</span>
@@ -922,6 +922,13 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Caveat: the dataset's <code>xP</code> very likely contains post-gameweek information. FPL's expected points are mostly recent form, yet a leak-free recent-form predictor only reaches top-20 4.1 pts and RMSE 2.14–2.17, against xP's 7.5 and 1.68. Treat xP as an upper bound, not a fair benchmark</li>
   </ul>
   <ul>
+    <li><b>Phase 1, calibration (2026-10-20), out of sample (fit on the other seasons):</b>
+      <ul>
+        <li>Per-position component ratios (assists, DefCon, clean sheets …): RMSE worse in 3 of 4 seasons, picks flat; half strength on DEF / MID assists, DefCon and clean sheets also no gain. The gaps are real in total but don't predict which player gets the points</li>
+        <li>Isotonic top-end map: flattened the top into ties, captain points collapsed (2024/25 9.76 → 5.42)</li>
+        <li>Order-keeping shrink above 3 pts (keep 84% of the excess): RMSE better in all four seasons (e.g. 1.9678 → 1.9659), picks unchanged, but the season replay with chips scored 7,026 vs 7,039 (2,401 · 2,575 · 2,050 vs 2,382 · 2,640 · 2,017). Fails the points gate, so off</li>
+      </ul>
+    </li>
     <li><b>Team form (2026-10-18, raised by Man Utd: 7 pts from 7 games, ~1.1 xG a game over four games, still rated on a 5.15-xG win in GW2):</b>
       <ul>
         <li>Half-life 30 / 45 / 60 / 90 days × goals blend 0 / 0.25 / 0.5, next GW, four seasons: all within ±0.002 RMSE of current, no consistent top-20 or captain gain (odds, 75% of next-GW expected goals, already price form)</li>
@@ -1054,7 +1061,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <div class="tbl"><table>
     <thead><tr><th>#</th><th>Phase</th><th>What changes</th><th>Why (evidence)</th></tr></thead>
     <tbody>
-      <tr><td class="num">1</td><td><b>Calibrate components</b></td><td>Per position, scale assists, DefCon, clean sheets and appearance by their multi-season actual ÷ predicted ratio; then an isotonic map so high projections aren't over-confident</td><td>The same gaps in every season replayed; the top bands are too high, which is exactly where captains and recommendations come from</td></tr>
+      <tr><td class="num">1</td><td><b>Calibrate components</b> <span class="chip med">Tested · off</span></td><td>Per position, scale assists, DefCon, clean sheets and appearance by their multi-season actual ÷ predicted ratio; then an isotonic map so high projections aren't over-confident</td><td>The same gaps in every season replayed; the top bands are too high, which is exactly where captains and recommendations come from</td></tr>
       <tr><td class="num">2</td><td><b>Newcomer priors</b></td><td>Players with little or no FPL history get a prior from price, position and club (and last season elsewhere, where available) instead of the position average</td><td>GW1 rank corr 0.36; Manzambi 5 → 30, Vuskovic 20 → 51</td></tr>
       <tr><td class="num">3</td><td><b>Minutes 2.0</b></td><td>Calibrate FPL's 25/50/75% flags to real start rates; rotation by manager and fixture load; learned predicted line-ups (shadow until proven); a refresh 60–90 min before the deadline</td><td>Minutes are the biggest single error; 7% of top-20 picks don't play</td></tr>
       <tr><td class="num">4</td><td><b>Better attacking inputs</b></td><td>Split penalty and open-play xG; shots, big chances and box touches (Understat / FBref); set-piece roles learned; a slow, shrunk team-finishing factor (multi-season, not streaks)</td><td>Brighton and Man Utd misses; Bruno's projection rested on penalty xG</td></tr>
@@ -1115,6 +1122,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-10-20</span><br>Phase 1 (calibration) tested: component ratios, an isotonic map and an order-keeping top-end shrink. Only the shrink improved RMSE, and it lost 13 pts in the season replay, so nothing shipped. The replay can now test a top-end shrink (<code>--top-shrink</code>).</li>
     <li><span class="d">2026-10-20</span><br>GW1–7 review (replayed model, logged predictions, FPL ep benchmark, your season) and a new nine-phase improvement plan gated on points gained; this season's data now rebuilt from per-player FPL histories (ownership, transfers, prices).</li>
     <li><span class="d">2026-10-12</span><br>Optimizer replay (<code>optimizer_backtest.py</code>) over three past seasons; tuning grid of discount, bench weight, hit bar and horizon found no setting that wins consistently, so the current values stay. Fixed a solver-gap bug that could plan a pointless −4 hit (free transfers at the next deadline are now fixed; hits counted by FPL's rule).</li>
     <li><span class="d">2026-10-13</span><br>Free-transfer sync fix (worker <code>sync_team.py</code> and <code>/api/sync</code>): a Wildcard or Free Hit week no longer adds +1, so the count after a chip week matches FPL (e.g. 2, not 3, after a GW6 Wildcard).</li>
