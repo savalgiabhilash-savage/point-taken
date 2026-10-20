@@ -33,6 +33,11 @@ CS_PTS = {"GK": 4, "DEF": 4, "MID": 1, "FWD": 0}
 ASSIST_PTS = 3
 DEFCON_PTS = 2
 DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
+# DefCon count per start = dc90 x minutes / 90: "82" (old fixed 82'), "start" (his own minutes per start from
+# the minutes model) or "90". And opponent pressure: count x (xG against / DEFCON_OPP_REF) ^ DEFCON_OPP_BETA.
+DEFCON_MINS = "82"     # "start" / "90" tested 2026-10-20: tiny RMSE gain, 90 lost 41 pts in the 2025-26 replay; off
+DEFCON_OPP_BETA = 0.0  # opponent pressure is real (~-7% vs weak to +5% vs strong attacks) but 0.15 / 0.3 gave no gain
+DEFCON_OPP_REF = 1.4
 DEFCON_VMR = 1.0     # DefCon variance / mean (1 = Poisson). 1.5-2.5 tested on 2025-26: RMSE gain 0.0006, captain worse; off
 SAVES_PER_XGA = 2.1   # saves ~ Poisson(2.1 x xGA), 1 pt per 3 (2.0-2.1 in 2023-26 data); None = old xGA x 2/3 rule
 DEFCON_K = 3.0
@@ -350,7 +355,10 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
 
     # defensive contributions: P(reaching the threshold in a start) from the player's per-90 rate
     thr = DEFCON_THRESHOLD.get(pos)
-    p_dc = _count_at_least(prof.get("dc90", 0.0) * 82 / 90, thr, DEFCON_VMR) if thr else 0.0
+    dc_mins = (90.0 if DEFCON_MINS == "90" else
+               float((player.get("mprof") or {}).get("start_mins", 82.0)) if DEFCON_MINS == "start" else 82.0)
+    dc_mean = prof.get("dc90", 0.0) * dc_mins / 90 * (lam_against / DEFCON_OPP_REF) ** DEFCON_OPP_BETA
+    p_dc = _count_at_least(dc_mean, thr, DEFCON_VMR) if thr else 0.0
     x_defcon_pts = DEFCON_PTS * p_dc * p_start
 
     # bonus: his own bonus rate, scaled by how the fixture suits his role (attack for MID/FWD, clean
