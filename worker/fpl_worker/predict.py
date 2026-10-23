@@ -158,7 +158,8 @@ def log_best_squads(sb, pool, xp_by_gw, gw) -> None:
 
 
 def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None = None) -> None:
-    """fpl_ep: FPL's own expected points for this GW (bootstrap ep_next), stored alongside as a benchmark."""
+    """fpl_ep: FPL's own expected points for this GW (bootstrap ep_next), stored alongside only as a possible
+    future model input. Accuracy is always measured against actual points, never against FPL's numbers."""
     rows = [{"gw": gw, "player_id": p["fpl_id"], "position": p["position"],
              "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3),
              **({"fpl_ep": fpl_ep.get(p["fpl_id"])} if fpl_ep is not None else {})}

@@ -14,6 +14,6 @@ alter table decision_log enable row level security;
 drop policy if exists decision_log_read on decision_log;
 create policy decision_log_read on decision_log for select using (user_id = auth.uid()::text);
 
--- FPL's own expected points (bootstrap ep_next) for the same GW, snapshotted with our prediction:
--- a leak-free benchmark (the vaastav dataset's xP column contains post-gameweek data).
+-- FPL's own expected points (bootstrap ep_next) for the same GW, snapshotted with our prediction as a
+-- possible future model input (not a benchmark: accuracy is measured against actual points).
 alter table prediction_log add column if not exists fpl_ep numeric;

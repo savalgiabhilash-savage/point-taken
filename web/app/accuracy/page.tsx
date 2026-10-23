@@ -4,10 +4,10 @@ import { createServerSupabase } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 // Weekly post-mortem: the app's pre-deadline predictions (prediction_log, worker predict.py) scored against
-// what happened, next to FPL's own expected points where logged (fpl_ep, from GW7), plus data-health checks
-// so a silent pipeline failure shows up here.
+// the points players actually scored (actual points are the only benchmark), against the best possible top-20
+// that week, plus data-health checks so a silent pipeline failure shows up here.
 
-type LogRow = { gw: number; position: string; predicted_xp: number; actual_pts: number | null; fpl_ep: number | null };
+type LogRow = { gw: number; position: string; predicted_xp: number; actual_pts: number | null };
 type GwPred = { gw: number; variant: string; predicted_pts: number | null; actual_pts: number | null; scored: boolean };
 
 const TOP = 20;
@@ -63,7 +63,7 @@ export default async function AccuracyPage() {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
       .from("prediction_log")
-      .select("gw, position, predicted_xp, actual_pts, fpl_ep")
+      .select("gw, position, predicted_xp, actual_pts")
       .eq("scored", true)
       .range(from, from + 999);
     if (error || !data) break;
@@ -84,11 +84,11 @@ export default async function AccuracyPage() {
   const perGw = gws.map((gw) => {
     const g = rows.filter((r) => r.gw === gw && r.actual_pts != null);
     const ours = score(g.map((r) => r.predicted_xp), g.map((r) => r.actual_pts as number));
-    const withEp = g.filter((r) => r.fpl_ep != null);
-    const fpl = withEp.length > 100 ? score(withEp.map((r) => r.fpl_ep as number), withEp.map((r) => r.actual_pts as number)) : null;
-    const ourSame = fpl ? score(withEp.map((r) => r.predicted_xp), withEp.map((r) => r.actual_pts as number)) : null;
+    // The ceiling: the 20 highest actual scorers among the same players.
+    const best20 = g.map((r) => r.actual_pts as number).sort((a, b) => b - a).slice(0, TOP);
+    const ceiling = best20.reduce((x, y) => x + y, 0) / (best20.length || 1);
     const capped = best.find((b) => b.gw === gw && b.variant === "capped" && b.scored);
-    return { gw, n: g.length, ours, fpl, ourSame, capped };
+    return { gw, n: g.length, ours, ceiling, capped };
   });
 
   const byPos = ["GK", "DEF", "MID", "FWD"].map((pos) => {
@@ -113,7 +113,7 @@ export default async function AccuracyPage() {
       <h1 className="text-2xl font-semibold tracking-tight">Accuracy</h1>
       <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
         <li>• Each gameweek, the app&apos;s last pre-deadline predictions against the points players actually scored</li>
-        <li>• From GW7, FPL&apos;s own expected points are logged too, as a fair benchmark on the same players</li>
+        <li>• Actual points are the only benchmark: the best possible top-20 shows the ceiling each week</li>
         <li>• Lower RMSE is better; rank correlation (ρ) and top-20 points are higher-is-better</li>
       </ul>
 
@@ -151,7 +151,7 @@ export default async function AccuracyPage() {
                   <th className="py-1.5 pr-3 text-right font-medium">RMSE</th>
                   <th className="py-1.5 pr-3 text-right font-medium">ρ</th>
                   <th className="py-1.5 pr-3 text-right font-medium">Top-20 pts</th>
-                  <th className="py-1.5 pr-3 text-right font-medium">FPL ep: RMSE / ρ / top-20</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">Best possible top-20</th>
                   <th className="py-1.5 text-right font-medium">Best XI pred → actual</th>
                 </tr>
               </thead>
@@ -166,15 +166,7 @@ export default async function AccuracyPage() {
                     <td className="py-1.5 pr-3 text-right tabular-nums">{f2(r.ours.rmse)}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{f3(r.ours.rho)}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{f2(r.ours.top)}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">
-                      {r.fpl && r.ourSame ? (
-                        <span className={r.fpl.rmse < r.ourSame.rmse ? "text-amber-500" : "text-emerald-500"}>
-                          {f2(r.fpl.rmse)} / {f3(r.fpl.rho)} / {f2(r.fpl.top)}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{f2(r.ceiling)}</td>
                     <td className="py-1.5 text-right tabular-nums">
                       {r.capped ? `${(r.capped.predicted_pts ?? 0).toFixed(1)} → ${r.capped.actual_pts ?? "—"}` : "—"}
                     </td>
@@ -185,9 +177,10 @@ export default async function AccuracyPage() {
           </div>
         )}
         <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-          <li>• FPL ep is green when our model beat it on RMSE for the same players that week, amber when it didn&apos;t</li>
+          <li>• Everything is measured against actual points: RMSE is the average miss, top-20 is what our 20 highest projections actually scored</li>
+          <li>• Best possible top-20 = the 20 highest actual scorers that week, the ceiling no prediction can beat</li>
           <li>• Best XI = the £100m squad the app would have picked from all players, scored with its captain</li>
-          <li>• GW2–5 weren&apos;t logged (the decision log and FPL benchmark started in GW7)</li>
+          <li>• GW2–5 weren&apos;t logged (the per-player log was rebuilt in September and restarted at GW6)</li>
         </ul>
       </section>
 

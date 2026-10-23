@@ -1,8 +1,8 @@
-"""Cron lines for the pre-deadline refresh (.github/workflows/deadline.yml), one per remaining gameweek.
+"""Cron lines for the pre-deadline refresh (.github/workflows/deadline.yml), two per remaining gameweek.
 
 GitHub's schedule can't follow FPL deadlines by itself, and checking every half hour would use too many
-Actions minutes on a private repo. FPL publishes every deadline in advance, so this prints one cron per
-deadline, LEAD_MIN minutes before it (GitHub often starts scheduled runs 10-30 min late). The workflow
+Actions minutes on a private repo. FPL publishes every deadline in advance, so this prints crons for each
+deadline, at each of LEADS_MIN minutes before it (GitHub often starts scheduled runs 10-30 min late). The workflow
 re-checks the deadline before doing anything, so a moved deadline just makes that run exit.
 
     python -m fpl_worker.deadline_cron      # then paste the lines into deadline.yml's schedule
@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-LEAD_MIN = 100   # cron fires this long before the deadline
-WINDOW = (45, 150)  # the run goes ahead only if the deadline is this many minutes away
+LEADS_MIN = (150, 100)  # two crons per deadline: GitHub sometimes skips or delays a scheduled run (GW8's didn't fire)
+WINDOW = (45, 180)       # a run goes ahead only if the deadline is this many minutes away
 
 
 def deadlines() -> list[tuple[int, datetime]]:
@@ -47,8 +47,9 @@ def main() -> None:
     if "--check" in sys.argv:
         sys.exit(check())
     for gw, d in deadlines():
-        t = d - timedelta(minutes=LEAD_MIN)
-        print(f'    - cron: "{t.minute} {t.hour} {t.day} {t.month} *"  # GW{gw}, deadline {d:%a %d %b %H:%M} UTC')
+        for lead in LEADS_MIN:
+            t = d - timedelta(minutes=lead)
+            print(f'    - cron: "{t.minute} {t.hour} {t.day} {t.month} *"  # GW{gw} -{lead} min, deadline {d:%a %d %b %H:%M} UTC')
 
 
 if __name__ == "__main__":
