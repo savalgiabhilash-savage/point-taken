@@ -70,13 +70,17 @@ export default async function AccuracyPage() {
     rows.push(...(data as LogRow[]));
     if (data.length < 1000) break;
   }
-  const [bestRes, lastLog, lastPlan, lastParams, lineups, news] = await Promise.all([
+  const nowIso = new Date().toISOString();
+  const [bestRes, lastLog, lastPlan, lastParams, lineups, news, nextDl, lastDl] = await Promise.all([
     sb.from("gw_predictions").select("gw, variant, predicted_pts, actual_pts, scored").order("gw"),
     sb.from("prediction_log").select("updated_at").order("updated_at", { ascending: false }).limit(1),
     authed.from("optimizer_runs").select("created_at").order("created_at", { ascending: false }).limit(1),
     sb.from("model_params").select("updated_at").order("updated_at", { ascending: false }).limit(1),
     sb.from("predicted_lineups").select("gw").order("gw", { ascending: false }).limit(1),
     sb.from("news_sentiment").select("id", { count: "exact", head: true }),
+    // Pre-deadline run: Supabase requests it ~100 min before each deadline (migration 0011).
+    sb.from("gw_deadlines").select("gw, deadline").gt("deadline", nowIso).order("deadline").limit(1),
+    sb.from("gw_deadlines").select("gw, dispatched_at").not("dispatched_at", "is", null).order("gw", { ascending: false }).limit(1),
   ]);
   const best = (bestRes.data ?? []) as GwPred[];
 
@@ -134,6 +138,16 @@ export default async function AccuracyPage() {
             {newsCount === 0 ? " (empty: check Anthropic credits and the fpl-news workflow)" : ""}
           </li>
           <li>• Predicted line-ups: latest for GW{lineups.data?.[0]?.gw ?? "—"}</li>
+          <li>
+            • Next deadline:{" "}
+            {nextDl.data?.[0]
+              ? `GW${nextDl.data[0].gw}, ${new Date(nextDl.data[0].deadline).toUTCString().slice(0, 22)} UTC (pre-deadline run ~100 min before)`
+              : "unknown (migration 0011 not run yet?)"}
+          </li>
+          <li>
+            • Last pre-deadline run requested:{" "}
+            {lastDl.data?.[0] ? `GW${lastDl.data[0].gw}, ${fmtAgo(ago(lastDl.data[0].dispatched_at))}` : "none yet"}
+          </li>
         </ul>
       </section>
 

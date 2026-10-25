@@ -56,6 +56,13 @@ def main() -> None:
     print(f"  teams:    {db.upsert(supabase, 'teams', teams)}")
     print(f"  players:  {db.upsert(supabase, 'players', players)}")
     print(f"  fixtures: {db.upsert(supabase, 'fixtures', fixtures_data)}")
+    # Every GW deadline, for the Supabase timer that starts the pre-deadline run (migration 0011). Only these
+    # two columns are written, so a GW's dispatched_at survives; a moved deadline is picked up on the next run.
+    deadlines = [{"gw": e["id"], "deadline": e["deadline_time"]} for e in bootstrap.get("events", []) if e.get("deadline_time")]
+    try:
+        print(f"  deadlines: {db.upsert(supabase, 'gw_deadlines', deadlines, on_conflict='gw')}")
+    except Exception as exc:  # noqa: BLE001 — needs migration 0011
+        print(f"  deadlines skipped ({exc.__class__.__name__}); run supabase/migrations/0011 to enable")
     print("Done.")
 
 

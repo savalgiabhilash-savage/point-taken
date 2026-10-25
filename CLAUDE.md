@@ -57,8 +57,9 @@ https://claude.ai/artifact/MrVLaHc9qV1Ck19fXY58EA.
 - Worker: `uv run --directory worker python -m fpl_worker.refresh --refresh`
   (dry run: add `--dry-run`; offline from cache: `--dry-run --from-cache`).
 - Web: `cd web && npm run dev` → http://localhost:3000/players
-- Pre-deadline run: `.github/workflows/deadline.yml` has one cron per GW deadline; re-generate them with
-  `uv run --directory worker python -m fpl_worker.deadline_cron` when FPL moves deadlines.
+- Pre-deadline run: `.github/workflows/deadline.yml`, started by Supabase ~100 min before each deadline
+  (migration 0011, pg_cron + pg_net; needs the `github_dispatch_token` vault secret). Deadlines come from
+  `gw_deadlines`, which the worker refresh keeps current, so nothing needs regenerating.
 - Backtest: `uv run --directory worker python -m fpl_worker.backtest` (~10 min; replays 2023/24–2025/26 plus the season in progress — add
   `--refresh-current` to rebuild it from the FPL API first;
   reports to `worker/reports/`). Any change to model.py / form_model.py / team_model.py / context_model.py

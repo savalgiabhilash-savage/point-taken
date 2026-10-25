@@ -39,9 +39,4 @@ jobs:
         if: ${{ env.ANTHROPIC_API_KEY != '' }}
         run: uv run python -m fpl_worker.news_job --run
 
-      # Predicted line-ups + managerial changes (Claude web search). Self-skips unless the deadline is
-      # within 48h, so it costs about $1-2 per gameweek.
-      - name: Predicted line-ups
-        if: ${{ env.ANTHROPIC_API_KEY != '' }}
-        continue-on-error: true
-        run: uv run python -m fpl_worker.lineups --run
+      # Predicted line-ups run once per GW, in the pre-deadline run (deadline.yml), to save Claude credits.
