@@ -123,7 +123,7 @@ function PlayerCard({ p, opp }: { p: SquadPlayer; opp?: string | null }) {
   );
 }
 
-// opponents: { teamShort: "v BOU" | "@ AVL" } for the GW shown (lib/fixtures.ts); omitted = no opponent line.
+// opponents: { teamShort: "v BOU (H)" | "v AVL (A)" } for the GW shown (lib/fixtures.ts); omitted = no opponent line.
 function Row({ players, opponents }: { players: SquadPlayer[]; opponents?: Record<string, string> }) {
   return (
     <div className="flex justify-center gap-2 sm:gap-4">

@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 39</span>
+    <span>doc rev 40</span>
     <span>updated 2026-11-02</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -726,7 +726,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Server components read Supabase with the anon key. My Team and Optimizer need a signed-in user and read only that user's rows; logged-out visitors get a login prompt.</li>
     <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
-    <li><b>Pitch cards</b> (<code>components/squad-pitch.tsx</code>, on My Team, Optimizer, Best XI and Chips): name, club, the opponent(s) in the GW that pitch shows ("v BOU" home, "@ AVL" away, both in a double, "no game" in a blank; built from <code>fixtures</code> by <code>lib/fixtures.ts</code>), projected points and price</li>
+    <li><b>Pitch cards</b> (<code>components/squad-pitch.tsx</code>, on My Team, Optimizer, Best XI and Chips): name, club, the opponent(s) in the GW that pitch shows ("v BOU (H)" home, "v AVL (A)" away, both in a double, "no game" in a blank; built from <code>fixtures</code> by <code>lib/fixtures.ts</code>), projected points and price</li>
     <li><b>"i" pop-ups</b> (<code>components/player-info.tsx</code> → <code>/api/insight</code> → <code>lib/insight.ts</code>): on every recommended player (pitch cards, transfers, chip squads, differentials, Players table). Page-specific "why this pick" bullets come first. Then grouped bullets built from the projection's stored reasoning (<code>components.why</code>, fixture data): projection and position rank, minutes and availability, news, form, fixture, points breakdown, price and ownership.</li>
     <li><b>Chips</b> tab (<code>/chips</code>, signed in): chip picker, status and bar, a GW picker, and for the chosen week the moves (with steps) and the resulting squad.</li>
     <li><b>Accuracy</b> tab (<code>/accuracy</code>, public): per scored GW from <code>prediction_log</code>, everything measured against actual points: RMSE, rank correlation (Spearman), what our top-20 projections scored and the best possible top-20 (the 20 highest actual scorers); the Best XI's predicted vs actual; position bias from GW6. Data health: when the pipeline, your optimizer plan (signed in) and model learning last wrote, news items stored and the latest predicted line-ups GW, amber when stale or empty.</li>
@@ -1172,6 +1172,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-02</span><br>Pitch card opponents read "v OPP (H)" / "v OPP (A)" instead of "@ OPP" for away games.</li>
     <li><span class="d">2026-11-02</span><br>Pitch cards show each player's club and the opponent(s) for the GW shown (next GW on My Team, Optimizer and Best XI; the chip's GW on Chips). Checked that transfer hits are costed: −4 per extra transfer in the plan and in the season replay.</li>
     <li><span class="d">2026-10-25</span><br>Pre-deadline run started by Supabase (migration 0011: <code>gw_deadlines</code> kept current by the worker, a pg_cron timer requests the GitHub workflow ~100 min before each deadline); GitHub's schedule dropped after it fired 2 h late for GW8. Predicted line-ups now run once per GW (in that run), roughly halving Claude spend. The Accuracy tab shows the next deadline and the last request.</li>
     <li><span class="d">2026-10-23</span><br>Actual points are the only benchmark: the FPL expected-points comparison was removed from the Accuracy tab (replaced by the best possible top-20); <code>fpl_ep</code> stays logged only as a possible input. The pre-deadline run now has two triggers per deadline (~150 and ~100 min before), after GW8's scheduled run didn't fire.</li>
