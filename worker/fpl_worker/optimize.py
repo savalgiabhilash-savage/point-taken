@@ -52,7 +52,7 @@ POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 # 2023-24 .. 2025-26 (7,064 vs 6,909 pts); x0, x1.5 and x2 were worse.
 # Wildcard value with follow-on transfers: after the rebuild week, keep making the plan's free transfers
 # (banked FTs survive a Wildcard) instead of freezing the rebuilt squad, which undervalued the chip.
-CHIP_SCAN = False  # value TC / BB / FH to the end of the chip's half, past the transfer plan (see _chip_plan)
+CHIP_SCAN = True   # value TC / BB / FH to the end of the chip's half (see _chip_plan); replay 7,794 vs 7,736 (2026-11-02)
 WC_FOLLOW_ON = True   # replay 2023-26 with chips: 7,059 vs 6,965 pts (won 2 of 3 seasons, -9 in the third)
 CHIP_THRESHOLDS = {"Triple Captain": 6.0, "Bench Boost": 9.0, "Wildcard": 4.0, "Free Hit": 4.0}
 
