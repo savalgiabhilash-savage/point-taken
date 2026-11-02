@@ -52,6 +52,7 @@ POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 # 2023-24 .. 2025-26 (7,064 vs 6,909 pts); x0, x1.5 and x2 were worse.
 # Wildcard value with follow-on transfers: after the rebuild week, keep making the plan's free transfers
 # (banked FTs survive a Wildcard) instead of freezing the rebuilt squad, which undervalued the chip.
+CHIP_SCAN = False  # value TC / BB / FH to the end of the chip's half, past the transfer plan (see _chip_plan)
 WC_FOLLOW_ON = True   # replay 2023-26 with chips: 7,059 vs 6,965 pts (won 2 of 3 seasons, -9 in the third)
 CHIP_THRESHOLDS = {"Triple Captain": 6.0, "Bench Boost": 9.0, "Wildcard": 4.0, "Free Hit": 4.0}
 
@@ -64,7 +65,11 @@ def _fetch_all_projections(sb) -> list[dict]:
     while True:
         batch = (
             sb.table("projections").select("player_id, gw, x_pts")
-            .eq("model_version", MODEL_VERSION).range(frm, frm + size - 1).execute().data
+            .eq("model_version", MODEL_VERSION)
+            # A stable, unique order is required for paging: without it PostgREST may return pages in a
+            # different order, so some rows come twice and others never (players then looked worth 0).
+            .order("player_id").order("gw")
+            .range(frm, frm + size - 1).execute().data
         )
         out.extend(batch)
         if len(batch) < size:
@@ -401,6 +406,10 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
         outs = [_slim(universe[i]) for i in range(n) if round(h.val(sell[i][g])) == 1]
         # FPL's rule, not the solver's slack variable: a hit is each transfer beyond the free ones.
         hits_g = max(0, len(ins) - round(h.val(free[g])))
+        # What this GW's moves are worth on their own: projected pts of the players coming in minus those going
+        # out, over the rest of the plan, then minus the real hit cost. Shown on the Optimizer page.
+        added = (sum(xp[i][gj] for i in range(n) if round(h.val(buy[i][g])) == 1 for gj in range(g, H))
+                 - sum(xp[i][gj] for i in range(n) if round(h.val(sell[i][g])) == 1 for gj in range(g, H)))
         hits_total += hits_g
         xi_g = sum(xp[i][g] for i in range(n) if round(h.val(start[i][g])) == 1)
         cap_g = sum(xp[i][g] for i in range(n) if round(h.val(cap[i][g])) == 1)
@@ -413,6 +422,8 @@ def _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw, ft_unlimited=
             "num": len(ins),
             "hits": hits_g,
             "free": round(h.val(free[g])),
+            "added": round(added, 1),
+            "net": round(added - 4 * hits_g, 1),
             "xi": round(xi_g + cap_g, 2),  # XI incl. captain double
         })
     planned_pts = round(sum(xi_by_gw) + sum(cap_by_gw) - HIT_COST * hits_total, 1)
@@ -533,15 +544,28 @@ def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs):
 
 
 def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None,
-               frees_by_gw=None):
+               frees_by_gw=None, scan_gws=None):
     # Each chip comes twice: one copy for GW1-19 and one for GW20-38. Value each copy only inside its
     # own half of the horizon. chips_available describes the half of the next deadline (gws[0]); a
     # later half in the horizon starts with a fresh full set.
+    # scan_gws (CHIP_SCAN): later GWs, past the transfer plan, where Triple Captain, Bench Boost and Free Hit
+    # are also valued, with the last planned squad held, so a better week later in the half isn't missed.
+    # The Wildcard stays inside the plan (its value depends on the planned transfers).
+    ext_gws = list(gws) + list(scan_gws or [])
+    ext_squads = list(plan_squads) + [plan_squads[-1]] * (len(ext_gws) - len(gws))
+
+    def ix(lst, lo, hi):
+        return [i for i, g in enumerate(lst) if lo <= g <= hi]
+
+    def only(idxs, f):
+        return f(idxs) if idxs else None
+
     evaluators = [
-        lambda idxs: _chip_triple_captain(plan_squads, xp_by_gw, gws, idxs),
-        lambda idxs: _chip_bench_boost(plan_squads, xp_by_gw, gws, idxs),
-        lambda idxs: _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, idxs, frees_by_gw),
-        lambda idxs: _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs),
+        lambda lo, hi: only(ix(ext_gws, lo, hi), lambda i: _chip_triple_captain(ext_squads, xp_by_gw, ext_gws, i)),
+        lambda lo, hi: only(ix(ext_gws, lo, hi), lambda i: _chip_bench_boost(ext_squads, xp_by_gw, ext_gws, i)),
+        lambda lo, hi: only(ix(gws, lo, hi), lambda i: _chip_wildcard(plan_squads, hits_by_gw, universe, budget, xp_by_gw,
+                                                                      gws, i, frees_by_gw)),
+        lambda lo, hi: only(ix(ext_gws, lo, hi), lambda i: _chip_free_hit(ext_squads, universe, budget, xp_by_gw, ext_gws, i)),
     ]
     avail = set(chips_available) if chips_available else None  # None (preseason) -> all available
     gw_flags = gw_flags or {}
@@ -568,23 +592,24 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
 
     chips = []
     for half, (lo, hi) in ((1, (1, CHIP_HALF_END)), (2, (CHIP_HALF_END + 1, LAST_GW))):
-        idxs = [i for i, g in enumerate(gws) if lo <= g <= hi]
-        if not idxs:
+        if not ix(ext_gws, lo, hi):
             continue
         current_half = lo <= gws[0] <= hi
         for ev in evaluators:
-            c = ev(idxs)
+            c = ev(lo, hi)
+            if c is None:
+                continue
             c["options"] = [expand(o) for o in c["options"]]
             c["half"] = half
             c["available"] = (avail is None or CHIP_CODES[c["chip"]] in avail) if current_half else True
             c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
             # Use-it-or-lose-it: a first-half chip still held when the horizon reaches GW19 has no later
             # window to save it for, so any positive gain beats letting it expire.
-            if half == 1 and current_half and gws[-1] >= CHIP_HALF_END and c["available"]:
+            if half == 1 and current_half and ext_gws[-1] >= CHIP_HALF_END and c["available"]:
                 c["threshold"] = 0.0
                 c["detail"] += f"; expires after GW{CHIP_HALF_END} — best window left before it's lost"
             # Same for second-half chips once the horizon reaches the last GW: they expire with the season.
-            if half == 2 and current_half and gws[-1] >= LAST_GW and c["available"]:
+            if half == 2 and current_half and ext_gws[-1] >= LAST_GW and c["available"]:
                 c["threshold"] = 0.0
                 c["detail"] += f"; expires after GW{LAST_GW} — best window left before it's lost"
             chips.append(c)
@@ -827,8 +852,10 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     dgw_bgw = [f"GW{g}:{fl['type']}" for g, fl in sorted(gw_flags.items()) if fl["type"]]
     if dgw_bgw:
         print(f"  Fixture flags: {', '.join(dgw_bgw)}")
+    half_end = CHIP_HALF_END if gws[0] <= CHIP_HALF_END else LAST_GW
+    scan = [g for g in all_gws if gws[-1] < g <= half_end] if CHIP_SCAN else None
     chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail, gw_flags,
-                       frees_by_gw=[step["free"] for step in path_res["path"]])
+                       frees_by_gw=[step["free"] for step in path_res["path"]], scan_gws=scan)
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"

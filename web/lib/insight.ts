@@ -155,6 +155,7 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
         .lt("gw", nextGw + HORIZON)
         .in("player_id", ids)
         .order("player_id")
+        .order("gw") // unique order, so pages don't overlap or skip rows
         .range(from, from + 999);
       for (const r of data ?? []) totals.set(r.player_id, (totals.get(r.player_id) ?? 0) + (r.x_pts ?? 0));
       if ((data ?? []).length < 1000) break;

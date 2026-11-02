@@ -190,6 +190,10 @@ def _all(sb, table, cols, eq=None, eq2=None, gte=None) -> list[dict]:
             q = q.eq(*eq2)
         if gte:
             q = q.gte(*gte)
+        # Unique order so pages don't overlap or skip rows (every table read here has gw + player_id).
+        q = q.order("gw").order("player_id")
+        if table == "factor_effect_log":
+            q = q.order("factor")
         batch = q.range(frm, frm + size - 1).execute().data
         out.extend(batch)
         if len(batch) < size:

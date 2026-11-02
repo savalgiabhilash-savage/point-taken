@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 40</span>
+    <span>doc rev 41</span>
     <span>updated 2026-11-02</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -611,6 +611,8 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>The solver runs with a 1% relative gap, a time limit of <code>min(300, 45 + 7·H)</code> seconds and a single thread, so the same inputs always give the same plan (parallel search varied run to run)</li>
     <li>Output per GW: transfers in and out, hits, banked FTs, XI points including the captain</li>
     <li>Hits are reported by FPL's rule (transfers beyond the free ones), not from the solver's slack variable</li>
+    <li>Each GW step stores <code>added</code> (projected pts of the players in minus those out, over the rest of the plan) and <code>net</code> (added − 4 × hits); the Optimizer page shows the net on every step and in "Why this plan"</li>
+    <li>Projections are read in pages ordered by <code>player_id, gw</code>: unordered paging (before 2026-11-02) could skip or repeat rows, so some players were read as worth 0</li>
     <li>Reported "planned points" are undiscounted</li>
     <li>"Gain" is plan points minus holding the current 15 with the best XI and captain each week</li>
     <li><code>based_on</code> stores the squad the plan used, so the web can flag it as stale after a team change</li>
@@ -1172,6 +1174,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-02</span><br><b>Fixed a serious optimizer bug:</b> projections were read in pages without a stable order, so some players (often owned ones) were randomly missing and treated as worth 0. Plans then sold good players, took needless hits and showed inflated gains (e.g. a −16, 5-transfer plan reported +55.6 vs holding when it was 5.3 worse). All paged reads (optimizer, predict logs, Accuracy tab, "i" pop-up) now use a unique order; every transfer step shows its net effect (points in − points out − hits). The fix applies to plans, Best XI and chip suggestions; projections themselves and the backtests / replays were unaffected. Also built (off, untested): <code>CHIP_SCAN</code>, valuing TC / BB / FH to the end of the half.</li>
     <li><span class="d">2026-11-02</span><br>Pitch card opponents read "v OPP (H)" / "v OPP (A)" instead of "@ OPP" for away games.</li>
     <li><span class="d">2026-11-02</span><br>Pitch cards show each player's club and the opponent(s) for the GW shown (next GW on My Team, Optimizer and Best XI; the chip's GW on Chips). Checked that transfer hits are costed: −4 per extra transfer in the plan and in the season replay.</li>
     <li><span class="d">2026-10-25</span><br>Pre-deadline run started by Supabase (migration 0011: <code>gw_deadlines</code> kept current by the worker, a pg_cron timer requests the GitHub workflow ~100 min before each deadline); GitHub's schedule dropped after it fired 2 h late for GW8. Predicted line-ups now run once per GW (in that run), roughly halving Claude spend. The Accuracy tab shows the next deadline and the last request.</li>

@@ -39,6 +39,8 @@ type PathStep = {
   hits: number;
   free: number;
   xi: number;
+  added?: number; // projected pts of players in minus players out, over the rest of the plan
+  net?: number; // added minus the real hit cost
 };
 
 type Chip = {
@@ -272,9 +274,11 @@ export default async function OptimizerPage() {
   }
   if (thisWeek && thisWeek.num > 0) {
     rationale.push(
-      thisWeek.hits > 0
-        ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week including a −${thisWeek.hits * 4} hit — taken only because the incoming players add more than the 4-point cost.`
-        : `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week, all within your free transfers — each swaps in a higher-projected player at the same position.`,
+      thisWeek.added != null && thisWeek.net != null
+        ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week: incoming players project ${thisWeek.added >= 0 ? "+" : ""}${thisWeek.added.toFixed(1)} pts over the outgoing ones across the plan${thisWeek.hits > 0 ? `, minus the −${thisWeek.hits * 4} hit` : " (no hit)"} = net ${thisWeek.net >= 0 ? "+" : ""}${thisWeek.net.toFixed(1)}.`
+        : thisWeek.hits > 0
+          ? `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week including a −${thisWeek.hits * 4} hit.`
+          : `${thisWeek.num} transfer${thisWeek.num === 1 ? "" : "s"} this week, all within your free transfers.`,
     );
   } else if (thisWeek) {
     rationale.push(`No transfer this week — your squad is already best for now, so roll the free transfer for later.`);
@@ -380,7 +384,7 @@ export default async function OptimizerPage() {
                         ? `roll · ${step.free} FT banked`
                         : `${step.num} transfer${step.num === 1 ? "" : "s"}${
                             step.hits > 0 ? ` · −${step.hits * 4}` : ""
-                          }`}
+                          }${step.net != null ? ` · net ${step.net >= 0 ? "+" : ""}${step.net.toFixed(1)}` : ""}`}
                     </span>
                   </div>
                   {step.num > 0 && (

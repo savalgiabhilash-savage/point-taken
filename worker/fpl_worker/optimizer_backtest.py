@@ -35,7 +35,7 @@ import pandas as pd
 from . import backtest, optimize
 
 CUBE = Path(".cache") / "optcube"
-H_MAX = 8
+H_MAX = 19  # look-ahead projections per deadline (19 covers the rest of a half, for CHIP_SCAN)
 TOP_SHRINK: tuple[float, float] | None = None  # (t, k): above t keep k of the excess (--top-shrink)
 GRID = {"DECAY": [0.8, 0.9, 1.0], "BENCH_WEIGHT": [0.05, 0.1, 0.2], "HIT_COST": [4, 6]}
 BENCH_GRID = {"BENCH_WEIGHT_GK": [0.0, 0.03, 0.1], "BENCH_WEIGHT": [0.1, 0.2, 0.3]}  # --bench-grid
@@ -154,8 +154,14 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
         chip, gw_squad = None, None
         if chips and g != rounds[0]:
             codes = [optimize.CHIP_CODES[c] for c in held]
+            scan = None
+            if optimize.CHIP_SCAN:  # later GWs of this half the cube has projections for (made at this deadline)
+                half_end = optimize.CHIP_HALF_END if g <= optimize.CHIP_HALF_END else optimize.LAST_GW
+                scan = [r for r in rounds if gws[-1] < r <= half_end and r < g + H_MAX]
+                for e, r, v in cube[(cube["asof"] == g) & (cube["round"].isin(scan))][["element", "round", "pred"]].itertuples(index=False):
+                    xp_by_gw.setdefault(int(e), {})[int(r)] = xp_by_gw.get(int(e), {}).get(int(r), 0.0) + float(v)
             cp = optimize._chip_plan(plan["plan_squads"], plan["hits_by_gw"], universe, budget, xp_by_gw, gws, codes,
-                                     frees_by_gw=[step["free"] for step in plan["path"]])
+                                     frees_by_gw=[step["free"] for step in plan["path"]], scan_gws=scan)
             best = cp["best"]
             if best and best["gw"] == g and best["chip"] in held:
                 chip = best["chip"]

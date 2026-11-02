@@ -65,6 +65,8 @@ export default async function AccuracyPage() {
       .from("prediction_log")
       .select("gw, position, predicted_xp, actual_pts")
       .eq("scored", true)
+      .order("gw")
+      .order("player_id") // unique order, so pages don't overlap or skip rows
       .range(from, from + 999);
     if (error || !data) break;
     rows.push(...(data as LogRow[]));
