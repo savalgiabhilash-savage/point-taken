@@ -25,9 +25,11 @@ const TABS: { key: "capped" | "uncapped"; label: string; sub: string }[] = [
 export function BestSquadTabs({
   capped,
   uncapped,
+  opponents,
 }: {
   capped: GwPrediction | null;
   uncapped: GwPrediction | null;
+  opponents?: Record<string, string>; // each club's opponent(s) that GW (lib/fixtures.ts)
 }) {
   const [variant, setVariant] = React.useState<"capped" | "uncapped">("capped");
   const pred = variant === "capped" ? capped : uncapped;
@@ -87,6 +89,7 @@ export function BestSquadTabs({
               mid={byPos("MID")}
               fwd={byPos("FWD")}
               bench={bench.map(toSP)}
+              opponents={opponents}
             />
           </div>
         </>

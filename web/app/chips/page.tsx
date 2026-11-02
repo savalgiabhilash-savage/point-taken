@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ChipStrategy, type ChipEntry } from "@/components/chip-strategy";
+import { opponentLabels } from "@/lib/fixtures";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ export default async function ChipsPage() {
   const run = runs?.[0];
   const t = (run?.transfers ?? {}) as { chips?: ChipEntry[] };
   const chips = (t.chips ?? []).filter((c) => Array.isArray(c.options));
+  // Each chip option's GW, so its squad cards show the opponents of that week.
+  const opponentsByGw = await opponentLabels(supabase, chips.flatMap((c) => c.options.map((o) => o.gw)));
 
   const { data: ownRows } = await supabase.from("players").select("fpl_id, selected_by_percent");
   const ownership: Record<number, number> = Object.fromEntries(
@@ -63,7 +66,7 @@ export default async function ChipsPage() {
       ) : null}
 
       {chips.length ? (
-        <ChipStrategy chips={chips} ownership={ownership} />
+        <ChipStrategy chips={chips} ownership={ownership} opponentsByGw={opponentsByGw} />
       ) : (
         <ul className="mt-6 space-y-0.5 text-sm text-muted-foreground">
           <li>• No chip guidance yet for your squad</li>

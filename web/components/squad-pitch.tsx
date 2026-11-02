@@ -64,7 +64,7 @@ function cardWhy(p: SquadPlayer): string[] {
   return out;
 }
 
-function PlayerCard({ p }: { p: SquadPlayer }) {
+function PlayerCard({ p, opp }: { p: SquadPlayer; opp?: string | null }) {
   const dot = STATUS_DOT[p.status ?? "a"] ?? STATUS_DOT.a;
   const price = p.now_cost == null ? null : (p.now_cost / 10).toFixed(1);
   return (
@@ -89,7 +89,12 @@ function PlayerCard({ p }: { p: SquadPlayer }) {
               {p.web_name}
             </span>
           </div>
-          <span className="text-[9px] uppercase tracking-wide text-zinc-500">{p.team_short}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-700">{p.team_short}</span>
+          {opp !== undefined && (
+            <span className="max-w-[80px] truncate text-[9px] text-zinc-500" title={opp ?? "No game this gameweek"}>
+              {opp ?? "no game"}
+            </span>
+          )}
           <span className={`mt-0.5 rounded px-1.5 py-0.5 text-xs font-bold tabular-nums ${xpChip(p.xp_next)}`}>
             {p.xp_next == null ? "—" : p.xp_next.toFixed(1)}
           </span>
@@ -118,11 +123,12 @@ function PlayerCard({ p }: { p: SquadPlayer }) {
   );
 }
 
-function Row({ players }: { players: SquadPlayer[] }) {
+// opponents: { teamShort: "v BOU" | "@ AVL" } for the GW shown (lib/fixtures.ts); omitted = no opponent line.
+function Row({ players, opponents }: { players: SquadPlayer[]; opponents?: Record<string, string> }) {
   return (
     <div className="flex justify-center gap-2 sm:gap-4">
       {players.map((p) => (
-        <PlayerCard key={p.fpl_id} p={p} />
+        <PlayerCard key={p.fpl_id} p={p} opp={opponents ? (opponents[p.team_short] ?? null) : undefined} />
       ))}
     </div>
   );
@@ -134,12 +140,14 @@ export function SquadPitch({
   mid,
   fwd,
   bench,
+  opponents,
 }: {
   gk: SquadPlayer[];
   def: SquadPlayer[];
   mid: SquadPlayer[];
   fwd: SquadPlayer[];
   bench: SquadPlayer[];
+  opponents?: Record<string, string>; // each club's opponent(s) in the GW this pitch shows
 }) {
   return (
     <div className="space-y-4">
@@ -152,10 +160,10 @@ export function SquadPitch({
         }}
       >
         <div className="flex flex-col justify-between gap-5 sm:gap-7 [min-height:26rem]">
-          <Row players={gk} />
-          <Row players={def} />
-          <Row players={mid} />
-          <Row players={fwd} />
+          <Row players={gk} opponents={opponents} />
+          <Row players={def} opponents={opponents} />
+          <Row players={mid} opponents={opponents} />
+          <Row players={fwd} opponents={opponents} />
         </div>
       </div>
 
@@ -165,7 +173,7 @@ export function SquadPitch({
           Bench
         </div>
         <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
-          <Row players={bench} />
+          <Row players={bench} opponents={opponents} />
         </div>
       </div>
     </div>

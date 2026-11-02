@@ -45,7 +45,15 @@ const STYLE: Record<string, string> = {
   "Free Hit": "text-amber-400",
 };
 
-export function ChipStrategy({ chips, ownership }: { chips: ChipEntry[]; ownership: Record<number, number> }) {
+export function ChipStrategy({
+  chips,
+  ownership,
+  opponentsByGw = {},
+}: {
+  chips: ChipEntry[];
+  ownership: Record<number, number>;
+  opponentsByGw?: Record<number, Record<string, string>>; // {gw: {teamShort: "v BOU"}} (lib/fixtures.ts)
+}) {
   const sorted = [...chips].sort(
     (a, b) => (a.half ?? 1) - (b.half ?? 1) || ORDER.indexOf(a.chip) - ORDER.indexOf(b.chip),
   );
@@ -129,12 +137,22 @@ export function ChipStrategy({ chips, ownership }: { chips: ChipEntry[]; ownersh
         </div>
       </div>
 
-      {opt ? <OptionView chip={chip.chip} opt={opt} ownership={ownership} /> : null}
+      {opt ? <OptionView chip={chip.chip} opt={opt} ownership={ownership} opponents={opponentsByGw[opt.gw]} /> : null}
     </div>
   );
 }
 
-function OptionView({ chip, opt, ownership }: { chip: string; opt: ChipOption; ownership: Record<number, number> }) {
+function OptionView({
+  chip,
+  opt,
+  ownership,
+  opponents,
+}: {
+  chip: string;
+  opt: ChipOption;
+  ownership: Record<number, number>;
+  opponents?: Record<string, string>;
+}) {
   const gain = `${opt.gain >= 0 ? "+" : ""}${opt.gain.toFixed(1)} pts`;
   if (chip === "Triple Captain") {
     const c = opt.captain;
@@ -220,7 +238,7 @@ function OptionView({ chip, opt, ownership }: { chip: string; opt: ChipOption; o
       {squad.length ? (
         <div className="mt-5">
           <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Resulting squad</div>
-          <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={squad.filter((p) => !p.is_start).map(toSP)} />
+          <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={squad.filter((p) => !p.is_start).map(toSP)} opponents={opponents} />
         </div>
       ) : null}
     </Panel>

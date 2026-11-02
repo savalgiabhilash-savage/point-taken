@@ -2,6 +2,7 @@ import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
+import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
 
@@ -102,6 +103,7 @@ export default async function TeamPage() {
 
   const projs = projRes.data ?? [];
   const nextGw = projs.length ? Math.min(...projs.map((p) => p.gw)) : null;
+  const opponents = nextGw != null ? ((await opponentLabels(supabase, [nextGw]))[nextGw] ?? {}) : undefined;
   const xpByPlayer = new Map<number, number>();
   const rangeByPlayer = new Map<number, OutcomeRange>();
   for (const r of projs) {
@@ -226,7 +228,7 @@ export default async function TeamPage() {
       )}
 
       <div className="mt-6">
-        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} />
+        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} opponents={opponents} />
       </div>
 
       {nextGw != null && best.length === 11 && (

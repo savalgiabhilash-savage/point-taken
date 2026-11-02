@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
+import { opponentLabels } from "@/lib/fixtures";
 import { OptimizeControls } from "@/components/optimize-controls";
 import { PlayerInfo } from "@/components/player-info";
 
@@ -235,6 +236,8 @@ export default async function OptimizerPage() {
   const gain = run.expected_gain as number | null;
 
   const thisWeek = path?.[0] ?? null;
+  const pitchGw = thisWeek?.gw ?? run.gw;
+  const opponents = (await opponentLabels(supabase, [pitchGw]))[pitchGw] ?? {};
   const thisWeekHit =
     thisWeek == null
       ? null
@@ -458,7 +461,7 @@ export default async function OptimizerPage() {
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           This week&apos;s squad (GW{thisWeek?.gw ?? run.gw})
         </div>
-        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench.map(toSP)} />
+        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench.map(toSP)} opponents={opponents} />
       </div>
 
       <ul className="mt-4 space-y-0.5 text-xs text-muted-foreground">

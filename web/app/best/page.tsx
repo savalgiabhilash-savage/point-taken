@@ -1,5 +1,6 @@
 import { createSupabaseServerClient, type Calibration, type GwPrediction } from "@/lib/supabase";
 import { BestSquadTabs } from "@/components/best-squad-tabs";
+import { opponentLabels } from "@/lib/fixtures";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function BestPage() {
   const upcomingGw = preds.filter((p) => !p.scored).reduce<number | null>((m, p) => (m == null || p.gw > m ? p.gw : m), null);
   const capped = preds.find((p) => p.gw === upcomingGw && p.variant === "capped") ?? null;
   const uncapped = preds.find((p) => p.gw === upcomingGw && p.variant === "uncapped") ?? null;
+  const opponents = upcomingGw != null ? ((await opponentLabels(supabase, [upcomingGw]))[upcomingGw] ?? {}) : undefined;
 
   // Scorecard: completed gameweeks (capped variant), newest first.
   const history = preds
@@ -58,7 +60,7 @@ export default async function BestPage() {
       )}
 
       <div className="mt-6">
-        <BestSquadTabs capped={capped} uncapped={uncapped} />
+        <BestSquadTabs capped={capped} uncapped={uncapped} opponents={opponents} />
       </div>
 
       {/* Prediction accuracy */}
