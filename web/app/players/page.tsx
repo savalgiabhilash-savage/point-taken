@@ -151,8 +151,8 @@ export default async function PlayersPage() {
     for (const f of fixtures ?? []) {
       if (!oppByTeamGw.has(f.team_h)) oppByTeamGw.set(f.team_h, new Map());
       if (!oppByTeamGw.has(f.team_a)) oppByTeamGw.set(f.team_a, new Map());
-      oppByTeamGw.get(f.team_h)!.set(f.gw, { opp: shortById.get(f.team_a) ?? "?", fdr: f.custom_fdr_h });
-      oppByTeamGw.get(f.team_a)!.set(f.gw, { opp: `@${shortById.get(f.team_h) ?? "?"}`, fdr: f.custom_fdr_a });
+      oppByTeamGw.get(f.team_h)!.set(f.gw, { opp: `v ${shortById.get(f.team_a) ?? "?"} (H)`, fdr: f.custom_fdr_h });
+      oppByTeamGw.get(f.team_a)!.set(f.gw, { opp: `v ${shortById.get(f.team_h) ?? "?"} (A)`, fdr: f.custom_fdr_a });
     }
   }
 

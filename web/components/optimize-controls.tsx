@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/client";
+import { toast } from "@/components/toast";
+import { Loader2 } from "lucide-react";
 
 // Horizon slider (1..gameweeks left) + "Optimize my squad" button. The optimizer is a Python MILP
 // that runs on GitHub Actions (it can't run in a serverless function), so this fires a cloud run for
@@ -27,6 +29,7 @@ export function OptimizeControls({
   const optimize = async () => {
     setBusy(true);
     setMsg(`Optimizing your current squad over the next ${horizon} gameweek${horizon === 1 ? "" : "s"} — runs in the cloud, ~1–2 min.`);
+    toast(`Optimizing over ${horizon} GW${horizon === 1 ? "" : "s"} · ~1–2 min`, "loading", "optimize");
     try {
       const res = await fetch("/api/optimize", {
         method: "POST",
@@ -36,6 +39,7 @@ export function OptimizeControls({
       const data = await res.json();
       if (!res.ok) {
         setMsg(data.error ?? "Couldn't start the optimization.");
+        toast(data.error ?? "Couldn't start the optimization", "error", "optimize");
         setBusy(false);
         return;
       }
@@ -52,16 +56,19 @@ export function OptimizeControls({
         if (latest && latest !== lastComputedAt) {
           clearInterval(timer);
           setMsg("Done — updating the plan…");
+          toast("New plan ready", "success", "optimize");
           router.refresh();
           setBusy(false);
         } else if (Date.now() - startedAt > 240_000) {
           clearInterval(timer);
           setMsg("Still running — reload the page in a moment to see the updated plan.");
+          toast("Still running — reload in a moment for the new plan", "error", "optimize");
           setBusy(false);
         }
       }, 8_000);
     } catch {
       setMsg("Couldn't start the optimization — please retry.");
+      toast("Couldn't start the optimization — please retry", "error", "optimize");
       setBusy(false);
     }
   };
@@ -88,8 +95,9 @@ export function OptimizeControls({
         <button
           onClick={optimize}
           disabled={busy}
-          className="h-9 rounded-lg bg-emerald-500/90 px-4 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+          className="inline-flex h-11 items-center gap-2 rounded-lg bg-emerald-500/90 px-4 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
         >
+          {busy && <Loader2 className="size-4 animate-spin" />}
           {busy ? "Optimizing…" : "Optimize my squad"}
         </button>
       </div>

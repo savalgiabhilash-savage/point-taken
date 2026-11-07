@@ -3,6 +3,7 @@ import { DM_Sans, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Nav, MobileTabs } from "@/components/nav";
 import { AuthButton } from "@/components/auth-button";
+import { Toaster } from "@/components/toast";
 import "./globals.css";
 
 // "Google Sans" is proprietary and not on Google Fonts; DM Sans is the closest openly-licensed,
@@ -35,8 +36,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <AuthButton />
           </div>
         </header>
-        <div className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</div>
+        <div className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] xl:pb-0">{children}</div>
         <MobileTabs />
+        <Toaster />
       </body>
     </html>
   );

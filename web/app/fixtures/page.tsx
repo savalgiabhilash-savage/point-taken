@@ -38,8 +38,8 @@ export default async function FixturesPage() {
   };
   for (const f of fixtures) {
     if (!gws.includes(f.gw as number)) continue;
-    add(f.team_h, f.gw as number, { opp: shortById.get(f.team_a) ?? "?", fdr: f.custom_fdr_h });
-    add(f.team_a, f.gw as number, { opp: `@${shortById.get(f.team_h) ?? "?"}`, fdr: f.custom_fdr_a });
+    add(f.team_h, f.gw as number, { opp: `v ${shortById.get(f.team_a) ?? "?"} (H)`, fdr: f.custom_fdr_h });
+    add(f.team_a, f.gw as number, { opp: `v ${shortById.get(f.team_h) ?? "?"} (A)`, fdr: f.custom_fdr_a });
   }
 
   const rows = teams
@@ -91,7 +91,7 @@ export default async function FixturesPage() {
                         cell.map((c, j) => (
                           <span
                             key={j}
-                            className={`block rounded px-1 py-1 text-center text-[11px] font-medium ${fdrClasses(c.fdr)}`}
+                            className={`block whitespace-nowrap rounded px-1 py-1 text-center text-[11px] font-medium ${fdrClasses(c.fdr)}`}
                             title={c.fdr != null ? `FDR ${c.fdr.toFixed(1)}` : undefined}
                           >
                             {c.opp}

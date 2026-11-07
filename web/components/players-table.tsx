@@ -170,7 +170,7 @@ const columns: ColumnDef<PlayerRow>[] = [
       if (!r.opp) return <span className="text-muted-foreground">—</span>;
       return (
         <span
-          className={`inline-flex min-w-12 items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-medium ${fdrClasses(r.opp_fdr)}`}
+          className={`inline-flex min-w-12 items-center justify-center whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${fdrClasses(r.opp_fdr)}`}
           title={r.opp_fdr != null ? `FDR ${r.opp_fdr.toFixed(1)}` : undefined}
         >
           {r.opp}
@@ -277,7 +277,7 @@ function PlayerDrawer({
             <span className="text-3xl font-bold tabular-nums">{player.xp_next?.toFixed(1) ?? "—"}</span>
             <span className="text-sm text-muted-foreground">
               xPts{nextGw != null ? ` · GW${nextGw}` : ""}
-              {player.opp ? ` vs ${player.opp}` : ""}
+              {player.opp ? ` ${player.opp}` : ""}
             </span>
           </div>
           <div className="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-muted">
@@ -318,7 +318,7 @@ function PlayerDrawer({
                   <span
                     className={`w-full rounded px-1 py-1 text-center text-[11px] font-medium ${fdrClasses(s.fdr)}`}
                   >
-                    {s.opp ?? "—"}
+                    {s.opp?.replace(/^v /, "") ?? "—"}
                   </span>
                   <span className="text-[11px] font-semibold tabular-nums">{s.xp.toFixed(1)}</span>
                   <span className="text-[9px] text-muted-foreground">GW{s.gw}</span>
@@ -470,8 +470,9 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
-        <Table>
-          <TableHeader>
+        {/* Scrolls inside its own box (about one screen tall) so the header row can stay pinned. */}
+        <Table containerClassName="max-h-[calc(100dvh-11rem)] overflow-auto overscroll-contain">
+          <TableHeader className="sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((header) => {
@@ -482,7 +483,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
                   return (
                     <TableHead
                       key={header.id}
-                      className={`bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground ${
+                      className={`bg-muted text-xs font-medium uppercase tracking-wide text-muted-foreground ${
                         RIGHT.has(header.column.id) ? "text-right" : ""
                       }`}
                     >

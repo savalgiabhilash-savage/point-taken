@@ -82,7 +82,7 @@ export type PlayerRow = {
   team_id: number | null;
   xp_next: number | null; // projected xPts, next GW
   xp5: number | null; // projected xPts summed over the next 5 GWs
-  opp: string | null; // next-GW opponent short code ("HUL" home, "@HUL" away)
+  opp: string | null; // next-GW opponent ("v HUL (H)" home, "v HUL (A)" away)
   opp_fdr: number | null; // custom FDR of that fixture (1 easy .. 5 hard)
   components: BreakdownComponent[] | null; // next-GW xPts breakdown
   schedule: ScheduleItem[] | null; // per-GW projection over the horizon

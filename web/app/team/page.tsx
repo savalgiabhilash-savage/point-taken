@@ -3,6 +3,7 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
 import { LiveGw, LiveProvider } from "@/components/live-gw";
+import { PullToRefresh } from "@/components/pull-refresh";
 import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
@@ -178,6 +179,7 @@ export default async function TeamPage() {
 
   return (
     <LiveProvider>
+    <PullToRefresh>
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
@@ -185,6 +187,7 @@ export default async function TeamPage() {
           <li>• Your squad with each player&apos;s projected points for the next gameweek</li>
           <li>• Captain counts double; tap the i on any player for the reasoning</li>
           <li>• Live GW: points so far, projected finish and your projected rank in each league</li>
+          <li>• Pull down to refresh on a phone</li>
         </ul>
       </div>
 
@@ -308,6 +311,7 @@ export default async function TeamPage() {
         />
       </div>
     </main>
+    </PullToRefresh>
     </LiveProvider>
   );
 }

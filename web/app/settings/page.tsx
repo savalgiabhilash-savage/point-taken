@@ -4,6 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { TeamUpload } from "@/components/team-upload";
+import { toast } from "@/components/toast";
+import { Loader2 } from "lucide-react";
 
 export default function SettingsPage() {
   const [ready, setReady] = React.useState(false);
@@ -51,11 +53,14 @@ export default function SettingsPage() {
     setBusy(true);
     setMsg(null);
     try {
+      toast("Syncing your team from FPL…", "loading", "sync");
       const res = await fetch("/api/sync", { method: "POST" });
       const data = await res.json();
       setMsg(data.message ?? data.error ?? "Done.");
+      toast(data.synced ? "Team synced · re-optimizing your plan" : (data.message ?? data.error ?? "Done."), res.ok && data.synced !== false ? "success" : "error", "sync");
     } catch {
       setMsg("Sync request failed — please retry.");
+      toast("Sync failed — please retry", "error", "sync");
     } finally {
       setBusy(false);
     }
@@ -115,7 +120,7 @@ export default function SettingsPage() {
             disabled={busy}
             className="h-11 w-full rounded-xl border border-border/60 bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
           >
-            {busy ? "Syncing…" : "Sync my team now"}
+            {busy ? <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Syncing…</span> : "Sync my team now"}
           </button>
         </div>
       )}

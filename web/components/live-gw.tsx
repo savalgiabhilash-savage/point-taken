@@ -2,38 +2,52 @@
 
 import * as React from "react";
 import type { LiveData, LiveLeague } from "@/lib/live";
-import { X } from "lucide-react";
+import { X, RefreshCw } from "lucide-react";
 
 const STATE: Record<string, string> = { done: "FT", playing: "live", todo: "to play", dnp: "didn't play", blank: "no game" };
 
-type LiveState = { data: LiveData | null; err: string | null };
+type LiveState = { data: LiveData | null; err: string | null; reload: () => Promise<void>; loading: boolean };
 const LiveCtx = React.createContext<LiveState | null>(null);
 
 // Polls /api/live every 60 s while games are on and shares it with the panel and the pitch cards.
 export function LiveProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = React.useState<LiveData | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const timer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const alive = React.useRef(true);
 
-  React.useEffect(() => {
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/live", { cache: "no-store" });
-        const j = await res.json();
-        if (stop) return;
-        if (!res.ok) setErr(j.error ?? "Live data unavailable.");
-        else { setData(j); setErr(null); if (j.status === "final") return; }
-      } catch {
-        if (!stop) setErr("Live data unavailable.");
-      }
-      if (!stop) timer = setTimeout(load, 60_000);
-    };
-    load();
-    return () => { stop = true; clearTimeout(timer); };
+  // One fetch; schedules the next in 60 s unless every game is finished. Calling it again (pull-to-refresh,
+  // the refresh button) restarts the 60 s clock.
+  const reload = React.useCallback(async function run(): Promise<void> {
+    clearTimeout(timer.current);
+    setLoading(true);
+    let final = false;
+    try {
+      const res = await fetch("/api/live", { cache: "no-store" });
+      const j = await res.json();
+      if (!alive.current) return;
+      if (!res.ok) setErr(j.error ?? "Live data unavailable.");
+      else { setData(j); setErr(null); final = j.status === "final"; }
+    } catch {
+      if (alive.current) setErr("Live data unavailable.");
+    }
+    if (!alive.current) return;
+    setLoading(false);
+    if (!final) timer.current = setTimeout(run, 60_000);
   }, []);
 
-  return <LiveCtx.Provider value={{ data, err }}>{children}</LiveCtx.Provider>;
+  React.useEffect(() => {
+    alive.current = true;
+    reload();
+    return () => { alive.current = false; clearTimeout(timer.current); };
+  }, [reload]);
+
+  return <LiveCtx.Provider value={{ data, err, reload, loading }}>{children}</LiveCtx.Provider>;
+}
+
+export function useLiveReload() {
+  return React.useContext(LiveCtx)?.reload;
 }
 
 const STATE_SHORT: Record<string, string> = { done: "FT", playing: "live", todo: "to play", dnp: "DNP", blank: "no game" };
@@ -83,7 +97,16 @@ export function LiveGw() {
           GW{data.gw} · {label}
           {data.status === "live" && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />}
         </h2>
-        <span className="text-xs text-muted-foreground">Updated {new Date(data.updatedAt).toLocaleTimeString()}</span>
+        <button
+          type="button"
+          onClick={() => ctx?.reload()}
+          disabled={ctx?.loading}
+          className="-mr-2 flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
+          aria-label="Refresh live points"
+        >
+          Updated {new Date(data.updatedAt).toLocaleTimeString()}
+          <RefreshCw className={`size-3.5 ${ctx?.loading ? "animate-spin" : ""}`} />
+        </button>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">

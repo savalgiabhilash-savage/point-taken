@@ -45,7 +45,7 @@ export function Nav() {
   const path = usePathname();
   const items = useOwner();
   return (
-    <nav className="hidden min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm lg:flex">
+    <nav className="hidden min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm [scrollbar-width:none] xl:flex">
       {items.map((it) => {
         const active = path === it.href;
         return (
@@ -77,7 +77,7 @@ export function MobileTabs() {
   const tab = (active: boolean) =>
     `flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium ${active ? "text-emerald-400" : "text-muted-foreground"}`;
   return (
-    <div className="lg:hidden">
+    <div className="xl:hidden">
       {open && (
         <>
           <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 bg-black/50" onClick={() => setOpen(false)} />
