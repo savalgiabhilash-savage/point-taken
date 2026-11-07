@@ -6,6 +6,7 @@ import {
   type PlayerRow,
 } from "@/lib/supabase";
 import { PlayersTable } from "@/components/players-table";
+import { InstallCard } from "@/components/install-card";
 
 // Always read fresh from the DB at request time.
 export const dynamic = "force-dynamic";
@@ -203,6 +204,8 @@ export default async function PlayersPage() {
           <li>• Click a row for the breakdown; tap the i for the full reasoning</li>
         </ul>
       </div>
+
+      <InstallCard />
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
