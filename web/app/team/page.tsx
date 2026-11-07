@@ -2,6 +2,7 @@ import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
+import { LiveGw } from "@/components/live-gw";
 import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
@@ -182,8 +183,11 @@ export default async function TeamPage() {
         <ul className="space-y-0.5 text-sm text-muted-foreground">
           <li>• Your squad with each player&apos;s projected points for the next gameweek</li>
           <li>• Captain counts double; tap the i on any player for the reasoning</li>
+          <li>• Live GW: points so far, projected finish and your projected rank in each league</li>
         </ul>
       </div>
+
+      {state.fpl_entry_id != null && <LiveGw />}
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (

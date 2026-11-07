@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 42</span>
-    <span>updated 2026-11-02</span>
+    <span>doc rev 43</span>
+    <span>updated 2026-11-07</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
     <span>season 2026/27 · next GW6</span>
@@ -314,7 +314,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
       <tr><td>FPL <code>fixtures</code></td><td>GW, home/away, FPL difficulty, kickoff, finished</td><td><code>transform.py</code></td></tr>
       <tr><td>FPL <code>entry/{id}</code>, <code>/history</code>, <code>/event/{gw}/picks</code></td><td>User squad, bank, value, rank, chips played</td><td><code>sync_team.py</code>, <code>/api/sync</code></td></tr>
       <tr><td>FPL <code>entry/{id}/transfers</code>, <code>element-summary/{id}</code></td><td>Purchase prices, used to compute selling prices</td><td><code>sync_team.selling_prices</code> (called by the optimizer)</td></tr>
-      <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions; recent per-GW starts and minutes for the minutes model</td><td><code>predict.py</code>, <code>model.recent_minutes_history</code></td></tr>
+      <tr><td>FPL <code>event/{gw}/live</code></td><td>Actual points and minutes for scoring predictions; recent per-GW starts and minutes for the minutes model; live points on My Team</td><td><code>predict.py</code>, <code>model.recent_minutes_history</code>, <code>lib/live.ts</code></td></tr>
+      <tr><td>FPL <code>leagues-classic/{id}/standings</code></td><td>Members of your classic leagues, for projected league ranks</td><td><code>lib/live.ts</code></td></tr>
       <tr><td>vaastav FPL dataset (last season)</td><td>Per-player, per-fixture FPL xG/xA, minutes, bonus, cards: last-season priors and team model matches, live and backtest</td><td><code>fpl_history.py</code></td></tr>
       <tr><td>Understat 2025/26 (soccerdata)</td><td>Now only for the crosswalk and the Fixtures-page FDR. Team match xG for and against.</td><td><code>soccer_stats.py</code>, <code>fdr.py</code></td></tr>
       <tr><td>ESPN public scoreboard API</td><td>Champions/Europa/Conference League, FA Cup and League Cup fixtures for English clubs (congestion)</td><td><code>schedules.py</code></td></tr>
@@ -730,6 +731,15 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
     <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
     <li><b>Pitch cards</b> (<code>components/squad-pitch.tsx</code>, on My Team, Optimizer, Best XI and Chips): name, club, the opponent(s) in the GW that pitch shows ("v BOU (H)" home, "v AVL (A)" away, both in a double, "no game" in a blank; built from <code>fixtures</code> by <code>lib/fixtures.ts</code>), projected points and price</li>
+    <li><b>Live GW</b> panel on My Team (<code>components/live-gw.tsx</code> → <code>GET /api/live</code> → <code>lib/live.ts</code>, signed in with an FPL entry ID; polls every 60 s until every game is finished; FPL responses cached 60 s, the entry 5 min):
+      <ul>
+        <li>Points so far per player and in total, from FPL's <code>event/{gw}/live</code> (provisional bonus included), with multipliers from your picks and hits deducted</li>
+        <li>Projected per player = points so far + pre-deadline projection (<code>prediction_log.predicted_xp</code>) × share still to play: a game not started counts in full, a game in progress by its minutes left out of 90, a finished game not at all; a double GW splits the projection evenly</li>
+        <li>Auto-subs (bench order, GK for GK, at least 3 DEF / 2 MID / 1 FWD, at most 5 / 5 / 3) and the vice-captain rule apply once a starter's games are all finished with 0 minutes or he has no game; none with Bench Boost</li>
+        <li>Season totals: before-GW total (<code>entry_history.total_points − points + hits</code>) + GW points − hits</li>
+        <li>Leagues: each classic league with up to 50 managers is projected by scoring every member's live picks the same way; you get live rank, projected rank and the projected gap to the leader (or your lead). Bigger leagues show FPL's last published rank</li>
+      </ul>
+    </li>
     <li><b>"i" pop-ups</b> (<code>components/player-info.tsx</code> → <code>/api/insight</code> → <code>lib/insight.ts</code>): on every recommended player (pitch cards, transfers, chip squads, differentials, Players table). Page-specific "why this pick" bullets come first. Then grouped bullets built from the projection's stored reasoning (<code>components.why</code>, fixture data): projection and position rank, minutes and availability, news, form, fixture, points breakdown, price and ownership.</li>
     <li><b>Chips</b> tab (<code>/chips</code>, signed in): chip picker, status and bar, a GW picker, and for the chosen week the moves (with steps) and the resulting squad.</li>
     <li><b>Accuracy</b> tab (<code>/accuracy</code>, public): per scored GW from <code>prediction_log</code>, everything measured against actual points: RMSE, rank correlation (Spearman), what our top-20 projections scored and the best possible top-20 (the 20 highest actual scorers); the Best XI's predicted vs actual; position bias from GW6. Data health: when the pipeline, your optimizer plan (signed in) and model learning last wrote, news items stored and the latest predicted line-ups GW, amber when stale or empty.</li>
@@ -1176,6 +1186,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-07</span><br>Live GW panel on My Team: points so far, projected GW and season totals from live scores plus the pre-deadline projection for minutes left (auto-subs and vice-captain applied), and live / projected ranks in every classic league of up to 50 managers. Refreshes every minute while games are on.</li>
     <li><span class="d">2026-11-02</span><br>Chip windows scan to the end of the half (<code>CHIP_SCAN</code> on): Triple Captain, Bench Boost and Free Hit are compared across every remaining GW of the half, not just the plan horizon (+58 pts over three replayed seasons). The replay's look-ahead now reaches 19 GWs.</li>
     <li><span class="d">2026-11-02</span><br><b>Fixed a serious optimizer bug:</b> projections were read in pages without a stable order, so some players (often owned ones) were randomly missing and treated as worth 0. Plans then sold good players, took needless hits and showed inflated gains (e.g. a −16, 5-transfer plan reported +55.6 vs holding when it was 5.3 worse). All paged reads (optimizer, predict logs, Accuracy tab, "i" pop-up) now use a unique order; every transfer step shows its net effect (points in − points out − hits). The fix applies to plans, Best XI and chip suggestions; projections themselves and the backtests / replays were unaffected. Also built: <code>CHIP_SCAN</code>, valuing TC / BB / FH to the end of the half (switched on after the replay, see the next entry).</li>
     <li><span class="d">2026-11-02</span><br>Pitch card opponents read "v OPP (H)" / "v OPP (A)" instead of "@ OPP" for away games.</li>
