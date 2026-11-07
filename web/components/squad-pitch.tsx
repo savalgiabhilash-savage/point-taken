@@ -75,7 +75,7 @@ function PlayerCard({ p, opp, liveGw }: { p: SquadPlayer; opp?: string | null; l
         <div className={`h-1 w-full ${p.position ? POS_ACCENT[p.position] : "bg-zinc-300"}`} />
         {(p.is_captain || p.is_vice_captain) && (
           <span
-            className={`absolute right-1 top-2 z-10 flex size-4 items-center justify-center rounded-full text-[9px] font-bold text-white ${
+            className={`absolute -right-1.5 -top-1.5 z-10 flex size-5 items-center justify-center rounded-full text-[10px] font-bold text-white ring-2 ring-white ${
               p.is_captain ? "bg-zinc-900" : "bg-zinc-500"
             }`}
             title={p.is_captain ? "Captain" : "Vice-captain"}
@@ -92,7 +92,7 @@ function PlayerCard({ p, opp, liveGw }: { p: SquadPlayer; opp?: string | null; l
           </div>
           <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-700">{p.team_short}</span>
           {opp !== undefined && (
-            <span className="max-w-[80px] truncate text-[9px] text-zinc-500" title={opp ?? "No game this gameweek"}>
+            <span className="max-w-[80px] truncate text-[10px] text-zinc-500" title={opp ?? "No game this gameweek"}>
               {opp ?? "no game"}
             </span>
           )}
@@ -100,17 +100,17 @@ function PlayerCard({ p, opp, liveGw }: { p: SquadPlayer; opp?: string | null; l
             {p.xp_next == null ? "—" : p.xp_next.toFixed(1)}
           </span>
           {liveGw != null && <LiveBadge playerId={p.fpl_id} gw={liveGw} />}
-          <span className="text-[9px] text-zinc-500">{price == null ? "" : `£${price}`}</span>
+          <span className="text-[10px] text-zinc-500">{price == null ? "" : `£${price}`}</span>
         </div>
       </div>
 
       {/* "i": click for the full factor-by-factor reasoning (works on tap and keyboard too). */}
-      <div className="absolute left-1 top-2 z-10">
+      <div className="absolute -left-1.5 -top-1.5 z-10">
         <PlayerInfo
           playerId={p.fpl_id}
           name={p.web_name}
           why={cardWhy(p)}
-          className="flex size-4 cursor-pointer items-center justify-center rounded-full bg-zinc-900/70 font-serif text-[10px] font-bold italic leading-none text-white hover:bg-emerald-600"
+          className="relative flex size-5 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 font-serif text-[11px] font-bold italic leading-none text-white ring-2 ring-white before:absolute before:-inset-2 before:content-[''] hover:bg-emerald-600"
         />
       </div>
       {p.ownership != null && p.ownership < DIFFERENTIAL_OWNERSHIP ? (

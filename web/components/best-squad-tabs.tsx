@@ -75,9 +75,9 @@ export function BestSquadTabs({
               { label: "Squad cost", value: `£${cost.toFixed(1)}m` },
               { label: "Captain", value: captain?.web_name ?? "—" },
             ].map((s) => (
-              <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
+              <div key={s.label} className="rounded-xl border border-border/60 bg-card px-3 py-3 shadow-sm sm:px-4">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
-                <div className="mt-1 truncate text-lg font-semibold">{s.value}</div>
+                <div className="mt-1 truncate text-base font-semibold sm:text-lg">{s.value}</div>
               </div>
             ))}
           </div>
