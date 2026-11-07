@@ -77,12 +77,23 @@ export default function GuidePage() {
           <ul className="space-y-1.5">
             <B><b>Players</b>: every player ranked by projected points; click a row for the breakdown</B>
             <B><b>Fixtures</b>: each team&apos;s next 8 gameweeks, coloured by difficulty</B>
-            <B><b>My Team</b>: your squad on a pitch; upload a screenshot to plan with unsynced transfers</B>
+            <B><b>My Team</b>: your squad on a pitch, live points and league ranks during a gameweek; upload a screenshot to plan with unsynced transfers</B>
             <B><b>Optimizer</b>: a multi-week transfer plan (when to move, roll or take a −4) and chip timing</B>
             <B><b>Chips</b>: for each chip, the best week and the exact moves if you play it in any week</B>
             <B><b>Differentials</b>: low-owned players the model rates highly, with the reasons</B>
             <B><b>Best XI</b>: the best squad for this gameweek, scored afterwards to measure accuracy</B>
             <B><b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
+          </ul>
+        </Card>
+
+        <Card title="Install the app">
+          <ul className="space-y-1.5">
+            <B>Opens full screen from your home screen, starts on My Team, no browser bars</B>
+            <B><b>iPhone, Chrome</b>: tap the Share button at the right of the address bar → <b>Add to Home Screen</b> → <b>Add</b></B>
+            <B><b>iPhone, Safari</b>: tap the Share button (square with an arrow) in the toolbar → <b>Add to Home Screen</b> → <b>Add</b></B>
+            <B><b>Android, Chrome</b>: tap <b>Install</b> when offered, or the ⋮ menu → <b>Add to Home screen</b> → <b>Install</b></B>
+            <B><b>Computer, Chrome or Edge</b>: the install icon at the right of the address bar, or the menu → <b>Install FPL Selector</b>; Safari on a Mac: <b>File → Add to Dock</b></B>
+            <B>On iPhone the installed app keeps its own sign-in, so log in once inside it</B>
           </ul>
         </Card>
 
@@ -99,7 +110,7 @@ export default function GuidePage() {
           <ul className="space-y-1.5">
             <B><b>xPts</b>: projected points next gameweek; greener is higher</B>
             <B><b>Next 5</b>: projected points over the next five gameweeks</B>
-            <B><b>Opp</b>: next opponent (@ = away), coloured by difficulty</B>
+            <B><b>Opp</b>: next opponent, &ldquo;v MUN (H)&rdquo; at home or &ldquo;v MUN (A)&rdquo; away, coloured by difficulty</B>
             <B><b>Price</b>, <b>Own %</b> (managers who own him), <b>Last szn</b> (last season&apos;s points)</B>
             <li className="flex flex-wrap items-center gap-1">
               • <b>Pos</b>:
