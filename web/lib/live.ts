@@ -18,18 +18,29 @@ async function fpl<T>(path: string, revalidate = 60): Promise<T> {
 }
 
 type Pick = { element: number; position: number; multiplier: number; is_captain: boolean; is_vice_captain: boolean; element_type: number };
-type Picks = { active_chip: string | null; picks: Pick[]; entry_history: { points: number; total_points: number; event_transfers_cost: number } };
+type Picks = { active_chip: string | null; picks: Pick[]; entry_history: { points: number; total_points: number; event_transfers_cost: number; rank: number | null; overall_rank: number | null } };
 type Fixture = { id: number; team_h: number; team_a: number; started: boolean; finished: boolean; finished_provisional: boolean; minutes: number };
 type LiveEl = { id: number; stats: { minutes: number; total_points: number } };
 type Entry = { current_event: number | null; leagues: { classic: { id: number; name: string; league_type: string; entry_rank: number | null; rank_count: number | null }[] } };
-type Standings = { standings: { results: { entry: number; entry_name: string; player_name: string }[] } };
+type Member = { entry: number; entry_name: string; player_name: string };
+type Standings = { standings: { results: Member[] } };
 
 export type LivePlayer = {
   id: number; name: string; team: string; pos: string; slot: number; mult: number;
   minutes: number; live: number; proj: number; state: "done" | "playing" | "todo" | "dnp" | "blank";
   subbedOut?: boolean; subbedIn?: boolean;
 };
-export type LiveLeague = { id: number; name: string; members: number | null; liveRank: number | null; projRank: number | null; fplRank: number | null; leaderGap: number | null };
+// One manager in a projected league (GW points are net of hits).
+export type LeagueRow = {
+  entry: number; team: string; manager: string; me: boolean; captain: string; chip: string | null;
+  gwLive: number; gwProj: number; totalLive: number; totalProj: number;
+};
+// Ranks: gw* = this gameweek's points only, live*/proj* = season total. Big leagues carry FPL's own ranks.
+export type LiveLeague = {
+  id: number; name: string; members: number | null;
+  gwLiveRank: number | null; gwProjRank: number | null; liveRank: number | null; projRank: number | null;
+  fplGwRank: number | null; fplRank: number | null; leaderGap: number | null; table: LeagueRow[] | null;
+};
 export type LiveData = {
   gw: number; status: "upcoming" | "live" | "final"; updatedAt: string;
   live: number; projected: number; hits: number; liveTotal: number; projectedTotal: number;
@@ -112,6 +123,7 @@ async function pool<T, R>(items: T[], n: number, fn: (t: T) => Promise<R>): Prom
 }
 
 const rankOf = (mine: number, all: number[]) => 1 + all.filter((v) => v > mine).length;
+const r1 = (v: number) => Math.round(v * 10) / 10;
 
 export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise<LiveData | null> {
   const entry = await fpl<Entry>(`entry/${entryId}/`, 300);
@@ -126,8 +138,8 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   // Rivals in every league small enough to project live (deduped across leagues).
   const small = entry.leagues.classic.filter((l) => (l.rank_count ?? Infinity) <= MAX_LEAGUE);
   const members = await pool(small, 4, (l) =>
-    fpl<Standings>(`leagues-classic/${l.id}/standings/`).then((s) => s.standings.results.map((r) => r.entry)).catch(() => [] as number[]));
-  const rivalIds = [...new Set(members.flat())].filter((id) => id !== entryId);
+    fpl<Standings>(`leagues-classic/${l.id}/standings/`).then((s) => s.standings.results).catch(() => [] as Member[]));
+  const rivalIds = [...new Set(members.flat().map((m) => m.entry))].filter((id) => id !== entryId);
   const rivalPicks = new Map<number, Picks>();
   await pool(rivalIds, 8, async (id) => {
     const p = await fpl<Picks>(`entry/${id}/event/${gw}/picks/`).catch(() => null);
@@ -154,16 +166,44 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   const me = scoreSquad(ctx, mine);
   const rivals = new Map([...rivalPicks].map(([id, p]) => [id, scoreSquad(ctx, p)]));
 
+  const CHIP: Record<string, string> = { bboost: "BB", "3xc": "TC", freehit: "FH", wildcard: "WC" };
   const leagues: LiveLeague[] = entry.leagues.classic.map((l) => {
     const k = small.indexOf(l);
-    if (k < 0) return { id: l.id, name: l.name, members: l.rank_count, liveRank: null, projRank: null, fplRank: l.entry_rank, leaderGap: null };
-    const others = members[k].filter((id) => id !== entryId).map((id) => rivals.get(id)).filter((r) => r != null);
-    const projs = others.map((r) => r.projectedTotal);
+    if (k < 0) {
+      // The game-wide "Overall" league: FPL's own live GW and overall ranks; other big leagues: FPL's last rank.
+      const overall = l.name === "Overall";
+      return {
+        id: l.id, name: l.name, members: l.rank_count, gwLiveRank: null, gwProjRank: null, liveRank: null, projRank: null,
+        fplGwRank: overall ? mine.entry_history.rank : null,
+        fplRank: overall ? (mine.entry_history.overall_rank ?? l.entry_rank) : l.entry_rank,
+        leaderGap: null, table: null,
+      };
+    }
+    const table: LeagueRow[] = members[k]
+      .map((m) => {
+        const isMe = m.entry === entryId;
+        const r = isMe ? me : rivals.get(m.entry);
+        const p = isMe ? mine : rivalPicks.get(m.entry);
+        if (!r || !p) return null;
+        const cap = p.picks.find((x) => x.is_captain);
+        return {
+          entry: m.entry, team: m.entry_name, manager: m.player_name, me: isMe,
+          captain: cap ? (name.get(cap.element) ?? "?") : "?", chip: p.active_chip ? (CHIP[p.active_chip] ?? p.active_chip) : null,
+          gwLive: r.live - r.hits, gwProj: r1(r.projected - r.hits), totalLive: r.liveTotal, totalProj: r1(r.projectedTotal),
+        };
+      })
+      .filter((r) => r != null)
+      .sort((a, b) => b.totalProj - a.totalProj);
+    const others = table.filter((r) => !r.me);
+    const meRow = table.find((r) => r.me);
+    if (!meRow) return { id: l.id, name: l.name, members: l.rank_count, gwLiveRank: null, gwProjRank: null, liveRank: null, projRank: null, fplGwRank: null, fplRank: l.entry_rank, leaderGap: null, table };
     return {
-      id: l.id, name: l.name, members: l.rank_count, fplRank: l.entry_rank,
-      liveRank: rankOf(me.liveTotal, others.map((r) => r.liveTotal)),
-      projRank: rankOf(me.projectedTotal, projs),
-      leaderGap: projs.length ? me.projectedTotal - Math.max(...projs) : null,
+      id: l.id, name: l.name, members: l.rank_count, fplGwRank: null, fplRank: l.entry_rank, table,
+      gwLiveRank: rankOf(meRow.gwLive, others.map((r) => r.gwLive)),
+      gwProjRank: rankOf(meRow.gwProj, others.map((r) => r.gwProj)),
+      liveRank: rankOf(meRow.totalLive, others.map((r) => r.totalLive)),
+      projRank: rankOf(meRow.totalProj, others.map((r) => r.totalProj)),
+      leaderGap: others.length ? r1(meRow.totalProj - Math.max(...others.map((r) => r.totalProj))) : null,
     };
   });
 
@@ -188,7 +228,6 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   if (cap && vice && (me.mult.get(vice.element) ?? 0) > 1) notes.push(`${name.get(vice.element)} takes the armband: ${name.get(cap.element)} didn't play`);
   if (mine.active_chip) notes.push(`Chip active: ${({ bboost: "Bench Boost", "3xc": "Triple Captain", freehit: "Free Hit", wildcard: "Wildcard" } as Record<string, string>)[mine.active_chip] ?? mine.active_chip}`);
 
-  const r1 = (v: number) => Math.round(v * 10) / 10;
   return {
     gw, status, updatedAt: new Date().toISOString(),
     live: me.live, projected: r1(me.projected), hits: me.hits,

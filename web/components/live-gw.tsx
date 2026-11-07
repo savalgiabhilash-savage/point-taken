@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { LiveData } from "@/lib/live";
+import type { LiveData, LiveLeague } from "@/lib/live";
+import { X } from "lucide-react";
 
 const STATE: Record<string, string> = { done: "FT", playing: "live", todo: "to play", dnp: "didn't play", blank: "no game" };
 
@@ -59,6 +60,7 @@ export function LiveGw() {
   const ctx = React.useContext(LiveCtx);
   const data = ctx?.data ?? null;
   const err = ctx?.err ?? null;
+  const [openId, setOpenId] = React.useState<number | null>(null);
 
   if (err && !data) return <p className="mt-6 text-xs text-muted-foreground">• {err}</p>;
   if (!data) return <p className="mt-6 text-xs text-muted-foreground">• Loading live points…</p>;
@@ -128,38 +130,39 @@ export function LiveGw() {
       </div>
 
       {leagues.length > 0 && (
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-5">
           <h3 className="text-sm font-semibold">Leagues</h3>
-          <table className="mt-1 w-full min-w-[440px] text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="py-1.5 pr-3 font-medium">League</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Live rank</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Projected rank</th>
-                <th className="py-1.5 text-right font-medium">vs leader (proj.)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {leagues.map((l) => (
-                <tr key={l.id} className="border-t border-border/40">
-                  <td className="py-1.5 pr-3">{l.name} <span className="text-xs text-muted-foreground">{l.members?.toLocaleString()}</span></td>
-                  {l.projRank != null ? (
-                    <>
-                      <td className="py-1.5 pr-3 text-right tabular-nums">{l.liveRank}</td>
-                      <td className="py-1.5 pr-3 text-right font-semibold tabular-nums">{l.projRank}</td>
-                      <td className="py-1.5 text-right tabular-nums">{l.leaderGap == null ? "—" : `${l.leaderGap >= 0 ? "+" : ""}${l.leaderGap.toFixed(1)}`}</td>
-                    </>
+          {/* Grid, not a wide table: fits a phone without sideways scrolling. */}
+          <div className="mt-1 grid grid-cols-[1fr_auto_auto] items-center gap-x-4 text-sm">
+            <div className="py-1.5 text-xs uppercase tracking-wide text-muted-foreground">League</div>
+            <div className="py-1.5 text-right text-xs uppercase tracking-wide text-muted-foreground">GW{data.gw}<div className="normal-case tracking-normal">live → proj.</div></div>
+            <div className="py-1.5 text-right text-xs uppercase tracking-wide text-muted-foreground">Overall<div className="normal-case tracking-normal">live → proj.</div></div>
+            {leagues.map((l) => (
+              <React.Fragment key={l.id}>
+                <div className="min-w-0 border-t border-border/40 py-1.5">
+                  {l.table ? (
+                    <button type="button" onClick={() => setOpenId(l.id)} className="min-h-11 text-left">
+                      <span className="text-emerald-400 underline-offset-2 hover:underline">{l.name}</span>{" "}
+                      <span className="text-xs text-muted-foreground">{l.members?.toLocaleString()} ›</span>
+                      {l.leaderGap != null && (
+                        <span className="block text-xs text-muted-foreground">
+                          {l.leaderGap >= 0 ? `Projected lead +${l.leaderGap.toFixed(1)}` : `Projected ${Math.abs(l.leaderGap).toFixed(1)} behind leader`}
+                        </span>
+                      )}
+                    </button>
                   ) : (
-                    <>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">{l.fplRank?.toLocaleString() ?? "—"}</td>
-                      <td className="py-1.5 pr-3 text-right text-xs text-muted-foreground">too big</td>
-                      <td className="py-1.5 text-right text-muted-foreground">—</td>
-                    </>
+                    <div className="py-1">{l.name} <span className="text-xs text-muted-foreground">{l.members?.toLocaleString()}</span></div>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+                <div className="self-stretch border-t border-border/40 py-1.5 text-right tabular-nums flex items-center justify-end">
+                  {l.gwProjRank != null ? <Ranks live={l.gwLiveRank} proj={l.gwProjRank} /> : <span className="text-muted-foreground">{l.fplGwRank?.toLocaleString() ?? "—"}</span>}
+                </div>
+                <div className="self-stretch border-t border-border/40 py-1.5 text-right tabular-nums flex items-center justify-end">
+                  {l.projRank != null ? <Ranks live={l.liveRank} proj={l.projRank} /> : <span className="text-muted-foreground">{l.fplRank?.toLocaleString() ?? "—"}</span>}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
       )}
 
@@ -167,8 +170,84 @@ export function LiveGw() {
         <li>• Points from FPL&apos;s live feed, provisional bonus included; refreshes every minute while games are on</li>
         <li>• Projected = points so far + the pre-deadline projection for minutes still to play</li>
         <li>• Auto-subs and vice-captain applied once a player&apos;s games finish with 0 minutes</li>
-        <li>• Leagues of up to 50 managers are projected from every rival&apos;s live team; bigger leagues show FPL&apos;s last rank</li>
+        <li>• Leagues of up to 50 managers are projected from every rival&apos;s live team; tap one to see every team</li>
+        <li>• GW rank = this gameweek&apos;s points only; overall = season total; bigger leagues show FPL&apos;s own rank (grey)</li>
       </ul>
+      <LeagueDialog league={data.leagues.find((l) => l.id === openId) ?? null} gw={data.gw} onClose={() => setOpenId(null)} />
     </section>
+  );
+}
+
+function Ranks({ live, proj }: { live: number | null; proj: number | null }) {
+  const arrow = live != null && proj != null && proj !== live ? (proj < live ? "text-emerald-400" : "text-rose-400") : "";
+  return (
+    <span className="whitespace-nowrap">
+      {live ?? "—"} → <b className={arrow}>{proj ?? "—"}</b>
+    </span>
+  );
+}
+
+// Every team in a projected league: GW and season points, live and projected.
+function LeagueDialog({ league, gw, onClose }: { league: LiveLeague | null; gw: number; onClose: () => void }) {
+  const ref = React.useRef<HTMLDialogElement>(null);
+  React.useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (league && !d.open) d.showModal();
+    if (!league && d.open) d.close();
+  }, [league]);
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      onClick={(e) => { if (e.target === ref.current) onClose(); }}
+      className="m-auto max-h-[85dvh] w-[min(680px,calc(100vw-1.5rem))] rounded-xl border border-border/60 bg-card p-0 text-foreground shadow-xl backdrop:bg-black/60"
+    >
+      {league?.table && (
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">{league.name}</h3>
+              <p className="text-xs text-muted-foreground">• Sorted by projected season total · GW{gw} points net of hits</p>
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close" className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground">
+              <X className="size-5" />
+            </button>
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="py-1.5 pr-2 font-medium">#</th>
+                  <th className="py-1.5 pr-3 font-medium">Team</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">GW{gw}</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">GW{gw}<br />proj.</th>
+                  <th className="hidden py-1.5 pr-3 text-right font-medium sm:table-cell">Total</th>
+                  <th className="py-1.5 text-right font-medium">Total<br />proj.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {league.table.map((r, i) => (
+                  <tr key={r.entry} className={`border-t border-border/40 ${r.me ? "bg-emerald-500/10" : ""}`}>
+                    <td className="py-1.5 pr-2 tabular-nums text-muted-foreground">{i + 1}</td>
+                    <td className="py-1.5 pr-3">
+                      <div className="font-medium">{r.team}{r.me && <span className="ml-1.5 text-xs text-emerald-400">you</span>}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.manager} · C {r.captain}
+                        {r.chip && <span className="ml-1.5 rounded bg-muted px-1 text-[11px] text-foreground">{r.chip}</span>}
+                      </div>
+                    </td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{r.gwLive}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{r.gwProj.toFixed(1)}</td>
+                    <td className="hidden py-1.5 pr-3 text-right tabular-nums sm:table-cell">{r.totalLive}</td>
+                    <td className="py-1.5 text-right font-semibold tabular-nums">{r.totalProj.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </dialog>
   );
 }
