@@ -17,6 +17,8 @@ export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a0a0a" 
 export const metadata: Metadata = {
   title: "FPL Selector",
   description: "Fantasy Premier League decision tool — projected xPts, fixtures, and squad optimizer.",
+  // iPhone home-screen app: full screen, black status bar (matches the dark theme). The manifest is app/manifest.ts.
+  appleWebApp: { capable: true, title: "FPL Selector", statusBarStyle: "black" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
