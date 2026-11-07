@@ -374,6 +374,9 @@ function PlayerDrawer({
   );
 }
 
+// Rendering all ~670 rows made the page ~1.7 MB of HTML; show the top rows first (sort and filters still use all).
+const FIRST_ROWS = 100;
+
 export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw: number | null }) {
   const [selected, setSelected] = React.useState<PlayerRow | null>(null);
   const [sorting, setSorting] = React.useState<SortingState>([{ id: "xp_next", desc: true }]);
@@ -381,6 +384,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
   const [team, setTeam] = React.useState("ALL");
   const [maxPrice, setMaxPrice] = React.useState("");
   const [search, setSearch] = React.useState("");
+  const [showAll, setShowAll] = React.useState(false);
 
   const teams = React.useMemo(
     () =>
@@ -506,7 +510,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.length ? (
-              table.getRowModel().rows.map((row) => (
+              table.getRowModel().rows.slice(0, showAll ? undefined : FIRST_ROWS).map((row) => (
                 <TableRow
                   key={row.id}
                   className="cursor-pointer border-border/40"
@@ -535,6 +539,16 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
           </TableBody>
         </Table>
       </div>
+
+      {!showAll && table.getRowModel().rows.length > FIRST_ROWS && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full rounded-lg border border-border/60 py-2 text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+        >
+          Show all {table.getRowModel().rows.length} players
+        </button>
+      )}
 
       <PlayerDrawer player={selected} nextGw={nextGw} onClose={() => setSelected(null)} />
     </div>
