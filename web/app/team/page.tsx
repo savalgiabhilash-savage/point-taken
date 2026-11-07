@@ -2,7 +2,7 @@ import { MODEL_VERSION, type Position } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { TeamUpload } from "@/components/team-upload";
-import { LiveGw } from "@/components/live-gw";
+import { LiveGw, LiveProvider } from "@/components/live-gw";
 import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
@@ -177,6 +177,7 @@ export default async function TeamPage() {
   ];
 
   return (
+    <LiveProvider>
     <main className="mx-auto w-full max-w-5xl px-6 py-8">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
@@ -232,7 +233,7 @@ export default async function TeamPage() {
       )}
 
       <div className="mt-6">
-        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} opponents={opponents} />
+        <SquadPitch gk={byPos("GK")} def={byPos("DEF")} mid={byPos("MID")} fwd={byPos("FWD")} bench={bench} opponents={opponents} liveGw={state.fpl_entry_id != null ? state.gw : undefined} />
       </div>
 
       {nextGw != null && best.length === 11 && (
@@ -307,5 +308,6 @@ export default async function TeamPage() {
         />
       </div>
     </main>
+    </LiveProvider>
   );
 }

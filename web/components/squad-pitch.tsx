@@ -1,5 +1,6 @@
 import type { Position } from "@/lib/supabase";
 import { PlayerInfo } from "@/components/player-info";
+import { LiveBadge } from "@/components/live-gw";
 
 export type SquadPlayer = {
   fpl_id: number;
@@ -64,7 +65,7 @@ function cardWhy(p: SquadPlayer): string[] {
   return out;
 }
 
-function PlayerCard({ p, opp }: { p: SquadPlayer; opp?: string | null }) {
+function PlayerCard({ p, opp, liveGw }: { p: SquadPlayer; opp?: string | null; liveGw?: number }) {
   const dot = STATUS_DOT[p.status ?? "a"] ?? STATUS_DOT.a;
   const price = p.now_cost == null ? null : (p.now_cost / 10).toFixed(1);
   return (
@@ -98,6 +99,7 @@ function PlayerCard({ p, opp }: { p: SquadPlayer; opp?: string | null }) {
           <span className={`mt-0.5 rounded px-1.5 py-0.5 text-xs font-bold tabular-nums ${xpChip(p.xp_next)}`}>
             {p.xp_next == null ? "—" : p.xp_next.toFixed(1)}
           </span>
+          {liveGw != null && <LiveBadge playerId={p.fpl_id} gw={liveGw} />}
           <span className="text-[9px] text-zinc-500">{price == null ? "" : `£${price}`}</span>
         </div>
       </div>
@@ -124,11 +126,11 @@ function PlayerCard({ p, opp }: { p: SquadPlayer; opp?: string | null }) {
 }
 
 // opponents: { teamShort: "v BOU (H)" | "v AVL (A)" } for the GW shown (lib/fixtures.ts); omitted = no opponent line.
-function Row({ players, opponents }: { players: SquadPlayer[]; opponents?: Record<string, string> }) {
+function Row({ players, opponents, liveGw }: { players: SquadPlayer[]; opponents?: Record<string, string>; liveGw?: number }) {
   return (
     <div className="flex justify-center gap-2 sm:gap-4">
       {players.map((p) => (
-        <PlayerCard key={p.fpl_id} p={p} opp={opponents ? (opponents[p.team_short] ?? null) : undefined} />
+        <PlayerCard key={p.fpl_id} p={p} opp={opponents ? (opponents[p.team_short] ?? null) : undefined} liveGw={liveGw} />
       ))}
     </div>
   );
@@ -141,6 +143,7 @@ export function SquadPitch({
   fwd,
   bench,
   opponents,
+  liveGw,
 }: {
   gk: SquadPlayer[];
   def: SquadPlayer[];
@@ -148,6 +151,7 @@ export function SquadPitch({
   fwd: SquadPlayer[];
   bench: SquadPlayer[];
   opponents?: Record<string, string>; // each club's opponent(s) in the GW this pitch shows
+  liveGw?: number; // My Team: the GW of this squad, for live points (needs LiveProvider)
 }) {
   return (
     <div className="space-y-4">
@@ -160,10 +164,10 @@ export function SquadPitch({
         }}
       >
         <div className="flex flex-col justify-between gap-5 sm:gap-7 [min-height:26rem]">
-          <Row players={gk} opponents={opponents} />
-          <Row players={def} opponents={opponents} />
-          <Row players={mid} opponents={opponents} />
-          <Row players={fwd} opponents={opponents} />
+          <Row players={gk} opponents={opponents} liveGw={liveGw} />
+          <Row players={def} opponents={opponents} liveGw={liveGw} />
+          <Row players={mid} opponents={opponents} liveGw={liveGw} />
+          <Row players={fwd} opponents={opponents} liveGw={liveGw} />
         </div>
       </div>
 
@@ -173,7 +177,7 @@ export function SquadPitch({
           Bench
         </div>
         <div className="rounded-xl border border-border/60 bg-muted/30 p-3">
-          <Row players={bench} opponents={opponents} />
+          <Row players={bench} opponents={opponents} liveGw={liveGw} />
         </div>
       </div>
     </div>

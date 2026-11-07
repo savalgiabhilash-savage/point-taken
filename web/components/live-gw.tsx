@@ -5,8 +5,11 @@ import type { LiveData } from "@/lib/live";
 
 const STATE: Record<string, string> = { done: "FT", playing: "live", todo: "to play", dnp: "didn't play", blank: "no game" };
 
-// Live GW panel: polls /api/live every 60 s while games are on.
-export function LiveGw() {
+type LiveState = { data: LiveData | null; err: string | null };
+const LiveCtx = React.createContext<LiveState | null>(null);
+
+// Polls /api/live every 60 s while games are on and shares it with the panel and the pitch cards.
+export function LiveProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = React.useState<LiveData | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
 
@@ -28,6 +31,34 @@ export function LiveGw() {
     load();
     return () => { stop = true; clearTimeout(timer); };
   }, []);
+
+  return <LiveCtx.Provider value={{ data, err }}>{children}</LiveCtx.Provider>;
+}
+
+const STATE_SHORT: Record<string, string> = { done: "FT", playing: "live", todo: "to play", dnp: "DNP", blank: "no game" };
+
+// Live points line on a pitch card: only inside LiveProvider (My Team), only for the GW whose squad the pitch shows.
+export function LiveBadge({ playerId, gw }: { playerId: number; gw: number }) {
+  const ctx = React.useContext(LiveCtx);
+  const p = ctx?.data?.gw === gw ? ctx.data.players.find((x) => x.id === playerId) : undefined;
+  if (!p || p.state === "todo" || p.state === "blank") return null;
+  const pts = p.live * Math.max(p.mult, 1);
+  return (
+    <span
+      className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${p.mult === 0 ? "bg-zinc-200 text-zinc-500" : "bg-zinc-900 text-white"}`}
+      title={`GW${gw} live: ${pts} pts (${STATE[p.state]}${p.mult > 1 ? `, ×${p.mult}` : ""})`}
+    >
+      {p.state === "playing" && <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />}
+      GW{gw} {pts} · {STATE_SHORT[p.state]}
+    </span>
+  );
+}
+
+// Live GW panel (reads LiveProvider).
+export function LiveGw() {
+  const ctx = React.useContext(LiveCtx);
+  const data = ctx?.data ?? null;
+  const err = ctx?.err ?? null;
 
   if (err && !data) return <p className="mt-6 text-xs text-muted-foreground">• {err}</p>;
   if (!data) return <p className="mt-6 text-xs text-muted-foreground">• Loading live points…</p>;
