@@ -93,9 +93,19 @@ export function LiveGw() {
   return (
     <section className="mt-6 rounded-2xl border border-border bg-card p-4">
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-lg">
-          GW{data.gw} · {label}
-          {data.status === "live" && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />}
+        <h2 className="flex items-center gap-2 font-display text-xl">
+          GW{data.gw}
+          {/* Broadcast-style status tag: red LIVE with a pulsing dot while games are on. */}
+          <span
+            className={`inline-flex -skew-x-12 items-center gap-1.5 px-2 py-0.5 text-[12px] tracking-[0.14em] ${
+              data.status === "live" ? "bg-red-600 text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            <span className="inline-flex skew-x-12 items-center gap-1.5">
+              {data.status === "live" && <span className="live-dot size-1.5 rounded-full bg-white" />}
+              {label}
+            </span>
+          </span>
         </h2>
         <button
           type="button"
@@ -111,9 +121,9 @@ export function LiveGw() {
 
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-lg border border-border/60 px-3 py-2">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
-            <div className="mt-0.5 text-lg font-semibold tabular-nums">{s.value}</div>
+          <div key={s.label} className="rounded-lg border border-border bg-background/60 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</div>
+            <div className="mt-0.5 font-display text-3xl tabular-nums">{s.value}</div>
           </div>
         ))}
       </div>

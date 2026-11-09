@@ -72,10 +72,10 @@ export function InstallCard() {
   };
 
   return (
-    <section className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+    <section className="mt-5 rounded-xl border border-brand/40 bg-brand-soft/60 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Download className="size-4 text-emerald-400" aria-hidden />
+          <Download className="size-4 text-brand" aria-hidden />
           <h2 className="text-sm font-semibold">Install the app on your {info.platform === "desktop" ? "computer" : "phone"}</h2>
         </div>
         <button type="button" onClick={dismiss} aria-label="Hide install instructions" className="-m-2 flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
@@ -87,7 +87,7 @@ export function InstallCard() {
         {STEPS[info.platform].map((s, i) => <li key={s}>{i + 1}. {s}</li>)}
       </ul>
       {prompt && (
-        <button type="button" onClick={install} className="mt-3 inline-flex h-11 items-center gap-2 press rounded-full bg-grad glow px-4 text-sm font-semibold text-white hover:brightness-110">
+        <button type="button" onClick={install} className="mt-3 inline-flex h-11 items-center gap-2 press rounded-md bg-grad glow px-4 text-sm font-bold uppercase tracking-wide hover:brightness-110">
           <Download className="size-4" aria-hidden /> Install FPL Selector
         </button>
       )}

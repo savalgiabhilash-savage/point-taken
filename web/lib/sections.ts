@@ -1,7 +1,7 @@
 import { Shirt, Search, Sparkles, MessageCircle, type LucideIcon } from "lucide-react";
 
-// The app's 4 top-level tabs, one per job (MECE). Each has its own colour (header glow, eyebrow, active
-// nav) and pill sub-tabs. Page URLs are unchanged, so old links still work.
+// The app's 4 top-level tabs, one per job (MECE). Each has its own colour (header stripe and tag, active nav)
+// and pill sub-tabs. Colours are cool hues only: green, red and amber carry data meaning in this app. Page URLs are unchanged, so old links still work.
 export type Section = {
   key: string;
   label: string;
@@ -12,7 +12,7 @@ export type Section = {
 
 export const SECTIONS: Section[] = [
   {
-    key: "team", label: "My Team", Icon: Shirt, color: "#34d399",
+    key: "team", label: "My Team", Icon: Shirt, color: "#22d3ee",
     pages: [
       { href: "/team", label: "Live & squad" },
       { href: "/optimizer", label: "Transfers" },
@@ -28,14 +28,14 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
-    key: "predict", label: "Predict", Icon: Sparkles, color: "#fbbf24",
+    key: "predict", label: "Predict", Icon: Sparkles, color: "#818cf8",
     pages: [
       { href: "/best", label: "Best XI" },
       { href: "/accuracy", label: "Accuracy" },
     ],
   },
   {
-    key: "ask", label: "Ask", Icon: MessageCircle, color: "#22d3ee",
+    key: "ask", label: "Ask", Icon: MessageCircle, color: "#7dd3fc",
     pages: [
       { href: "/assistant", label: "Assistant" },
       { href: "/guide", label: "Guide" },

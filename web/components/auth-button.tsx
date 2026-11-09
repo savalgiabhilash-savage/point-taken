@@ -36,7 +36,7 @@ export function AccountMenu({ placement }: { placement: "top" | "side" }) {
   if (!email) {
     return (
       <div className={placement === "side" ? "space-y-1" : "flex items-center gap-1"}>
-        <Link href="/login" className={`press inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-full bg-grad px-4 text-sm font-semibold text-white glow ${placement === "side" ? "w-full justify-center" : ""}`}>
+        <Link href="/login" className={`press inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md bg-grad px-4 text-sm font-bold uppercase tracking-wide glow ${placement === "side" ? "w-full justify-center" : ""}`}>
           <LogIn className="size-4" aria-hidden /> Log in
         </Link>
         <Link href="/settings" aria-label="Settings" className={placement === "side" ? `${row} text-muted-foreground` : "flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"}>
@@ -56,7 +56,7 @@ export function AccountMenu({ placement }: { placement: "top" | "side" }) {
         aria-label="Account menu"
         className={placement === "side" ? `${row} text-left` : "flex size-10 items-center justify-center"}
       >
-        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-grad text-sm font-semibold text-white">{initial}</span>
+        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-grad text-sm font-bold">{initial}</span>
         {placement === "side" && <span className="min-w-0 flex-1 truncate text-muted-foreground">{email}</span>}
       </button>
       {open && (

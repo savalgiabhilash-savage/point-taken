@@ -62,7 +62,7 @@ export default function AssistantPage() {
                 <button
                   key={s}
                   onClick={() => send(s)}
-                  className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-emerald-500/40 hover:text-foreground"
+                  className="rounded-full border border-border/60 bg-background px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-brand/60 hover:text-foreground"
                 >
                   {s}
                 </button>
@@ -109,12 +109,12 @@ export default function AssistantPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask about your team…"
-          className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
+          className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-brand/60"
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-11 press rounded-full bg-grad glow px-5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="h-11 press rounded-md bg-grad glow px-5 text-sm font-bold uppercase tracking-wide hover:brightness-110 disabled:opacity-40"
         >
           Send
         </button>

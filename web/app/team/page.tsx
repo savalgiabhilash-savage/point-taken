@@ -56,7 +56,7 @@ export default async function TeamPage() {
       <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
         <PageHeader title="My Team" />
         <p className="mt-4 text-sm text-muted-foreground">
-          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> and connect your FPL team in Settings to see your squad here.
+          <Link href="/login" className="text-brand hover:underline">Log in</Link> and connect your FPL team in Settings to see your squad here.
         </p>
       </main>
     );
@@ -78,7 +78,7 @@ export default async function TeamPage() {
         <PageHeader title="My Team" />
         <p className="mt-4 text-sm text-muted-foreground">
           No squad synced for your account yet. Add your FPL entry ID and sync in{" "}
-          <Link href="/settings" className="text-emerald-400 hover:underline">Settings</Link>{" "}
+          <Link href="/settings" className="text-brand hover:underline">Settings</Link>{" "}
           (your squad becomes available once GW1&apos;s deadline passes).
         </p>
         <div className="mt-6 max-w-md">
@@ -199,7 +199,7 @@ export default async function TeamPage() {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {s.label}
             </div>
-            <div className="mt-1 font-display text-xl tabular-nums">{s.value}</div>
+            <div className="mt-1 font-display text-3xl tabular-nums">{s.value}</div>
           </div>
         ))}
       </div>

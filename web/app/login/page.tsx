@@ -52,7 +52,7 @@ export default function LoginPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
-          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
+          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-brand/60"
         />
         <input
           type="password"
@@ -61,12 +61,12 @@ export default function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password (min 6 characters)"
-          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
+          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-brand/60"
         />
         <button
           type="submit"
           disabled={loading}
-          className="h-11 w-full press rounded-full bg-grad glow text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="h-11 w-full press rounded-md bg-grad glow text-sm font-bold uppercase tracking-wide hover:brightness-110 disabled:opacity-40"
         >
           {loading ? "…" : mode === "signin" ? "Log in" : "Sign up"}
         </button>

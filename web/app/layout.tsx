@@ -1,17 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Sora, Geist_Mono } from "next/font/google";
+import { Inter, Barlow_Condensed, Geist_Mono } from "next/font/google";
 import { Sidebar, MobileTop, MobileTabs } from "@/components/nav";
 import { Toaster } from "@/components/toast";
 import { SectionPills } from "@/components/shell";
 import "./globals.css";
 
-// Body text Inter; headings and big numbers Sora (geometric, slightly tight) via the font-display class.
+// Body text Inter; headings and big numbers Barlow Condensed in caps (TV-graphics style) via font-display.
 const inter = Inter({ variable: "--font-sans", subsets: ["latin"] });
-const sora = Sora({ variable: "--font-sora", subsets: ["latin"] });
+const barlow = Barlow_Condensed({ variable: "--font-barlow", subsets: ["latin"], weight: ["600", "700"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 // cover: lets the floating tab bar pad for the iPhone home indicator (env(safe-area-inset-bottom)).
-export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a0f0e" };
+export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a1024" };
 
 export const metadata: Metadata = {
   title: "FPL Selector",
@@ -22,11 +22,11 @@ export const metadata: Metadata = {
 
 // Runs before the page paints, so there is no flash of the wrong theme. Saved choice: dark (default), light or
 // system (follows the device, and updates live when the device switches).
-const THEME_SCRIPT = `(function(){var d=document.documentElement,q=matchMedia('(prefers-color-scheme: light)');function a(){var t='dark';try{t=localStorage.getItem('theme')||'dark'}catch(e){}var l=t==='light'||(t==='system'&&q.matches);if(l)d.setAttribute('data-mode','light');else d.removeAttribute('data-mode');var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',l?'#f4f8f6':'#0a0f0e')}window.applyTheme=a;a();q.addEventListener('change',a)})()`;
+const THEME_SCRIPT = `(function(){var d=document.documentElement,q=matchMedia('(prefers-color-scheme: light)');function a(){var t='dark';try{t=localStorage.getItem('theme')||'dark'}catch(e){}var l=t==='light'||(t==='system'&&q.matches);if(l)d.setAttribute('data-mode','light');else d.removeAttribute('data-mode');var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',l?'#eef2f9':'#0a1024')}window.applyTheme=a;a();q.addEventListener('change',a)})()`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${sora.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

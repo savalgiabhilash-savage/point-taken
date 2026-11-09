@@ -86,7 +86,7 @@ export default function SettingsPage() {
       <main className="mx-auto w-full max-w-md px-4 py-5 sm:px-6 sm:py-8">
         <PageHeader title="Settings" />
         <p className="mt-3 text-sm text-muted-foreground">
-          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to connect your FPL team.
+          <Link href="/login" className="text-brand hover:underline">Log in</Link> to connect your FPL team.
         </p>
         <Appearance />
       </main>
@@ -110,12 +110,12 @@ export default function SettingsPage() {
             value={entryId}
             onChange={(e) => setEntryId(e.target.value)}
             placeholder="e.g. 3429940"
-            className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
+            className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-brand/60"
           />
           <button
             onClick={saveId}
             disabled={busy}
-            className="h-11 press rounded-full bg-grad glow px-4 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
+            className="h-11 press rounded-md bg-grad glow px-4 text-sm font-bold uppercase tracking-wide hover:brightness-110 disabled:opacity-40"
           >
             Save
           </button>
@@ -130,7 +130,7 @@ export default function SettingsPage() {
           <button
             onClick={sync}
             disabled={busy}
-            className="h-11 w-full rounded-2xl border border-border bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
+            className="h-11 w-full rounded-2xl border border-border bg-card text-sm font-medium transition-colors hover:border-brand/60 disabled:opacity-40"
           >
             {busy ? <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Syncing…</span> : "Sync my team now"}
           </button>

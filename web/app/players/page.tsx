@@ -213,7 +213,7 @@ export default async function PlayersPage() {
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {s.label}
             </div>
-            <div className="mt-1 truncate font-display text-xl tabular-nums">{s.value}</div>
+            <div className="mt-1 truncate font-display text-3xl tabular-nums">{s.value}</div>
             {s.sub ? <div className="text-xs text-muted-foreground">{s.sub}</div> : null}
           </div>
         ))}

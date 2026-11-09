@@ -16,7 +16,7 @@ export default async function ChipsPage() {
       <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
         <PageHeader title="Chips" />
         <p className="mt-4 text-sm text-muted-foreground">
-          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to see chip guidance for your own squad.
+          <Link href="/login" className="text-brand hover:underline">Log in</Link> to see chip guidance for your own squad.
         </p>
       </main>
     );
@@ -73,7 +73,7 @@ export default async function ChipsPage() {
         <ul className="mt-6 space-y-0.5 text-sm text-muted-foreground">
           <li>• No chip guidance yet for your squad</li>
           <li>
-            • Open the <Link href="/optimizer" className="text-emerald-400 hover:underline">Optimizer</Link> and run
+            • Open the <Link href="/optimizer" className="text-brand hover:underline">Optimizer</Link> and run
             &quot;Optimize my squad&quot;; chip options appear here a minute or two later
           </li>
         </ul>

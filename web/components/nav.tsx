@@ -17,26 +17,28 @@ function Logo() {
   );
 }
 
-// One nav item, shared by the phone bar and the desktop sidebar: icon in a rounded tile + label, the tab's own
-// colour when active (text mixed toward the text colour for contrast, soft tint behind, glowing icon tile).
+// One nav item, shared by the phone bar and the desktop sidebar: icon + condensed-caps label. Active: the tab's
+// colour (mixed toward the text colour for contrast), a soft tint, and a scoreboard-style indicator bar (top
+// edge on the phone bar, left edge in the sidebar).
 function Item({ s, active, vertical }: { s: (typeof SECTIONS)[number]; active: boolean; vertical: boolean }) {
   const { Icon } = s;
   return (
     <Link
       href={s.pages[0].href}
       aria-current={active ? "page" : undefined}
-      className={`press flex items-center rounded-[20px] font-medium transition-colors ${
-        vertical ? "min-h-11 gap-3 px-2 text-sm" : "min-h-14 flex-1 flex-col justify-center gap-0.5 text-[11px]"
+      className={`press relative flex items-center rounded-lg font-display tracking-wide transition-colors ${
+        vertical ? "min-h-11 gap-3 px-3 text-[17px]" : "min-h-14 flex-1 flex-col justify-center gap-0.5 text-[13px]"
       } ${active ? "" : "text-muted-foreground hover:text-foreground"}`}
-      style={active ? { color: inkMix(s.color), backgroundColor: tint(s.color, 0.12) } : undefined}
+      style={active ? { color: inkMix(s.color, 80), backgroundColor: tint(s.color, 0.12) } : undefined}
     >
-      <span
-        aria-hidden
-        className="flex size-8 items-center justify-center rounded-xl transition-shadow"
-        style={active ? { backgroundColor: tint(s.color, 0.18), boxShadow: `0 4px 16px -4px ${tint(s.color, 0.6)}` } : undefined}
-      >
-        <Icon className="size-[18px]" />
-      </span>
+      {active && (
+        <span
+          aria-hidden
+          className={vertical ? "absolute inset-y-2 left-0 w-1 rounded-r" : "absolute inset-x-4 top-0 h-[3px] rounded-b"}
+          style={{ backgroundColor: s.color, boxShadow: `0 0 12px ${tint(s.color, 0.8)}` }}
+        />
+      )}
+      <Icon aria-hidden className="size-5" />
       {s.label}
     </Link>
   );
@@ -55,7 +57,7 @@ export function Sidebar() {
         {SECTIONS.map((s) => (
           <div key={s.key}>
             <Item s={s} active={cur?.key === s.key} vertical />
-            <ul className="mb-2 ml-[1.625rem] mt-0.5 border-l border-border pl-3">
+            <ul className="mb-2 ml-[1.375rem] mt-0.5 border-l border-border pl-3">
               {visiblePages(s, owner).map((p) => {
                 const on = path === p.href || path.startsWith(p.href + "/");
                 return (
@@ -63,7 +65,7 @@ export function Sidebar() {
                     <Link
                       href={p.href}
                       aria-current={on ? "page" : undefined}
-                      className={`flex min-h-9 items-center rounded-lg px-2 text-sm ${on ? "font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex min-h-9 items-center rounded-md px-2 text-sm ${on ? "font-semibold" : "text-muted-foreground hover:text-foreground"}`}
                       style={on ? { color: inkMix(s.color) } : undefined}
                     >
                       {p.label}
@@ -96,7 +98,7 @@ export function MobileTabs() {
   return (
     <nav
       aria-label="Main"
-      className="fixed inset-x-3 bottom-[max(.75rem,env(safe-area-inset-bottom))] z-40 flex gap-1 rounded-[28px] border border-border bg-card/80 p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] backdrop-blur-xl md:hidden"
+      className="fixed inset-x-3 bottom-[max(.75rem,env(safe-area-inset-bottom))] z-40 flex gap-1 rounded-2xl border border-border bg-card/85 p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,.6)] backdrop-blur-xl md:hidden"
     >
       {SECTIONS.map((s) => <Item key={s.key} s={s} active={cur?.key === s.key} vertical={false} />)}
     </nav>

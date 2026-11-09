@@ -3,34 +3,53 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { sectionFor, inkMix, tint, visiblePages } from "@/lib/sections";
+import { sectionFor, tint, visiblePages } from "@/lib/sections";
 import { useOwner } from "@/lib/use-owner";
 
+/** Faint pitch markings (halfway line, centre circle, spot, penalty area) for header backgrounds. */
+function PitchLines({ className }: { className: string }) {
+  return (
+    <svg aria-hidden viewBox="0 0 240 200" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}>
+      <rect x="2" y="2" width="236" height="196" />
+      <line x1="120" y1="2" x2="120" y2="198" />
+      <circle cx="120" cy="100" r="38" />
+      <circle cx="120" cy="100" r="2.5" fill="currentColor" />
+      <rect x="2" y="50" width="40" height="100" />
+      <rect x="198" y="50" width="40" height="100" />
+    </svg>
+  );
+}
+
 /**
- * Top of every screen: a card with two soft glows (the tab's colour + cyan), the tab name as an eyebrow, the
- * page title, its bullet notes (children) and an optional right slot. Below it, the tab's pill sub-tabs.
- * The tab and colour come from the URL, so pages only pass a title.
+ * Top of every screen, styled like a TV lower-third: a tab-colour stripe on the left, the tab name in a skewed
+ * tag, the title in condensed caps, the page's bullet notes (children), faint pitch markings and a floodlight
+ * glow. From 768 px the tab's pill sub-tabs follow (phones show them in a sticky bar instead). The tab and
+ * colour come from the URL, so pages only pass a title.
  */
 export function PageHeader({ title, right, children }: { title: React.ReactNode; right?: React.ReactNode; children?: React.ReactNode }) {
   const path = usePathname();
   const owner = useOwner();
   const s = sectionFor(path);
-  const color = s?.color ?? "#34d399";
+  const color = s?.color ?? "#22d3ee";
   return (
     <>
-      <header className="rise relative overflow-hidden rounded-3xl border border-border bg-card px-5 py-6">
-        <span aria-hidden className="pointer-events-none absolute -left-16 -top-20 h-56 w-56 rounded-full blur-3xl" style={{ backgroundColor: tint(color, 0.3) }} />
-        <span aria-hidden className="pointer-events-none absolute -bottom-24 right-0 h-48 w-48 rounded-full bg-brand-2/15 blur-3xl" />
-        <div className="relative flex items-center justify-between gap-4">
+      <header className="rise relative overflow-hidden rounded-xl border border-border bg-card">
+        <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: color }} />
+        <span aria-hidden className="pointer-events-none absolute -top-28 left-1/4 h-52 w-96 rounded-full blur-3xl" style={{ backgroundColor: tint(color, 0.16) }} />
+        <PitchLines className="pointer-events-none absolute -right-16 top-1/2 h-[230px] -translate-y-1/2 text-[color:var(--pitch-line)]" />
+        <div className="relative flex items-center justify-between gap-4 py-5 pl-6 pr-5">
           <div className="min-w-0">
-            {s && <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: inkMix(color) }}>{s.label}</p>}
-            <h1 className="mt-1 font-display text-[28px] leading-tight sm:text-3xl">{title}</h1>
+            {s && (
+              <span className="inline-block -skew-x-12 px-2 py-0.5" style={{ backgroundColor: color }}>
+                <span className="inline-block skew-x-12 text-[11px] font-bold uppercase tracking-[0.16em] text-[#06132a]">{s.label}</span>
+              </span>
+            )}
+            <h1 className="mt-2 font-display text-[34px] sm:text-[40px]">{title}</h1>
           </div>
           {right && <div className="shrink-0">{right}</div>}
         </div>
-        {children && <div className="relative mt-3 space-y-1.5 text-sm text-muted-foreground [&_ul]:space-y-0.5">{children}</div>}
+        {children && <div className="relative space-y-1.5 pb-5 pl-6 pr-5 text-sm text-muted-foreground [&_ul]:space-y-0.5">{children}</div>}
       </header>
-      {/* Phones show these pills in a sticky bar under the top bar instead (SectionPills in the layout). */}
       {s && visiblePages(s, owner).length > 1 && <SubTabs pages={visiblePages(s, owner)} path={path} className="mt-3 hidden md:flex" />}
     </>
   );
@@ -59,8 +78,8 @@ function SubTabs({ pages, path, className }: { pages: { href: string; label: str
             key={p.href}
             href={p.href}
             aria-current={active ? "page" : undefined}
-            className={`press inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-medium whitespace-nowrap ${
-              active ? "bg-grad text-white glow" : "border border-border bg-card text-muted-foreground hover:text-foreground"
+            className={`press inline-flex h-10 shrink-0 items-center rounded-md px-4 font-display text-[15px] tracking-wide whitespace-nowrap ${
+              active ? "bg-grad glow" : "border border-border bg-card text-muted-foreground hover:text-foreground"
             }`}
           >
             {p.label}
@@ -87,7 +106,7 @@ export function ThemePicker() {
   };
   const opts = [["dark", "Dark"], ["light", "Light"], ["system", "Match device"]] as const;
   return (
-    <div role="radiogroup" aria-label="Appearance" className="grid grid-cols-3 gap-1 rounded-full border border-border bg-card p-1">
+    <div role="radiogroup" aria-label="Appearance" className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-card p-1">
       {opts.map(([v, label]) => (
         <button
           key={v}
@@ -95,7 +114,7 @@ export function ThemePicker() {
           role="radio"
           aria-checked={mode === v}
           onClick={() => pick(v)}
-          className={`press h-10 rounded-full text-sm font-medium ${mode === v ? "bg-grad text-white glow" : "text-muted-foreground hover:text-foreground"}`}
+          className={`press h-10 rounded-md text-sm font-semibold ${mode === v ? "bg-grad glow" : "text-muted-foreground hover:text-foreground"}`}
         >
           {label}
         </button>

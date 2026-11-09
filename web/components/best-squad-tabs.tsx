@@ -53,7 +53,7 @@ export function BestSquadTabs({
             onClick={() => setVariant(t.key)}
             className={
               variant === t.key
-                ? "rounded-md bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-400"
+                ? "rounded-md bg-grad px-3 py-1.5 text-sm font-semibold"
                 : "rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
             }
           >
@@ -77,7 +77,7 @@ export function BestSquadTabs({
             ].map((s) => (
               <div key={s.label} className="rounded-2xl border border-border bg-card px-3 py-3 sm:px-4">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
-                <div className="mt-1 truncate text-base font-semibold sm:text-lg">{s.value}</div>
+                <div className="mt-1 truncate font-display text-2xl tabular-nums sm:text-3xl">{s.value}</div>
               </div>
             ))}
           </div>

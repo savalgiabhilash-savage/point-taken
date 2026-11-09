@@ -11,7 +11,7 @@
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-display);
-  --font-display: var(--font-sora);
+  --font-display: var(--font-barlow);
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
   --color-brand-2: var(--brand-2);
@@ -53,79 +53,88 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Glow palette. Dark is the default; light applies when the html element has data-mode="light". Components
-   use only these tokens (shadcn names), so both themes follow automatically. */
+/* Matchday skin (glow-app-ui): night-stadium navy, cool white text, electric cyan→blue brand. Green, red and
+   amber are reserved for data (xPts, fixture difficulty, availability), so the brand stays off them.
+   Dark is the default; light applies when the html element has data-mode="light". Components use only these
+   tokens (shadcn names), so both themes follow automatically. */
 :root {
   color-scheme: dark;
-  --background: #0a0f0e;      /* page: near-black, faint green */
-  --foreground: #ecf5f1;      /* text */
-  --card: #121a18;            /* raised surfaces */
-  --card-foreground: #ecf5f1;
-  --popover: #121a18;
-  --popover-foreground: #ecf5f1;
-  --primary: #34d399;
-  --primary-foreground: #04201a;
-  --secondary: #18231f;
-  --secondary-foreground: #ecf5f1;
-  --muted: #18231f;           /* subtle fills */
-  --muted-foreground: #8fa39c; /* secondary text */
-  --accent: #1b2925;          /* hover fills */
-  --accent-foreground: #ecf5f1;
+  --background: #0a1024;      /* page: night-stadium navy */
+  --foreground: #eef2ff;      /* text: cool white */
+  --card: #111a33;            /* raised surfaces */
+  --card-foreground: #eef2ff;
+  --popover: #111a33;
+  --popover-foreground: #eef2ff;
+  --primary: #22d3ee;
+  --primary-foreground: #06132a;
+  --secondary: #17213f;
+  --secondary-foreground: #eef2ff;
+  --muted: #17213f;           /* subtle fills */
+  --muted-foreground: #94a3c7; /* secondary text */
+  --accent: #1b2748;          /* hover fills */
+  --accent-foreground: #eef2ff;
   --destructive: #f87171;
-  --border: #22302c;          /* hairlines */
-  --input: #2a3a35;
-  --ring: #34d399;
-  --brand: #34d399;           /* links, active text */
-  --brand-soft: #0f2a22;      /* chips, soft fills */
-  --brand-2: #22d3ee;         /* secondary glow */
-  --grad: linear-gradient(135deg, #059669, #0d9488 55%, #0891b2);
-  --glow-a: color-mix(in srgb, #10b981 16%, transparent);
-  --glow-b: color-mix(in srgb, #06b6d4 11%, transparent);
-  --chart-1: #34d399; --chart-2: #22d3ee; --chart-3: #60a5fa; --chart-4: #fbbf24; --chart-5: #f87171;
-  --radius: 0.625rem;
-  --sidebar: #0d1412;
-  --sidebar-foreground: #ecf5f1;
-  --sidebar-primary: #34d399;
-  --sidebar-primary-foreground: #04201a;
-  --sidebar-accent: #18231f;
-  --sidebar-accent-foreground: #ecf5f1;
-  --sidebar-border: #22302c;
-  --sidebar-ring: #34d399;
+  --border: #223056;          /* hairlines */
+  --input: #2a3a66;
+  --ring: #22d3ee;
+  --brand: #22d3ee;           /* links, active text */
+  --brand-soft: #0b2440;      /* soft fills */
+  --brand-2: #3b82f6;         /* secondary glow */
+  --on-brand: #06132a;        /* text on the brand gradient (white fails contrast on cyan) */
+  --grad: linear-gradient(120deg, #22d3ee, #3b82f6);
+  --grad-text: linear-gradient(120deg, #22d3ee, #60a5fa);
+  --flood: rgba(186, 230, 253, 0.10); /* floodlight beams */
+  --glow-a: color-mix(in srgb, #22d3ee 12%, transparent);
+  --glow-b: color-mix(in srgb, #3b82f6 12%, transparent);
+  --pitch-line: rgba(238, 242, 255, 0.07);
+  --chart-1: #22d3ee; --chart-2: #3b82f6; --chart-3: #818cf8; --chart-4: #fbbf24; --chart-5: #f87171;
+  --radius: 0.375rem;         /* sharp, broadcast-graphic corners; drives every rounded-* */
+  --sidebar: #0c1430;
+  --sidebar-foreground: #eef2ff;
+  --sidebar-primary: #22d3ee;
+  --sidebar-primary-foreground: #06132a;
+  --sidebar-accent: #17213f;
+  --sidebar-accent-foreground: #eef2ff;
+  --sidebar-border: #223056;
+  --sidebar-ring: #22d3ee;
 }
 
 :root[data-mode="light"] {
   color-scheme: light;
-  --background: #f4f8f6;
-  --foreground: #0f1a17;
+  --background: #eef2f9;
+  --foreground: #0a1024;
   --card: #ffffff;
-  --card-foreground: #0f1a17;
+  --card-foreground: #0a1024;
   --popover: #ffffff;
-  --popover-foreground: #0f1a17;
-  --primary: #059669;
+  --popover-foreground: #0a1024;
+  --primary: #0369a1;
   --primary-foreground: #ffffff;
-  --secondary: #eaf2ee;
-  --secondary-foreground: #0f1a17;
-  --muted: #eaf2ee;
-  --muted-foreground: #56665f;
-  --accent: #e3efe9;
-  --accent-foreground: #0f1a17;
+  --secondary: #e3e9f5;
+  --secondary-foreground: #0a1024;
+  --muted: #e3e9f5;
+  --muted-foreground: #4a5878;
+  --accent: #dde5f3;
+  --accent-foreground: #0a1024;
   --destructive: #dc2626;
-  --border: #dbe6e1;
-  --input: #cfdcd6;
-  --ring: #059669;
-  --brand: #047857;
-  --brand-soft: #e3f6ee;
-  --brand-2: #0891b2;
-  --glow-a: color-mix(in srgb, #10b981 14%, transparent);
-  --glow-b: color-mix(in srgb, #06b6d4 10%, transparent);
+  --border: #d3dcec;
+  --input: #c5d0e4;
+  --ring: #0369a1;
+  --brand: #0369a1;
+  --brand-soft: #e0f2fe;
+  --brand-2: #2563eb;
+  --flood: rgba(56, 189, 248, 0.10);
+  --grad-text: linear-gradient(120deg, #0e7490, #1d4ed8); /* darker so the logo text passes contrast on light */
+  --glow-a: color-mix(in srgb, #22d3ee 12%, transparent);
+  --glow-b: color-mix(in srgb, #3b82f6 10%, transparent);
+  --pitch-line: rgba(10, 16, 36, 0.07);
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f1a17;
-  --sidebar-primary: #059669;
+  --sidebar-foreground: #0a1024;
+  --sidebar-primary: #0369a1;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eaf2ee;
-  --sidebar-accent-foreground: #0f1a17;
-  --sidebar-border: #dbe6e1;
-  --sidebar-ring: #059669;
+  --sidebar-accent: #e3e9f5;
+  --sidebar-accent-foreground: #0a1024;
+  --sidebar-border: #d3dcec;
+  --sidebar-ring: #0369a1;
   /* The app's status colours were picked for dark (-300/-400/-500 text). On white they are too pale, so in
      light mode those shades map to the -700 / -600 tones (Tailwind v4 utilities read these variables). */
   --color-emerald-300: #047857; --color-emerald-400: #047857; --color-emerald-500: #059669;
@@ -158,20 +167,21 @@
     @apply font-sans;
   }
 }
-/* Two soft glows behind everything (fixed, so they don't scroll). */
+/* Floodlights: two cool beams from the top corners, plus a faint brand glow (fixed, so they don't scroll). */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(40rem 28rem at 10% -10%, var(--glow-a), transparent 70%),
-    radial-gradient(36rem 26rem at 100% 0%, var(--glow-b), transparent 70%);
+    radial-gradient(22rem 46rem at 4% -18%, var(--flood), transparent 70%),
+    radial-gradient(22rem 46rem at 96% -18%, var(--flood), transparent 70%),
+    radial-gradient(50rem 30rem at 50% -20%, var(--glow-a), transparent 70%);
 }
-.font-display { letter-spacing: -0.02em; font-weight: 600; }
-.bg-grad { background-image: var(--grad); }
-.text-grad { background-image: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.glow { box-shadow: 0 8px 30px -8px color-mix(in srgb, #10b981 50%, transparent); }
+.font-display { font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.05; }
+.bg-grad { background-image: var(--grad); color: var(--on-brand); }
+.text-grad { background-image: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.glow { box-shadow: 0 8px 28px -10px color-mix(in srgb, #22d3ee 65%, transparent); }
 @media (hover: hover) {
   .lift { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
-  .lift:hover { transform: translateY(-2px); box-shadow: 0 10px 30px -12px color-mix(in srgb, #10b981 40%, transparent); }
+  .lift:hover { transform: translateY(-2px); box-shadow: 0 10px 30px -12px color-mix(in srgb, #22d3ee 40%, transparent); }
 }
 .press { transition: transform .1s ease; }
 .press:active { transform: scale(.97); }
@@ -187,3 +197,7 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Pulsing LIVE dot (broadcast convention). */
+@keyframes live { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+.live-dot { animation: live 1.4s ease-in-out infinite; }

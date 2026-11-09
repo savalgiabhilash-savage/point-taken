@@ -95,7 +95,7 @@ export function OptimizeControls({
         <button
           onClick={optimize}
           disabled={busy}
-          className="inline-flex h-11 items-center gap-2 press rounded-full bg-grad glow px-4 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="inline-flex h-11 items-center gap-2 press rounded-md bg-grad glow px-4 text-sm font-bold uppercase tracking-wide hover:brightness-110 disabled:opacity-40"
         >
           {busy && <Loader2 className="size-4 animate-spin" />}
           {busy ? "Optimizing…" : "Optimize my squad"}

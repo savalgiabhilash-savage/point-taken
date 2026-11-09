@@ -135,7 +135,7 @@ export default async function OptimizerPage() {
       <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
         <PageHeader title="Transfer optimizer" />
         <p className="mt-4 text-sm text-muted-foreground">
-          <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to plan transfers, captaincy and chips for your own squad.
+          <Link href="/login" className="text-brand hover:underline">Log in</Link> to plan transfers, captaincy and chips for your own squad.
         </p>
       </main>
     );
