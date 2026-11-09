@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 58</span>
+    <span>doc rev 59</span>
     <span>updated 2026-11-09</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -729,7 +729,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <ul>
     <li>Server components read Supabase with the anon key. My Team and Optimizer need a signed-in user and read only that user's rows; logged-out visitors get a login prompt.</li>
     <li>The proxy (<code>web/proxy.ts</code>, Next 16's name for middleware) refreshes the Supabase session cookie on every non-asset request.</li>
-    <li>The assistant endpoint needs a signed-in user. Login is email and password. Supabase has email auto-confirm on, so addresses aren't verified.</li>
+    <li>The assistant endpoint needs a signed-in user. Login is email and password, or <b>Continue with Google</b> (Supabase OAuth, PKCE): the login page calls <code>signInWithOAuth</code> with <code>redirectTo</code> = <code>/auth/callback?next=/team</code>; <code>app/auth/callback/route.ts</code> swaps the code for a session cookie and redirects (same-site paths only; failures go to <code>/login?error=google</code>). Needs the Google provider on in Supabase (Google Cloud OAuth client ID/secret) and the site's <code>/auth/callback</code> in Supabase's redirect URLs. Supabase has email auto-confirm on, so email addresses aren't verified.</li>
     <li><b>Pitch cards</b> (<code>components/squad-pitch.tsx</code>, on My Team, Optimizer, Best XI and Chips): name, club, the opponent(s) in the GW that pitch shows ("v BOU (H)" home, "v AVL (A)" away, both in a double, "no game" in a blank; built from <code>fixtures</code> by <code>lib/fixtures.ts</code>), projected points and price. On My Team, a dark "GW10 16 · FT" line adds live points (captain multiplied) once a player's game has started, from the same live data as the Live GW panel (<code>LiveProvider</code> / <code>LiveBadge</code> in <code>components/live-gw.tsx</code>); only when the pitch shows the live GW's squad</li>
     <li><b>Live GW</b> panel on My Team (<code>components/live-gw.tsx</code> → <code>GET /api/live</code> → <code>lib/live.ts</code>, signed in with an FPL entry ID; polls every 60 s until every game is finished; FPL responses cached 60 s, the entry 5 min):
       <ul>
@@ -1194,6 +1194,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-09</span><br>Sign in with Google (Supabase OAuth) next to email and password.</li>
     <li><span class="d">2026-11-09</span><br>GitHub repo renamed to point-taken; the Re-optimize button (<code>web/lib/reoptimize.ts</code>) and the pre-deadline timer (migration 0012) call the new name.</li>
     <li><span class="d">2026-11-09</span><br>New address point-taken-fpl.vercel.app (Vercel project renamed to point-taken); the old address forwards there.</li>
     <li><span class="d">2026-11-09</span><br>Renamed to "Point Taken" with SEO titles, description, keywords and share cards; Guide notes it is independent of the Premier League.</li>
