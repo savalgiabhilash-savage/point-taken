@@ -25,6 +25,7 @@ export const SECTIONS: Section[] = [
       { href: "/players", label: "Players" },
       { href: "/differentials", label: "Differentials" },
       { href: "/fixtures", label: "Fixtures" },
+      { href: "/compare", label: "Compare" },
     ],
   },
   {

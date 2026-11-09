@@ -82,6 +82,7 @@ export default function GuidePage() {
             <B><b>Scout</b> → <b>Players</b>: every player ranked by projected points; click a row for the breakdown</B>
             <B><b>Scout</b> → <b>Differentials</b>: low-owned players the model rates highly, with the reasons</B>
             <B><b>Scout</b> → <b>Fixtures</b>: each team&apos;s next 8 gameweeks, coloured by difficulty</B>
+            <B><b>Scout</b> → <b>Compare</b>: 2 or 3 players side by side, Ultimate Team style: an overall rating, six attributes (form, attack, defence, minutes, fixtures, value) and the key numbers, best in each row marked ▲</B>
             <B><b>Predict</b> → <b>Best XI</b> and <b>Accuracy</b>: the best squad for this gameweek, then how the predictions scored against actual points</B>
             <B><b>Ask</b> → <b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
             <B>Settings (your account button, top right on a phone): FPL team, sync, and Dark / Light / Match device</B>
