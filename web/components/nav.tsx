@@ -7,11 +7,32 @@ import { SECTIONS, sectionFor, inkMix, tint, visiblePages } from "@/lib/sections
 import { useOwner } from "@/lib/use-owner";
 import { AccountMenu } from "@/components/auth-button";
 
+/**
+ * The logo: a captain's "C" on a slanted broadcast tag, with the ball as its full stop: "Captain. Full stop."
+ * The weekly call every FPL manager agonises over, made decisively. Same artwork as app/icon.svg.
+ */
+export function LogoMark({ className }: { className?: string }) {
+  const id = React.useId();
+  return (
+    <svg aria-hidden viewBox="0 0 512 512" className={className}>
+      <defs>
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#22d3ee" />
+          <stop offset="1" stopColor="#3b82f6" />
+        </linearGradient>
+      </defs>
+      <rect x="62" y="20" width="388" height="472" rx="40" fill={`url(#${id})`} transform="translate(256 256) skewX(-12) translate(-256 -256)" />
+      <path d="M 330 168 A 112 112 0 1 0 330 344" fill="none" stroke="#0a1024" strokeWidth="64" />
+      <circle cx="362" cy="256" r="34" fill="#0a1024" />
+      <path d="M 362 241 l 14.3 10.4 -5.5 16.8 h -17.6 l -5.5 -16.8 z" fill="#22d3ee" opacity=".9" />
+    </svg>
+  );
+}
+
 function Logo() {
   return (
     <Link href="/players" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-display text-lg">
-      {/* eslint-disable-next-line @next/next/no-img-element -- tiny static icon, no optimisation needed */}
-      <img src="/icon-192.png" alt="" width={32} height={32} className="size-8 rounded-xl glow" />
+      <LogoMark className="size-8 drop-shadow-[0_4px_12px_rgba(34,211,238,.35)]" />
       <span className="text-grad">FPL Selector</span>
     </Link>
   );
