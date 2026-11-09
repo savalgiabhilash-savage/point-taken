@@ -5,8 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { AppState, Platform } from 'react-native';
 
 // Same Supabase project and accounts as the web app. Shared data (players, projections) is public;
-// your own team needs sign-in (email + password), and RLS returns only your rows. The session is kept
-// in AsyncStorage, so you stay signed in between launches.
+// your own team needs sign-in (email + password, or Google), and RLS returns only your rows. The session
+// is kept in AsyncStorage, so you stay signed in between launches. PKCE: Google sign-in returns a one-time
+// code to the app (pointtaken://auth/callback), which the app swaps for a session itself.
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const anon = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -16,6 +17,7 @@ export const supabase = createClient(url, anon, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    flowType: 'pkce',
   },
 });
 

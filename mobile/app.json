@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "FPL Selector",
+    "name": "Point Taken",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "pointtaken",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
