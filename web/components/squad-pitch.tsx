@@ -110,7 +110,7 @@ function PlayerCard({ p, opp, liveGw }: { p: SquadPlayer; opp?: string | null; l
           playerId={p.fpl_id}
           name={p.web_name}
           why={cardWhy(p)}
-          className="relative flex size-5 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 font-serif text-[11px] font-bold italic leading-none text-white ring-2 ring-white before:absolute before:-inset-2 before:content-[''] hover:bg-emerald-600"
+          className="relative flex size-5 cursor-pointer items-center justify-center rounded-full bg-zinc-900/80 font-sans text-[11px] font-bold italic leading-none text-white ring-2 ring-white before:absolute before:-inset-2 before:content-[''] hover:bg-emerald-600"
         />
       </div>
       {p.ownership != null && p.ownership < DIFFERENTIAL_OWNERSHIP ? (

@@ -28,7 +28,7 @@ export function PlayerInfo({
         }}
         className={
           className ??
-          "inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-zinc-700 font-serif text-[10px] font-bold italic leading-none text-white hover:bg-emerald-600"
+          "inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-zinc-700 font-sans text-[10px] font-bold italic leading-none text-white hover:bg-emerald-600"
         }
       >
         i

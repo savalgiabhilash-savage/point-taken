@@ -1,14 +1,14 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Barlow_Condensed, Geist_Mono } from "next/font/google";
+import { Google_Sans_Flex, Google_Sans_Code } from "next/font/google";
 import { Sidebar, MobileTop, MobileTabs } from "@/components/nav";
 import { Toaster } from "@/components/toast";
 import { SectionPills } from "@/components/shell";
 import "./globals.css";
 
-// Body text Inter; headings and big numbers Barlow Condensed in caps (TV-graphics style) via font-display.
-const inter = Inter({ variable: "--font-sans", subsets: ["latin"] });
-const barlow = Barlow_Condensed({ variable: "--font-barlow", subsets: ["latin"], weight: ["600", "700"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+// Google Sans everywhere. Flex is variable in width (wdth) and slant (slnt): body text at normal width, and
+// font-display narrows the same family to a condensed caps style for headings and numbers (TV-graphics look).
+const gsans = Google_Sans_Flex({ variable: "--font-sans", subsets: ["latin"], axes: ["wdth", "slnt"] });
+const gcode = Google_Sans_Code({ variable: "--font-code", subsets: ["latin"] });
 
 // cover: lets the floating tab bar pad for the iPhone home indicator (env(safe-area-inset-bottom)).
 export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a1024" };
@@ -26,7 +26,7 @@ const THEME_SCRIPT = `(function(){var d=document.documentElement,q=matchMedia('(
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${barlow.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" suppressHydrationWarning className={`${gsans.variable} ${gcode.variable} h-full antialiased`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

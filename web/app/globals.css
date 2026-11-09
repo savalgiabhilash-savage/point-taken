@@ -9,9 +9,9 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-code);
   --font-heading: var(--font-display);
-  --font-display: var(--font-barlow);
+  --font-display: var(--font-sans);
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
   --color-brand-2: var(--brand-2);
@@ -175,7 +175,7 @@ body::before {
     radial-gradient(22rem 46rem at 96% -18%, var(--flood), transparent 70%),
     radial-gradient(50rem 30rem at 50% -20%, var(--glow-a), transparent 70%);
 }
-.font-display { font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.05; }
+.font-display { font-weight: 700; font-stretch: 72%; font-variation-settings: "wdth" 72; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1.05; } /* Google Sans Flex, condensed */
 .bg-grad { background-image: var(--grad); color: var(--on-brand); }
 .text-grad { background-image: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .glow { box-shadow: 0 8px 28px -10px color-mix(in srgb, #22d3ee 65%, transparent); }
