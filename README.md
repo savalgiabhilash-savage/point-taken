@@ -2,7 +2,7 @@
 
 A personal Fantasy Premier League decision tool: FPL + Understat data → a transparent rules-based xPts
 model → a HiGHS MILP optimizer for transfers, captain and chips on your real team, plus news sentiment
-and a grounded Claude assistant. Live at https://fpl-selector.vercel.app.
+and a grounded Claude assistant. Live at https://point-taken-fpl.vercel.app (the app is called Point Taken; the old fpl-selector.vercel.app address forwards there).
 
 **Full reference:** `web/content/architecture.html` (the "Blueprint": architecture, pipeline, every
 formula and parameter, known issues). It is the owner-only Docs tab in the app and a Claude artifact;

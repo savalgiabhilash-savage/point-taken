@@ -51,7 +51,7 @@ export default function TeamScreen() {
         const team = st?.[0] as { picks?: Record<string, unknown>[] } | undefined;
         if (!team?.picks?.length) {
           if (active) {
-            setMsg('No team synced yet. Add your FPL entry ID in Settings on fpl-selector.vercel.app and sync.');
+            setMsg('No team synced yet. Add your FPL entry ID in Settings on point-taken-fpl.vercel.app and sync.');
             setLoading(false);
           }
           return;

@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 const ACCENT = '#10b981';
 
 // Email + password sign-in against the same Supabase accounts as the web app. Accounts are created on
-// the website (fpl-selector.vercel.app/login), where you also link your FPL entry in Settings.
+// the website (point-taken-fpl.vercel.app/login), where you also link your FPL entry in Settings.
 export function SignInForm() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const c = Colors[scheme];
@@ -33,7 +33,7 @@ export function SignInForm() {
     <View style={styles.wrap}>
       <ThemedText type="small" style={{ color: c.textSecondary }}>
         Sign in with your FPL Selector account to see your squad. New here? Create an account at
-        fpl-selector.vercel.app and add your FPL entry ID in Settings.
+        point-taken-fpl.vercel.app and add your FPL entry ID in Settings.
       </ThemedText>
       <TextInput
         placeholder="Email"

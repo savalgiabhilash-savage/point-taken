@@ -20,7 +20,7 @@ const DESCRIPTION =
   "chip timing, projected points (xPts) for every player, live points and mini-league ranks.";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://fpl-selector.vercel.app"),
+  metadataBase: new URL("https://point-taken-fpl.vercel.app"),
   title: { default: "Point Taken: FPL Captain Picks, Transfer Planner & Live Rank", template: "%s · Point Taken" },
   description: DESCRIPTION,
   applicationName: "Point Taken",
