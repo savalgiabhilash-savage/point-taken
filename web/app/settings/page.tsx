@@ -6,6 +6,17 @@ import { createBrowserSupabase } from "@/lib/supabase/client";
 import { TeamUpload } from "@/components/team-upload";
 import { toast } from "@/components/toast";
 import { Loader2 } from "lucide-react";
+import { PageHeader, ThemePicker } from "@/components/shell";
+
+function Appearance() {
+  return (
+    <section className="mt-6 rounded-3xl border border-border bg-card p-5">
+      <h2 className="font-display text-lg">Appearance</h2>
+      <p className="mt-0.5 text-sm text-muted-foreground">• Saved on this device</p>
+      <div className="mt-3"><ThemePicker /></div>
+    </section>
+  );
+}
 
 export default function SettingsPage() {
   const [ready, setReady] = React.useState(false);
@@ -67,23 +78,24 @@ export default function SettingsPage() {
   };
 
   if (!ready) {
-    return <main className="mx-auto w-full max-w-md px-6 py-16 text-sm text-muted-foreground">Loading…</main>;
+    return <main className="mx-auto w-full max-w-md px-4 py-5 sm:px-6 sm:py-8 text-sm text-muted-foreground">Loading…</main>;
   }
 
   if (!userId) {
     return (
-      <main className="mx-auto w-full max-w-md px-6 py-16">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+      <main className="mx-auto w-full max-w-md px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="Settings" />
         <p className="mt-3 text-sm text-muted-foreground">
           <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to connect your FPL team.
         </p>
+        <Appearance />
       </main>
     );
   }
 
   return (
-    <main className="mx-auto w-full max-w-md px-6 py-12">
-      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+    <main className="mx-auto w-full max-w-md px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Settings" />
       <p className="mt-1 text-sm text-muted-foreground">
         Connect your Fantasy Premier League team so the app can personalise picks for you.
       </p>
@@ -98,12 +110,12 @@ export default function SettingsPage() {
             value={entryId}
             onChange={(e) => setEntryId(e.target.value)}
             placeholder="e.g. 3429940"
-            className="h-11 flex-1 rounded-xl border border-border/60 bg-card px-4 text-sm outline-none focus:border-emerald-500/40"
+            className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
           />
           <button
             onClick={saveId}
             disabled={busy}
-            className="h-11 rounded-xl bg-emerald-500/90 px-4 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+            className="h-11 press rounded-full bg-grad glow px-4 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
           >
             Save
           </button>
@@ -118,7 +130,7 @@ export default function SettingsPage() {
           <button
             onClick={sync}
             disabled={busy}
-            className="h-11 w-full rounded-xl border border-border/60 bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
+            className="h-11 w-full rounded-2xl border border-border bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
           >
             {busy ? <span className="inline-flex items-center gap-2"><Loader2 className="size-4 animate-spin" />Syncing…</span> : "Sync my team now"}
           </button>
@@ -133,6 +145,8 @@ export default function SettingsPage() {
           note="Preseason your squad is private on the FPL API. Screenshot your team (from the FPL app or site) and upload it — the app reads the 15 players, captain, and bench, and loads them as your team."
         />
       </div>
+
+      <Appearance />
     </main>
   );
 }

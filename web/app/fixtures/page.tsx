@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -52,16 +53,15 @@ export default async function FixturesPage() {
     .sort((a, b) => a.avg - b.avg);
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Fixture Ticker</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Fixture Ticker">
+        <ul>
           <li>• Next {gws.length} gameweeks, coloured by difficulty (green = easy, red = hard)</li>
           <li>• Teams with the easiest run are at the top</li>
         </ul>
-      </div>
+      </PageHeader>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-border/60 bg-card shadow-sm">
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-border bg-card">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border/60 bg-muted/40">

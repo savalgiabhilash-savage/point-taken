@@ -5,6 +5,7 @@ import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import { opponentLabels } from "@/lib/fixtures";
 import { OptimizeControls } from "@/components/optimize-controls";
 import { PlayerInfo } from "@/components/player-info";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -131,8 +132,8 @@ export default async function OptimizerPage() {
 
   if (!authData.user) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
+      <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="Transfer optimizer" />
         <p className="mt-4 text-sm text-muted-foreground">
           <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to plan transfers, captaincy and chips for your own squad.
         </p>
@@ -160,8 +161,8 @@ export default async function OptimizerPage() {
 
   if (!run) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
+      <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="Transfer optimizer" />
         <p className="mt-4 text-sm text-muted-foreground">
           No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
           appears here in a minute or two.
@@ -290,10 +291,9 @@ export default async function OptimizerPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Optimizer</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Transfer optimizer">
+        <ul>
           <li>• A plan for your squad over the next {horizon} gameweeks</li>
           <li>• Which week to transfer, when to roll a free transfer, when a −4 hit pays off</li>
           <li>• Follows every FPL rule: budget, 2/5/5/3, max 3 per club, valid formation</li>
@@ -303,7 +303,7 @@ export default async function OptimizerPage() {
           </li>
           <li>• Tap the i on any player for the full reasoning; chip moves are on the Chips tab</li>
         </ul>
-      </div>
+      </PageHeader>
 
       <OptimizeControls
         initialHorizon={horizon}
@@ -337,7 +337,7 @@ export default async function OptimizerPage() {
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
+          <div key={s.label} className="rounded-2xl border border-border bg-card px-4 py-3">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{s.label}</div>
             <div className="mt-1 truncate text-lg font-semibold">{s.value}</div>
             {s.sub ? <div className="text-xs text-muted-foreground">{s.sub}</div> : null}
@@ -352,7 +352,7 @@ export default async function OptimizerPage() {
         </div>
       )}
 
-      <div className="mt-5 rounded-xl border border-border/60 bg-card px-4 py-3">
+      <div className="mt-5 rounded-2xl border border-border bg-card px-4 py-3">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Why this plan</span>
         <ul className="mt-1.5 space-y-1 text-sm text-muted-foreground">
           {rationale.map((r, i) => (

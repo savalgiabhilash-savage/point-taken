@@ -95,7 +95,7 @@ export function ChipStrategy({
       </div>
 
       {/* status */}
-      <div className="rounded-xl border border-border/60 bg-card px-4 py-3">
+      <div className="rounded-2xl border border-border bg-card px-4 py-3">
         <ul className="space-y-0.5 text-sm">
           <li>
             • {chip.available ? "You still have this chip" : "Already used in this half of the season"}
@@ -247,7 +247,7 @@ function OptionView({
 
 function Panel({ title, bullets, children }: { title: string; bullets: string[]; children?: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-border/60 bg-card px-4 py-4">
+    <section className="rounded-2xl border border-border bg-card px-4 py-4">
       <div className="text-sm font-semibold">{title}</div>
       <ul className="mt-1.5 space-y-0.5 text-sm text-muted-foreground">
         {bullets.map((b, i) => (

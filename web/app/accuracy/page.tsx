@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -115,16 +116,17 @@ export default async function AccuracyPage() {
   const f3 = (x: number) => x.toFixed(3);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Accuracy</h1>
-      <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Accuracy">
+        <ul>
         <li>• Each gameweek, the app&apos;s last pre-deadline predictions against the points players actually scored</li>
         <li>• Actual points are the only benchmark: the best possible top-20 shows the ceiling each week</li>
         <li>• Lower RMSE is better; rank correlation (ρ) and top-20 points are higher-is-better</li>
       </ul>
+      </PageHeader>
 
-      <section className="mt-6 rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-        <h2 className="text-base font-semibold">Data health</h2>
+      <section className="mt-6 rounded-2xl border border-border bg-card p-4">
+        <h2 className="font-display text-lg">Data health</h2>
         <ul className="mt-2 space-y-1 text-sm">
           {health.map((h) => {
             const bad = h.hours == null || h.hours > h.warnAfter;
@@ -154,7 +156,7 @@ export default async function AccuracyPage() {
       </section>
 
       <section className="mt-6">
-        <h2 className="text-base font-semibold">By gameweek</h2>
+        <h2 className="font-display text-lg">By gameweek</h2>
         {perGw.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">No scored gameweeks yet.</p>
         ) : (
@@ -201,7 +203,7 @@ export default async function AccuracyPage() {
       </section>
 
       <section className="mt-6">
-        <h2 className="text-base font-semibold">By position (scored gameweeks from GW{CALIB_FROM_GW})</h2>
+        <h2 className="font-display text-lg">By position (scored gameweeks from GW{CALIB_FROM_GW})</h2>
         <ul className="mt-2 space-y-1 text-sm">
           {byPos.map((p) => (
             <li key={p.pos}>

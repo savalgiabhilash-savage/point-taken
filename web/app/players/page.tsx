@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase";
 import { PlayersTable } from "@/components/players-table";
 import { InstallCard } from "@/components/install-card";
+import { PageHeader } from "@/components/shell";
 
 // Always read fresh from the DB at request time.
 export const dynamic = "force-dynamic";
@@ -97,7 +98,7 @@ export default async function PlayersPage() {
 
   if (playersRes.error) {
     return (
-      <main className="mx-auto w-full max-w-7xl px-6 py-8">
+      <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
         <p className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
           Failed to load players: {playersRes.error.message}
         </p>
@@ -196,24 +197,23 @@ export default async function PlayersPage() {
   ];
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Player Explorer</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Player Explorer">
+        <ul>
           <li>• Projected points (xPts) for every player, adjusted for minutes, form and fixtures</li>
           <li>• Click a row for the breakdown; tap the i for the full reasoning</li>
         </ul>
-      </div>
+      </PageHeader>
 
       <InstallCard />
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
+          <div key={s.label} className="rounded-2xl border border-border bg-card px-4 py-3">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {s.label}
             </div>
-            <div className="mt-1 truncate text-lg font-semibold">{s.value}</div>
+            <div className="mt-1 truncate font-display text-xl tabular-nums">{s.value}</div>
             {s.sub ? <div className="text-xs text-muted-foreground">{s.sub}</div> : null}
           </div>
         ))}

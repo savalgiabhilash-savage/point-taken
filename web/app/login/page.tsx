@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/client";
+import { PageHeader } from "@/components/shell";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -38,10 +39,8 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-col px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight">
-        {mode === "signin" ? "Log in" : "Create account"}
-      </h1>
+    <main className="mx-auto flex w-full max-w-sm flex-col px-4 py-16 sm:px-6">
+      <PageHeader title={<>{mode === "signin" ? "Log in" : "Create account"}</>} />
       <p className="mt-1 text-sm text-muted-foreground">
         {mode === "signin" ? "Sign in to see your team and personalised picks." : "Sign up to track your own FPL team."}
       </p>
@@ -53,7 +52,7 @@ export default function LoginPage() {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
-          className="h-11 w-full rounded-xl border border-border/60 bg-card px-4 text-sm outline-none focus:border-emerald-500/40"
+          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
         />
         <input
           type="password"
@@ -62,12 +61,12 @@ export default function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Password (min 6 characters)"
-          className="h-11 w-full rounded-xl border border-border/60 bg-card px-4 text-sm outline-none focus:border-emerald-500/40"
+          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
         />
         <button
           type="submit"
           disabled={loading}
-          className="h-11 w-full rounded-xl bg-emerald-500/90 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+          className="h-11 w-full press rounded-full bg-grad glow text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
         >
           {loading ? "…" : mode === "signin" ? "Log in" : "Sign up"}
         </button>

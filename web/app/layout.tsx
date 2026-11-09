@@ -1,18 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Geist_Mono } from "next/font/google";
-import Link from "next/link";
-import { Nav, MobileTabs } from "@/components/nav";
-import { AuthButton } from "@/components/auth-button";
+import { Inter, Sora, Geist_Mono } from "next/font/google";
+import { Sidebar, MobileTop, MobileTabs } from "@/components/nav";
 import { Toaster } from "@/components/toast";
 import "./globals.css";
 
-// "Google Sans" is proprietary and not on Google Fonts; DM Sans is the closest openly-licensed,
-// Google-commissioned geometric sans and maps onto the --font-sans token the theme expects.
-const dmSans = DM_Sans({ variable: "--font-sans", subsets: ["latin"] });
+// Body text Inter; headings and big numbers Sora (geometric, slightly tight) via the font-display class.
+const inter = Inter({ variable: "--font-sans", subsets: ["latin"] });
+const sora = Sora({ variable: "--font-sora", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
-// cover: lets the bottom tab bar pad for the iPhone home indicator (env(safe-area-inset-bottom)).
-export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a0a0a" };
+// cover: lets the floating tab bar pad for the iPhone home indicator (env(safe-area-inset-bottom)).
+export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a0f0e" };
 
 export const metadata: Metadata = {
   title: "FPL Selector",
@@ -21,24 +19,25 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "FPL Selector", statusBarStyle: "black" },
 };
 
+// Runs before the page paints, so there is no flash of the wrong theme. Saved choice: dark (default), light or
+// system (follows the device, and updates live when the device switches).
+const THEME_SCRIPT = `(function(){var d=document.documentElement,q=matchMedia('(prefers-color-scheme: light)');function a(){var t='dark';try{t=localStorage.getItem('theme')||'dark'}catch(e){}var l=t==='light'||(t==='system'&&q.matches);if(l)d.setAttribute('data-mode','light');else d.removeAttribute('data-mode');var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',l?'#f4f8f6':'#0a0f0e')}window.applyTheme=a;a();q.addEventListener('change',a)})()`;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className={`dark ${dmSans.variable} ${geistMono.variable} h-full antialiased`}
-    >
-      <body className="min-h-full bg-background text-foreground flex flex-col font-sans">
-        <header className="sticky top-0 z-20 border-b border-border/60 bg-background/80 backdrop-blur">
-          <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4 sm:px-6">
-            <Link href="/players" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-semibold tracking-tight">
-              <span className="text-lg">⚽</span>
-              <span>FPL Selector</span>
-            </Link>
-            <Nav />
-            <AuthButton />
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${sora.variable} ${geistMono.variable} h-full antialiased`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
+      <body className="min-h-full bg-background font-sans text-foreground">
+        <div className="flex min-h-dvh">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <MobileTop />
+            {/* Phones: room for the floating tab bar. */}
+            <div className="flex-1 pb-[calc(7.5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
           </div>
-        </header>
-        <div className="flex-1 pb-[calc(4rem+env(safe-area-inset-bottom))] xl:pb-0">{children}</div>
+        </div>
         <MobileTabs />
         <Toaster />
       </body>

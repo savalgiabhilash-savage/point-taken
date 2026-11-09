@@ -2,12 +2,20 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { Settings, FileText, LogOut, LogIn } from "lucide-react";
 import { createBrowserSupabase } from "@/lib/supabase/client";
+import { isOwnerEmail } from "@/lib/owner";
 
-export function AuthButton() {
+// Account menu: avatar button that opens Settings, Docs (owner only; /docs is gated server-side) and Sign out.
+// Signed out, it is a Log in button. placement: "top" = phone header (menu drops down), "side" = sidebar foot.
+export function AccountMenu({ placement }: { placement: "top" | "side" }) {
   const router = useRouter();
+  const path = usePathname();
   const [email, setEmail] = React.useState<string | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [prev, setPrev] = React.useState(path);
+  if (prev !== path) { setPrev(path); setOpen(false); } // close after navigating
 
   React.useEffect(() => {
     const sb = createBrowserSupabase();
@@ -23,28 +31,49 @@ export function AuthButton() {
     router.refresh();
   };
 
-  if (email) {
+  const row = "flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm hover:bg-accent";
+
+  if (!email) {
     return (
-      <div className="ml-auto flex items-center gap-3 text-sm">
-        <Link href="/settings" className="hidden text-muted-foreground transition-colors hover:text-foreground sm:inline">
-          Settings
+      <div className={placement === "side" ? "space-y-1" : "flex items-center gap-1"}>
+        <Link href="/login" className={`press inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-full bg-grad px-4 text-sm font-semibold text-white glow ${placement === "side" ? "w-full justify-center" : ""}`}>
+          <LogIn className="size-4" aria-hidden /> Log in
         </Link>
-        <span className="max-w-[140px] truncate text-muted-foreground">{email}</span>
-        <button
-          onClick={signOut}
-          className="rounded-md px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          Sign out
-        </button>
+        <Link href="/settings" aria-label="Settings" className={placement === "side" ? `${row} text-muted-foreground` : "flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"}>
+          <Settings className="size-4" aria-hidden />{placement === "side" && "Settings"}
+        </Link>
       </div>
     );
   }
+
+  const initial = email[0]?.toUpperCase() ?? "?";
   return (
-    <Link
-      href="/login"
-      className="ml-auto whitespace-nowrap rounded-md bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
-    >
-      Log in
-    </Link>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-label="Account menu"
+        className={placement === "side" ? `${row} text-left` : "flex size-10 items-center justify-center"}
+      >
+        <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-grad text-sm font-semibold text-white">{initial}</span>
+        {placement === "side" && <span className="min-w-0 flex-1 truncate text-muted-foreground">{email}</span>}
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Close menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+          <div
+            className={`rise absolute z-50 w-60 rounded-2xl border border-border bg-popover p-1.5 shadow-xl ${
+              placement === "side" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2"
+            }`}
+          >
+            <p className="truncate px-3 py-2 text-xs text-muted-foreground">{email}</p>
+            <Link href="/settings" className={row}><Settings className="size-4" aria-hidden />Settings</Link>
+            {isOwnerEmail(email) && <Link href="/docs" className={row}><FileText className="size-4" aria-hidden />Docs</Link>}
+            <button type="button" onClick={signOut} className={row}><LogOut className="size-4" aria-hidden />Sign out</button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

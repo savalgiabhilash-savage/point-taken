@@ -1,6 +1,7 @@
 import { createSupabaseServerClient, MODEL_VERSION, type Position } from "@/lib/supabase";
 import { DIFFERENTIAL_OWNERSHIP } from "@/lib/insight";
 import { PlayerInfo } from "@/components/player-info";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -132,15 +133,16 @@ export default async function DifferentialsPage() {
   });
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Differentials</h1>
-      <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Differentials">
+        <ul>
         <li>• Players owned by under {DIFFERENTIAL_OWNERSHIP}% whom the model rates highly over the next {HORIZON} GWs</li>
         <li>• Only players with at least a {Math.round(MIN_START * 100)}% chance to start</li>
         <li>• A differential&apos;s haul gains you rank; a popular player&apos;s haul mostly keeps pace</li>
         <li>• Your Optimizer still picks on projected points; differentials get a D badge wherever they appear</li>
         <li>• Tap the i for the full reasoning</li>
       </ul>
+      </PageHeader>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {sections.map(({ pos, picks }) => (
@@ -149,7 +151,7 @@ export default async function DifferentialsPage() {
             {picks.length ? (
               <ul className="space-y-3">
                 {picks.map(({ p, bullets }) => (
-                  <li key={p.fpl_id} className="rounded-xl border border-border/60 bg-card px-4 py-3">
+                  <li key={p.fpl_id} className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{p.web_name}</span>
                       <span className="text-xs text-muted-foreground">

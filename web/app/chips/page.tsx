@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ChipStrategy, type ChipEntry } from "@/components/chip-strategy";
 import { opponentLabels } from "@/lib/fixtures";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,8 @@ export default async function ChipsPage() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Chips</h1>
+      <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="Chips" />
         <p className="mt-4 text-sm text-muted-foreground">
           <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> to see chip guidance for your own squad.
         </p>
@@ -39,9 +40,9 @@ export default async function ChipsPage() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Chips</h1>
-      <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Chips">
+        <ul>
         <li>• What each chip would change in your squad, for any gameweek in your plan</li>
         <li>• Gains are extra projected points compared with playing that week normally</li>
         <li>
@@ -50,6 +51,7 @@ export default async function ChipsPage() {
         </li>
         <li>• Tap the i on any player for why he&apos;s in the chip squad</li>
       </ul>
+      </PageHeader>
 
       {run?.chip_reco ? (
         <div className="mt-5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3">

@@ -68,7 +68,7 @@ export function TeamUpload({ title, note }: { title?: string; note?: string }) {
       <button
         onClick={() => fileRef.current?.click()}
         disabled={busy}
-        className="mt-3 h-11 w-full rounded-xl border border-border/60 bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
+        className="mt-3 h-11 w-full rounded-2xl border border-border bg-card text-sm font-medium transition-colors hover:border-emerald-500/40 disabled:opacity-40"
       >
         {busy ? "Reading screenshot…" : "Choose screenshot"}
       </button>

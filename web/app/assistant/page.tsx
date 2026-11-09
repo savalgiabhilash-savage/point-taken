@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/shell";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -44,16 +45,15 @@ export default function AssistantPage() {
   };
 
   return (
-    <main className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-3xl flex-col px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Assistant</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto flex h-[calc(100vh-8rem)] w-full max-w-3xl flex-col px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="Assistant">
+        <ul>
           <li>• Ask about captaincy, transfers, hits, chips or any player</li>
           <li>• Answers use your live data and cite the numbers; it won&apos;t invent stats</li>
         </ul>
-      </div>
+      </PageHeader>
 
-      <div className="mt-6 flex-1 space-y-4 overflow-y-auto rounded-xl border border-border/60 bg-card p-4">
+      <div className="mt-6 flex-1 space-y-4 overflow-y-auto rounded-2xl border border-border bg-card p-4">
         {messages.length === 0 && !loading ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
             <p className="text-sm text-muted-foreground">Try one of these:</p>
@@ -109,12 +109,12 @@ export default function AssistantPage() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask about your team…"
-          className="h-11 flex-1 rounded-xl border border-border/60 bg-card px-4 text-sm outline-none focus:border-emerald-500/40"
+          className="h-11 flex-1 rounded-2xl border border-border bg-card px-4 text-base outline-none sm:text-sm focus:border-emerald-500/40"
         />
         <button
           type="submit"
           disabled={loading || !input.trim()}
-          className="h-11 rounded-xl bg-emerald-500/90 px-5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
+          className="h-11 press rounded-full bg-grad glow px-5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
         >
           Send
         </button>

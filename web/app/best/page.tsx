@@ -1,6 +1,7 @@
 import { createSupabaseServerClient, type Calibration, type GwPrediction } from "@/lib/supabase";
 import { BestSquadTabs } from "@/components/best-squad-tabs";
 import { opponentLabels } from "@/lib/fixtures";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +33,13 @@ export default async function BestPage() {
   const migrationMissing = predsRes.error != null;
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Best XI{upcomingGw != null ? ` — GW${upcomingGw}` : ""}
-        </h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title={<>Best XI{upcomingGw != null ? ` — GW${upcomingGw}` : ""}</>}>
+        <ul>
           <li>• The highest-projected squad for the upcoming gameweek, with a £100m budget or none</li>
           <li>• Each week&apos;s pick is scored against what happened; accuracy calibrates future projections</li>
         </ul>
-        <ul className="space-y-0.5 text-xs text-muted-foreground">
+        <ul className="text-xs">
           <li>
             • Best team for <span className="text-foreground">this gameweek only</span>
           </li>
@@ -50,7 +48,7 @@ export default async function BestPage() {
             <span className="text-foreground">Optimizer</span>
           </li>
         </ul>
-      </div>
+      </PageHeader>
 
       {migrationMissing && (
         <div className="mt-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
@@ -70,7 +68,7 @@ export default async function BestPage() {
             Prediction accuracy
           </div>
           {history.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-border/60 bg-card">
+            <div className="overflow-hidden rounded-2xl border border-border bg-card">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
@@ -103,7 +101,7 @@ export default async function BestPage() {
               </table>
             </div>
           ) : (
-            <p className="rounded-xl border border-border/60 bg-card px-4 py-6 text-sm text-muted-foreground">
+            <p className="rounded-2xl border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
               No completed gameweeks yet — the predicted vs. actual scorecard appears here after GW1.
             </p>
           )}
@@ -113,7 +111,7 @@ export default async function BestPage() {
           <div className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Model calibration
           </div>
-          <div className="rounded-xl border border-border/60 bg-card p-4">
+          <div className="rounded-2xl border border-border bg-card p-4">
             {calib.length > 0 ? (
               <ul className="space-y-2 text-sm">
                 {POS_ORDER.map((pos) => {

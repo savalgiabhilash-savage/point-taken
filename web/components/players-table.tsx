@@ -431,7 +431,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
         />
         <Select value={pos} onValueChange={setPos}>
           <SelectTrigger className="h-9 w-[140px]">
-            <SelectValue placeholder="Position" />
+            <SelectValue placeholder="Position">{pos === "ALL" ? "All positions" : pos}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All positions</SelectItem>
@@ -444,7 +444,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
         </Select>
         <Select value={team} onValueChange={setTeam}>
           <SelectTrigger className="h-9 w-[130px]">
-            <SelectValue placeholder="Team" />
+            <SelectValue placeholder="Team">{team === "ALL" ? "All teams" : team}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All teams</SelectItem>
@@ -469,7 +469,7 @@ export function PlayersTable({ players, nextGw }: { players: PlayerRow[]; nextGw
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
         {/* Scrolls inside its own box (about one screen tall) so the header row can stay pinned. */}
         <Table containerClassName="max-h-[calc(100dvh-11rem)] overflow-auto overscroll-contain">
           <TableHeader className="sticky top-0 z-10">

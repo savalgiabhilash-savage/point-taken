@@ -87,7 +87,7 @@ export function InstallCard() {
         {STEPS[info.platform].map((s, i) => <li key={s}>{i + 1}. {s}</li>)}
       </ul>
       {prompt && (
-        <button type="button" onClick={install} className="mt-3 inline-flex h-11 items-center gap-2 rounded-lg bg-emerald-500/90 px-4 text-sm font-medium text-white hover:bg-emerald-500">
+        <button type="button" onClick={install} className="mt-3 inline-flex h-11 items-center gap-2 press rounded-full bg-grad glow px-4 text-sm font-semibold text-white hover:brightness-110">
           <Download className="size-4" aria-hidden /> Install FPL Selector
         </button>
       )}

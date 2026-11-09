@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/shell";
 // Static in-app guide: how to use the tool and what every number, colour, and chip means.
 // Kept in sync by hand with the real signals in players-table.tsx / fixtures / the model.
 
@@ -5,7 +6,7 @@ export const metadata = { title: "Guide · FPL Selector" };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-border/60 bg-card p-5 shadow-sm">
+    <section className="rounded-2xl border border-border bg-card p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
       <div className="mt-3 space-y-3 text-sm leading-relaxed">{children}</div>
     </section>
@@ -63,26 +64,27 @@ const STATUS: { cls: string; label: string }[] = [
 
 export default function GuidePage() {
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">How to use this app</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="How to use this app">
+        <ul>
           <B>A personal FPL assistant for picks, transfers, captaincy and chips</B>
           <B>Every projected number breaks down into named parts; tap the i on any player to see why</B>
         </ul>
-      </div>
+      </PageHeader>
 
       <div className="mt-6 grid gap-4">
         <Card title="The tabs">
           <ul className="space-y-1.5">
-            <B><b>Players</b>: every player ranked by projected points; click a row for the breakdown</B>
-            <B><b>Fixtures</b>: each team&apos;s next 8 gameweeks, coloured by difficulty</B>
-            <B><b>My Team</b>: your squad on a pitch, live points and league ranks during a gameweek; upload a screenshot to plan with unsynced transfers</B>
-            <B><b>Optimizer</b>: a multi-week transfer plan (when to move, roll or take a −4) and chip timing</B>
-            <B><b>Chips</b>: for each chip, the best week and the exact moves if you play it in any week</B>
-            <B><b>Differentials</b>: low-owned players the model rates highly, with the reasons</B>
-            <B><b>Best XI</b>: the best squad for this gameweek, scored afterwards to measure accuracy</B>
-            <B><b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
+            <B>Four tabs (bottom bar on a phone, left side on a computer); each has pill buttons for its pages</B>
+            <B><b>My Team</b> → <b>Live &amp; squad</b>: your squad on a pitch, live points and league ranks during a gameweek; upload a screenshot to plan with unsynced transfers</B>
+            <B><b>My Team</b> → <b>Transfers</b>: a multi-week transfer plan (when to move, roll or take a −4) and chip timing</B>
+            <B><b>My Team</b> → <b>Chips</b>: for each chip, the best week and the exact moves if you play it in any week</B>
+            <B><b>Scout</b> → <b>Players</b>: every player ranked by projected points; click a row for the breakdown</B>
+            <B><b>Scout</b> → <b>Differentials</b>: low-owned players the model rates highly, with the reasons</B>
+            <B><b>Scout</b> → <b>Fixtures</b>: each team&apos;s next 8 gameweeks, coloured by difficulty</B>
+            <B><b>Predict</b> → <b>Best XI</b> and <b>Accuracy</b>: the best squad for this gameweek, then how the predictions scored against actual points</B>
+            <B><b>Ask</b> → <b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
+            <B>Settings (your account button, top right on a phone): FPL team, sync, and Dark / Light / Match device</B>
           </ul>
         </Card>
 

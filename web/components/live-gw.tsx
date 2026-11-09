@@ -91,9 +91,9 @@ export function LiveGw() {
   const leagues = [...data.leagues].sort((a, b) => Number(a.projRank == null) - Number(b.projRank == null));
 
   return (
-    <section className="mt-6 rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+    <section className="mt-6 rounded-2xl border border-border bg-card p-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">
+        <h2 className="font-display text-lg">
           GW{data.gw} · {label}
           {data.status === "live" && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />}
         </h2>
@@ -224,7 +224,7 @@ function LeagueDialog({ league, gw, onClose }: { league: LiveLeague | null; gw: 
       ref={ref}
       onClose={onClose}
       onClick={(e) => { if (e.target === ref.current) onClose(); }}
-      className="m-auto max-h-[85dvh] w-[min(680px,calc(100vw-1.5rem))] rounded-xl border border-border/60 bg-card p-0 text-foreground shadow-xl backdrop:bg-black/60"
+      className="m-auto max-h-[85dvh] w-[min(680px,calc(100vw-1.5rem))] rounded-2xl border border-border bg-card p-0 text-foreground shadow-xl backdrop:bg-black/60"
     >
       {league?.table && (
         <div className="p-4">

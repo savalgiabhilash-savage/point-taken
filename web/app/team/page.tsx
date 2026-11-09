@@ -7,6 +7,7 @@ import { PullToRefresh } from "@/components/pull-refresh";
 import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
+import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 
@@ -52,8 +53,8 @@ export default async function TeamPage() {
 
   if (!authData.user) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
+      <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="My Team" />
         <p className="mt-4 text-sm text-muted-foreground">
           <Link href="/login" className="text-emerald-400 hover:underline">Log in</Link> and connect your FPL team in Settings to see your squad here.
         </p>
@@ -73,8 +74,8 @@ export default async function TeamPage() {
 
   if (!state || picks.length === 0) {
     return (
-      <main className="mx-auto w-full max-w-5xl px-6 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
+      <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+        <PageHeader title="My Team" />
         <p className="mt-4 text-sm text-muted-foreground">
           No squad synced for your account yet. Add your FPL entry ID and sync in{" "}
           <Link href="/settings" className="text-emerald-400 hover:underline">Settings</Link>{" "}
@@ -180,26 +181,25 @@ export default async function TeamPage() {
   return (
     <LiveProvider>
     <PullToRefresh>
-    <main className="mx-auto w-full max-w-5xl px-6 py-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
-        <ul className="space-y-0.5 text-sm text-muted-foreground">
+    <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
+      <PageHeader title="My Team">
+        <ul>
           <li>• Your squad with each player&apos;s projected points for the next gameweek</li>
           <li>• Captain counts double; tap the i on any player for the reasoning</li>
           <li>• Live GW: points so far, projected finish and your projected rank in each league</li>
           <li>• Pull down to refresh on a phone</li>
         </ul>
-      </div>
+      </PageHeader>
 
       {state.fpl_entry_id != null && <LiveGw />}
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (
-          <div key={s.label} className="rounded-xl border border-border/60 bg-card px-4 py-3 shadow-sm">
+          <div key={s.label} className="rounded-2xl border border-border bg-card px-4 py-3">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {s.label}
             </div>
-            <div className="mt-1 text-lg font-semibold">{s.value}</div>
+            <div className="mt-1 font-display text-xl tabular-nums">{s.value}</div>
           </div>
         ))}
       </div>
@@ -243,7 +243,7 @@ export default async function TeamPage() {
         <section
           className={`mt-8 rounded-xl border p-4 shadow-sm ${checks.length ? "border-amber-500/40 bg-amber-500/10" : "border-border/60 bg-card"}`}
         >
-          <h2 className="text-base font-semibold">Deadline check · GW{nextGw}</h2>
+          <h2 className="font-display text-lg">Deadline check · GW{nextGw}</h2>
           <ul className="mt-2 space-y-1 text-sm">
             {checks.length ? (
               checks.map((c) => <li key={c}>• {c}</li>)
@@ -260,8 +260,8 @@ export default async function TeamPage() {
       )}
 
       {capOptions.length > 0 && nextGw != null && (
-        <section className="mt-8 rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-          <h2 className="text-base font-semibold">Captain options · GW{nextGw}</h2>
+        <section className="mt-8 rounded-2xl border border-border bg-card p-4">
+          <h2 className="font-display text-lg">Captain options · GW{nextGw}</h2>
           <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
             <li>• Ranked by average points: the pick that scores most over a season</li>
             <li>• Range = 8 weeks in 10 land inside it (simulated); points shown before the captain doubles them</li>

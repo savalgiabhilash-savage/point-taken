@@ -28,10 +28,10 @@ export function Toaster() {
   }, []);
 
   return (
-    // Above the mobile tab bar; bottom-right on desktop.
-    <div aria-live="polite" className="pointer-events-none fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-2 xl:inset-x-auto xl:bottom-6 xl:right-6 xl:items-end">
+    // Above the floating phone tab bar; bottom-right from tablet up.
+    <div aria-live="polite" className="pointer-events-none fixed inset-x-3 bottom-[calc(6rem+env(safe-area-inset-bottom))] z-50 flex flex-col items-center gap-2 md:inset-x-auto md:bottom-6 md:right-6 md:items-end">
       {items.map((t) => (
-        <div key={t.id} role="status" className="pointer-events-auto flex w-full max-w-sm items-start gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-sm shadow-lg">
+        <div key={t.id} role="status" className="pointer-events-auto flex w-full max-w-sm items-start gap-2 rounded-2xl border border-border bg-card px-3 py-2.5 text-sm shadow-xl">
           {t.kind === "loading" ? <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-emerald-400" />
             : t.kind === "success" ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-400" />
             : <AlertCircle className="mt-0.5 size-4 shrink-0 text-rose-400" />}
