@@ -1,26 +1,32 @@
 import { loadCompare } from "@/lib/compare";
+import { loadCompareDetails, HORIZONS, type Horizon } from "@/lib/compare-detail";
 import { Compare } from "@/components/compare";
 import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Compare players" };
 
-// Compare 2–3 players side by side. ?p=1,2,3 picks them (the page keeps it updated, so a comparison can be
-// shared); with no ?p it starts with the two highest-projected players.
-export default async function ComparePage({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const [{ players, gws }, sp] = await Promise.all([loadCompare(), searchParams]);
-  const fromUrl = (sp.p ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
-  const initial = fromUrl.length ? fromUrl : players.slice(0, 2).map((p) => p.id);
+// Compare 2–3 players side by side. ?p=1,2,3 picks them and ?h=1|3|5|8 the horizon (the page keeps both in
+// the URL, so a comparison can be shared); with no ?p it starts with the two highest-projected players.
+export default async function ComparePage({ searchParams }: { searchParams: Promise<{ p?: string; h?: string }> }) {
+  const sp = await searchParams;
+  const fromUrl = (sp.p ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 3);
+  const h = (HORIZONS as readonly number[]).includes(Number(sp.h)) ? (Number(sp.h) as Horizon) : 5;
+
+  const { players, gws } = await loadCompare();
+  const ids = fromUrl.length ? fromUrl : players.slice(0, 2).map((p) => p.id);
+  const details = await loadCompareDetails(ids, h);
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
       <PageHeader title="Compare players">
         <ul>
           <li>• Put 2 or 3 players side by side, Ultimate Team style: overall rating, six attributes and the key FPL numbers</li>
-          <li>• Ratings turn each player&apos;s own numbers into FC-style scores out of 99 (explained at the bottom); the best in each row is marked ▲</li>
+          <li>• Pick a horizon for the points range, where the points come from, DefCon, attack and minutes; ▲ marks the best in each row</li>
+          <li>• Card ratings always use the next {gws.length} GWs (explained at the bottom)</li>
         </ul>
       </PageHeader>
-      <Compare players={players} initial={initial} gws={gws} />
+      <Compare players={players} initial={ids} gws={gws} details={details} horizon={h} />
     </main>
   );
 }

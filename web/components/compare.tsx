@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Search, X, Plus } from "lucide-react";
 import type { ComparePlayer } from "@/lib/compare";
+import { HORIZONS, type CompareDetail, type Horizon } from "@/lib/compare-detail";
+import { CompareDetails, bestIndex } from "@/components/compare-detail";
 
 // Compare 2–3 players, FC Ultimate Team style: a card per player (OVR, position, club, photo, six attributes),
 // head-to-head attribute bars, and the key FPL numbers with the best in each row marked. Ratings come from
@@ -124,54 +127,27 @@ function EmptySlot({ onClick }: { onClick: () => void }) {
   );
 }
 
-function fdrClass(fdr: number | null): string {
-  if (fdr == null) return "bg-muted text-muted-foreground";
-  if (fdr < 2) return "bg-emerald-500/20 text-emerald-300";
-  if (fdr < 2.75) return "bg-lime-500/20 text-lime-300";
-  if (fdr < 3.5) return "bg-amber-500/20 text-amber-300";
-  if (fdr < 4.25) return "bg-orange-500/20 text-orange-300";
-  return "bg-rose-500/20 text-rose-300";
-}
-
-type Row = { label: string; get: (p: ComparePlayer) => number | null; fmt: (v: number) => string; better: "high" | "low" | null };
-const ROWS: Row[] = [
-  { label: "xPts next GW", get: (p) => p.xp1, fmt: (v) => v.toFixed(1), better: "high" },
-  { label: "xPts next 5 GWs", get: (p) => p.xp5, fmt: (v) => v.toFixed(1), better: "high" },
-  { label: "Chance to start", get: (p) => p.start, fmt: (v) => `${Math.round(v * 100)}%`, better: "high" },
-  { label: "Expected minutes", get: (p) => p.mins, fmt: (v) => `${v}′`, better: "high" },
-  { label: "xG per 90", get: (p) => p.xg90, fmt: (v) => v.toFixed(2), better: "high" },
-  { label: "xA per 90", get: (p) => p.xa90, fmt: (v) => v.toFixed(2), better: "high" },
-  { label: "Form", get: (p) => p.form, fmt: (v) => v.toFixed(1), better: "high" },
-  { label: "Season points", get: (p) => p.totalPts, fmt: (v) => String(v), better: "high" },
-  { label: "xPts per £1m (next 5)", get: (p) => (p.price ? p.xp5 / p.price : 0), fmt: (v) => v.toFixed(2), better: "high" },
-  { label: "Fixture difficulty (next 5)", get: (p) => p.fdr, fmt: (v) => v.toFixed(1), better: "low" },
-  { label: "Price", get: (p) => p.price, fmt: (v) => `£${v.toFixed(1)}m`, better: null },
-  { label: "Owned by", get: (p) => p.own, fmt: (v) => `${v.toFixed(1)}%`, better: null },
-];
-
-/** Index of the best value in a row, or -1 when there's no winner (tie, missing values, or a neutral row). */
-function bestIndex(vals: (number | null)[], better: Row["better"]): number {
-  if (!better) return -1;
-  const real = vals.map((v, i) => [v, i] as const).filter(([v]) => v != null) as [number, number][];
-  if (real.length < 2) return -1;
-  real.sort((a, b) => (better === "high" ? b[0] - a[0] : a[0] - b[0]));
-  return real[0][0] === real[1][0] ? -1 : real[0][1];
-}
-
-export function Compare({ players, initial, gws }: { players: ComparePlayer[]; initial: number[]; gws: number[] }) {
+export function Compare({ players, initial, gws, details, horizon }: { players: ComparePlayer[]; initial: number[]; gws: number[]; details: CompareDetail[]; horizon: Horizon }) {
+  const router = useRouter();
   const byId = React.useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
   const [ids, setIds] = React.useState<number[]>(() => initial.filter((id) => byId.has(id)).slice(0, MAX));
+  const [h, setH] = React.useState<Horizon>(horizon);
+  const [pending, startTransition] = React.useTransition();
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  // Keep the URL in step (shareable comparisons) without a server round trip.
+  // The cards update at once from the player list; the horizon-based sections come from the server, so a
+  // change of players or horizon re-requests the page (?p=…&h=…), which also keeps the URL shareable.
   React.useEffect(() => {
     const url = new URL(window.location.href);
-    if (ids.length) url.searchParams.set("p", ids.join(","));
-    else url.searchParams.delete("p");
-    window.history.replaceState(null, "", url);
-  }, [ids]);
+    const want = `${ids.join(",")}|${h}`;
+    if (`${url.searchParams.get("p") ?? ""}|${url.searchParams.get("h") ?? "5"}` === want) return;
+    if (ids.length) url.searchParams.set("p", ids.join(",")); else url.searchParams.delete("p");
+    url.searchParams.set("h", String(h));
+    startTransition(() => router.replace(`${url.pathname}?${url.searchParams}`, { scroll: false }));
+  }, [ids, h, router]);
+  const detailById = new Map(details.filter((d) => d.h === h).map((d) => [d.id, d]));
 
   const chosen = ids.map((id) => byId.get(id)!).filter(Boolean);
   const results = React.useMemo(() => {
@@ -189,8 +165,6 @@ export function Compare({ players, initial, gws }: { players: ComparePlayer[]; i
   };
   const remove = (id: number) => setIds((cur) => cur.filter((x) => x !== id));
   const focusSearch = () => { inputRef.current?.focus(); setOpen(true); };
-
-  const leader = chosen.length >= 2 ? [...chosen].sort((a, b) => b.xp5 - a.xp5) : [];
 
   return (
     <div className="mt-6 space-y-6">
@@ -244,25 +218,6 @@ export function Compare({ players, initial, gws }: { players: ComparePlayer[]; i
         <p className="text-sm text-muted-foreground">• Add at least two players to compare them</p>
       ) : (
         <>
-          {/* verdict */}
-          <section className="rounded-xl border border-border bg-card p-4">
-            <h2 className="font-display text-lg">Verdict</h2>
-            <ul className="mt-2 space-y-1 text-sm">
-              <li>
-                • Next {gws.length} GWs: <b>{leader[0].name}</b> projects {leader[0].xp5.toFixed(1)} pts,{" "}
-                {(leader[0].xp5 - leader[1].xp5).toFixed(1)} more than {leader[1].name}
-              </li>
-              {(() => {
-                const nx = [...chosen].sort((a, b) => b.xp1 - a.xp1);
-                return <li>• Next GW only: <b>{nx[0].name}</b> ({nx[0].xp1.toFixed(1)} vs {nx[1].xp1.toFixed(1)})</li>;
-              })()}
-              {(() => {
-                const v = [...chosen].sort((a, b) => b.xp5 / b.price - a.xp5 / a.price);
-                return <li>• Best value: <b>{v[0].name}</b> ({(v[0].xp5 / v[0].price).toFixed(2)} xPts per £1m over the next {gws.length})</li>;
-              })()}
-            </ul>
-          </section>
-
           {/* head-to-head attributes */}
           <section className="rounded-xl border border-border bg-card p-4">
             <h2 className="font-display text-lg">Head to head</h2>
@@ -295,52 +250,27 @@ export function Compare({ players, initial, gws }: { players: ComparePlayer[]; i
             </div>
           </section>
 
-          {/* key numbers */}
-          <section className="overflow-x-auto rounded-xl border border-border bg-card">
-            <table className="w-full min-w-[420px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left">
-                  <th className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key numbers</th>
-                  {chosen.map((p, i) => (
-                    <th key={p.id} className="px-3 py-2.5 text-right">
-                      <span className="inline-flex items-center gap-1.5 font-display">
-                        <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: SLOT_COLORS[i] }} />
-                        {p.name}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ROWS.map((r) => {
-                  const vals = chosen.map(r.get);
-                  const best = bestIndex(vals, r.better);
-                  return (
-                    <tr key={r.label} className="border-b border-border/50 last:border-0">
-                      <td className="px-3 py-2 text-muted-foreground">{r.label}</td>
-                      {vals.map((v, i) => (
-                        <td key={i} className={`px-3 py-2 text-right tabular-nums ${best === i ? "font-semibold text-emerald-400" : ""}`}>
-                          {v == null ? "—" : r.fmt(v)}{best === i ? " ▲" : ""}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-                <tr>
-                  <td className="px-3 py-2 text-muted-foreground">Next {gws.length} fixtures</td>
-                  {chosen.map((p) => (
-                    <td key={p.id} className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-1">
-                        {p.fixtures.length ? p.fixtures.map((f, j) => (
-                          <span key={j} title={`GW${f.gw}`} className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium ${fdrClass(f.fdr)}`}>{f.opp}</span>
-                        )) : <span className="text-muted-foreground">No games</span>}
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </section>
+          {/* horizon for the sections below the cards */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Horizon</span>
+            <div role="radiogroup" aria-label="Horizon" className="inline-flex gap-1 rounded-lg border border-border bg-card p-1">
+              {HORIZONS.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={h === v}
+                  onClick={() => setH(v)}
+                  className={`press h-9 rounded-md px-3 font-display text-sm ${h === v ? "bg-grad glow" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {v === 1 ? "Next GW" : `${v} GWs`}
+                </button>
+              ))}
+            </div>
+            {pending && <span role="status" className="text-xs text-muted-foreground">Updating…</span>}
+          </div>
+
+          <CompareDetails ps={chosen.map((p, i) => ({ p, d: detailById.get(p.id), color: SLOT_COLORS[i] }))} h={h} pending={pending} />
         </>
       )}
 
