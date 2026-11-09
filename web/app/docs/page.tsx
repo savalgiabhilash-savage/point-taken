@@ -10,7 +10,7 @@ export default async function DocsPage() {
   return (
     <iframe
       src="/docs/content"
-      title="FPL Selector Blueprint"
+      title="Point Taken Blueprint"
       className="block h-[calc(100vh-3.5rem)] w-full border-0"
     />
   );

@@ -23,16 +23,16 @@ const STEPS: Record<Platform, string[]> = {
   "ios-safari": [
     "Tap the Share button (square with an arrow) in Safari's toolbar",
     "Scroll down and tap Add to Home Screen, then Add",
-    "Open FPL Selector from your home screen and log in once",
+    "Open Point Taken from your home screen and log in once",
   ],
   "ios-chrome": [
     "Tap the Share button at the right of Chrome's address bar",
     "Tap Add to Home Screen, then Add",
-    "Open FPL Selector from your home screen and log in once",
+    "Open Point Taken from your home screen and log in once",
   ],
   android: [
     "Tap Install below if shown, or Chrome's ⋮ menu → Add to Home screen → Install",
-    "Open FPL Selector from your home screen",
+    "Open Point Taken from your home screen",
   ],
   desktop: [
     "Click Install below if shown, or the install icon at the right of the address bar (Chrome / Edge); in Safari on a Mac: File → Add to Dock",
@@ -88,7 +88,7 @@ export function InstallCard() {
       </ul>
       {prompt && (
         <button type="button" onClick={install} className="mt-3 inline-flex h-11 items-center gap-2 press rounded-md bg-grad glow px-4 text-sm font-bold uppercase tracking-wide hover:brightness-110">
-          <Download className="size-4" aria-hidden /> Install FPL Selector
+          <Download className="size-4" aria-hidden /> Install Point Taken
         </button>
       )}
     </section>

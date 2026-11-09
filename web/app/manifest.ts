@@ -3,9 +3,9 @@ import type { MetadataRoute } from "next";
 // Makes the site installable ("Add to Home Screen"): opens full screen, no browser bars, starts on My Team.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "FPL Selector",
-    short_name: "FPL Selector",
-    description: "Fantasy Premier League decision tool: projected points, live scores, transfers and chips.",
+    name: "Point Taken: FPL Captain Picks & Transfer Planner",
+    short_name: "Point Taken",
+    description: "Independent Fantasy Premier League assistant: captain picks, transfer planner, chips, live points and ranks.",
     start_url: "/team",
     scope: "/",
     display: "standalone",

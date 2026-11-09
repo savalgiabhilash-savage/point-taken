@@ -13,11 +13,28 @@ const gcode = Google_Sans_Code({ variable: "--font-code", subsets: ["latin"] });
 // cover: lets the floating tab bar pad for the iPhone home indicator (env(safe-area-inset-bottom)).
 export const viewport: Viewport = { viewportFit: "cover", themeColor: "#0a1024" };
 
+// App name: "Point Taken". The brand is short and witty; the keyword-rich subtitle in the default title and the
+// description is what search engines match ("FPL captain picks", "transfer planner", "live rank").
+const DESCRIPTION =
+  "Point Taken is an independent Fantasy Premier League (FPL) assistant: captain picks, a multi-week transfer planner, " +
+  "chip timing, projected points (xPts) for every player, live points and mini-league ranks.";
+
 export const metadata: Metadata = {
-  title: "FPL Selector",
-  description: "Fantasy Premier League decision tool — projected xPts, fixtures, and squad optimizer.",
+  metadataBase: new URL("https://fpl-selector.vercel.app"),
+  title: { default: "Point Taken: FPL Captain Picks, Transfer Planner & Live Rank", template: "%s · Point Taken" },
+  description: DESCRIPTION,
+  applicationName: "Point Taken",
+  keywords: ["FPL", "Fantasy Premier League", "FPL captain picks", "FPL transfer planner", "FPL live rank", "xPts", "FPL chips", "Best XI"],
+  openGraph: {
+    type: "website",
+    siteName: "Point Taken",
+    title: "Point Taken: FPL Captain Picks, Transfer Planner & Live Rank",
+    description: DESCRIPTION,
+    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "Point Taken logo" }],
+  },
+  twitter: { card: "summary", title: "Point Taken: FPL Captain Picks, Transfer Planner & Live Rank", description: DESCRIPTION },
   // iPhone home-screen app: full screen, black status bar (matches the dark theme). The manifest is app/manifest.ts.
-  appleWebApp: { capable: true, title: "FPL Selector", statusBarStyle: "black" },
+  appleWebApp: { capable: true, title: "Point Taken", statusBarStyle: "black" },
 };
 
 // Runs before the page paints, so there is no flash of the wrong theme. Saved choice: dark (default), light or

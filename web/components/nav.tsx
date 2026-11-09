@@ -33,7 +33,7 @@ function Logo() {
   return (
     <Link href="/players" className="flex shrink-0 items-center gap-2 whitespace-nowrap font-display text-lg">
       <LogoMark className="size-8 drop-shadow-[0_4px_12px_rgba(34,211,238,.35)]" />
-      <span className="text-grad">FPL Selector</span>
+      <span className="text-grad">Point Taken</span>
     </Link>
   );
 }

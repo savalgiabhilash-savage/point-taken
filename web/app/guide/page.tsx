@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/shell";
 // Static in-app guide: how to use the tool and what every number, colour, and chip means.
 // Kept in sync by hand with the real signals in players-table.tsx / fixtures / the model.
 
-export const metadata = { title: "Guide · FPL Selector" };
+export const metadata = { title: "Guide" };
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -67,7 +67,7 @@ export default function GuidePage() {
     <main className="mx-auto w-full max-w-4xl px-4 py-5 sm:px-6 sm:py-8">
       <PageHeader title="How to use this app">
         <ul>
-          <B>A personal FPL assistant for picks, transfers, captaincy and chips</B>
+          <B>Point Taken is a personal FPL assistant for picks, transfers, captaincy and chips; independent, not affiliated with the Premier League</B>
           <B>Every projected number breaks down into named parts; tap the i on any player to see why</B>
         </ul>
       </PageHeader>
@@ -94,7 +94,7 @@ export default function GuidePage() {
             <B><b>iPhone, Chrome</b>: tap the Share button at the right of the address bar → <b>Add to Home Screen</b> → <b>Add</b></B>
             <B><b>iPhone, Safari</b>: tap the Share button (square with an arrow) in the toolbar → <b>Add to Home Screen</b> → <b>Add</b></B>
             <B><b>Android, Chrome</b>: tap <b>Install</b> when offered, or the ⋮ menu → <b>Add to Home screen</b> → <b>Install</b></B>
-            <B><b>Computer, Chrome or Edge</b>: the install icon at the right of the address bar, or the menu → <b>Install FPL Selector</b>; Safari on a Mac: <b>File → Add to Dock</b></B>
+            <B><b>Computer, Chrome or Edge</b>: the install icon at the right of the address bar, or the menu → <b>Install Point Taken</b>; Safari on a Mac: <b>File → Add to Dock</b></B>
             <B>On iPhone the installed app keeps its own sign-in, so log in once inside it</B>
           </ul>
         </Card>
