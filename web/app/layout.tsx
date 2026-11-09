@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Sora, Geist_Mono } from "next/font/google";
 import { Sidebar, MobileTop, MobileTabs } from "@/components/nav";
 import { Toaster } from "@/components/toast";
+import { SectionPills } from "@/components/shell";
 import "./globals.css";
 
 // Body text Inter; headings and big numbers Sora (geometric, slightly tight) via the font-display class.
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <MobileTop />
+            <SectionPills />
             {/* Phones: room for the floating tab bar. */}
             <div className="flex-1 pb-[calc(7.5rem+env(safe-area-inset-bottom))] md:pb-0">{children}</div>
           </div>

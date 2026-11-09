@@ -3,7 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { sectionFor, inkMix, tint } from "@/lib/sections";
+import { sectionFor, inkMix, tint, visiblePages } from "@/lib/sections";
+import { useOwner } from "@/lib/use-owner";
 
 /**
  * Top of every screen: a card with two soft glows (the tab's colour + cyan), the tab name as an eyebrow, the
@@ -12,6 +13,7 @@ import { sectionFor, inkMix, tint } from "@/lib/sections";
  */
 export function PageHeader({ title, right, children }: { title: React.ReactNode; right?: React.ReactNode; children?: React.ReactNode }) {
   const path = usePathname();
+  const owner = useOwner();
   const s = sectionFor(path);
   const color = s?.color ?? "#34d399";
   return (
@@ -28,14 +30,28 @@ export function PageHeader({ title, right, children }: { title: React.ReactNode;
         </div>
         {children && <div className="relative mt-3 space-y-1.5 text-sm text-muted-foreground [&_ul]:space-y-0.5">{children}</div>}
       </header>
-      {s && s.pages.length > 1 && <SubTabs pages={s.pages} path={path} />}
+      {/* Phones show these pills in a sticky bar under the top bar instead (SectionPills in the layout). */}
+      {s && visiblePages(s, owner).length > 1 && <SubTabs pages={visiblePages(s, owner)} path={path} className="mt-3 hidden md:flex" />}
     </>
   );
 }
 
-function SubTabs({ pages, path }: { pages: { href: string; label: string }[]; path: string }) {
+/** Phones: the current tab's pages as a sticky pill row right under the top bar, always in view. */
+export function SectionPills() {
+  const path = usePathname();
+  const owner = useOwner();
+  const s = sectionFor(path);
+  if (!s || visiblePages(s, owner).length < 2) return null;
   return (
-    <nav aria-label="Section" className="fade-right -mx-1 mt-3 flex gap-2 overflow-x-auto px-1 pb-1 pr-8 [scrollbar-width:none]">
+    <div className="sticky top-14 z-20 border-b border-border/70 bg-background/80 px-4 py-2 backdrop-blur-xl md:hidden">
+      <SubTabs pages={visiblePages(s, owner)} path={path} className="flex" />
+    </div>
+  );
+}
+
+function SubTabs({ pages, path, className }: { pages: { href: string; label: string }[]; path: string; className: string }) {
+  return (
+    <nav aria-label="Section" className={`fade-right -mx-1 gap-2 overflow-x-auto px-1 pb-1 pr-8 [scrollbar-width:none] ${className}`}>
       {pages.map((p) => {
         const active = path === p.href || path.startsWith(p.href + "/");
         return (

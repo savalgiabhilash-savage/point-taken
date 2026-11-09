@@ -7,7 +7,7 @@ export type Section = {
   label: string;
   Icon: LucideIcon;
   color: string;
-  pages: { href: string; label: string }[];
+  pages: { href: string; label: string; owner?: boolean }[];
 };
 
 export const SECTIONS: Section[] = [
@@ -39,6 +39,7 @@ export const SECTIONS: Section[] = [
     pages: [
       { href: "/assistant", label: "Assistant" },
       { href: "/guide", label: "Guide" },
+      { href: "/docs", label: "Docs", owner: true }, // owner only; /docs is also gated server-side
     ],
   },
 ];
@@ -49,3 +50,6 @@ export const sectionFor = (path: string) =>
 /** A section colour used as text: mixed toward the text colour so it stays readable in both themes. */
 export const inkMix = (hex: string, pct = 70) => `color-mix(in srgb, ${hex} ${pct}%, var(--foreground))`;
 export const tint = (hex: string, a: number) => `${hex}${Math.round(a * 255).toString(16).padStart(2, "0")}`;
+
+/** A section's pages this viewer may see (Docs only for the owner). */
+export const visiblePages = (s: Section, owner: boolean) => s.pages.filter((p) => !p.owner || owner);
