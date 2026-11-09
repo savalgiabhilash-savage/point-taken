@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 57</span>
+    <span>doc rev 58</span>
     <span>updated 2026-11-09</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -155,7 +155,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
   <span class="sec-num">01</span>
   <h2>Overview</h2>
   <ul>
-    <li>Point Taken (formerly FPL Selector; the repo is still <code>fpl-selector</code>, the site is point-taken-fpl.vercel.app) is a personal Fantasy Premier League assistant</li>
+    <li>Point Taken (formerly FPL Selector; GitHub repo <code>point-taken</code>, site point-taken-fpl.vercel.app; the local folder is still <code>fpl-selector</code>) is a personal Fantasy Premier League assistant</li>
     <li>It pulls FPL data (this season and last), bookmaker odds, cup and European fixtures, news and predicted line-ups</li>
     <li>A transparent rules-based model projects expected points (xPts) for every player in every remaining gameweek</li>
     <li>A mixed-integer optimizer then recommends transfers, captain, hits and chip timing for <em>your</em> squad</li>
@@ -261,7 +261,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
       <tr><td>Web</td><td>Next.js 16 App Router, React 19, TypeScript, Tailwind v4, shadcn/ui, TanStack Table, @supabase/ssr, @anthropic-ai/sdk</td><td><code>web/</code> → Vercel <code>point-taken-fpl.vercel.app</code></td></tr>
       <tr><td>Mobile</td><td>Expo SDK 57, expo-router, React Native 0.86, supabase-js</td><td><code>mobile/</code></td></tr>
       <tr><td>Database</td><td>Supabase Postgres, Auth (email + password), RLS</td><td><code>supabase/migrations/0001–0007</code></td></tr>
-      <tr><td>Scheduler</td><td>GitHub Actions (repo <code>savalgiabhilash-savage/fpl-selector</code>)</td><td><code>.github/workflows/</code></td></tr>
+      <tr><td>Scheduler</td><td>GitHub Actions (repo <code>savalgiabhilash-savage/point-taken</code>, renamed from fpl-selector; GitHub forwards the old URL)</td><td><code>.github/workflows/</code></td></tr>
     </tbody>
   </table></div>
   <ul>
@@ -289,7 +289,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
         </ol></td></tr>
       <tr><td><b>fpl-news</b><br><code>news.yml</code></td><td>cron <code>30 6,18 * * *</code> + manual</td><td><code>news_job --run</code>. Skipped if <code>ANTHROPIC_API_KEY</code> is unset. Runs separately because each run spends Anthropic credits. Predicted line-ups no longer run here (once per GW in fpl-deadline).</td></tr>
       <tr><td><b>fpl-retune</b><br><code>retune.yml</code></td><td>cron <code>40 3 * * 2</code> (Tuesdays) + manual</td><td><code>tune --run</code>: replays last season + this season to date and re-tunes congestion, last-season weight and share shrinkage. A new value is kept only if RMSE improves by ≥ 0.002. Writes <code>model_params</code>, which the model reads each run.</td></tr>
-      <tr><td><b>fpl-deadline</b><br><code>deadline.yml</code></td><td>Started by Supabase ~100 min before each GW deadline (migration 0011: pg_cron every 5 min + pg_net request to GitHub) + manual</td><td>Checks the deadline is 45–180 min away (else exits), then refresh, news, predicted line-ups (their only run each GW), model, predict, team sync and optimize. About 10 Actions minutes and $1–2 of Claude credits per GW. GitHub's own schedule was dropped after the GW8 run fired 2 h after the deadline.</td></tr>
+      <tr><td><b>fpl-deadline</b><br><code>deadline.yml</code></td><td>Started by Supabase ~100 min before each GW deadline (migration 0011, repo URL updated by 0012: pg_cron every 5 min + pg_net request to GitHub) + manual</td><td>Checks the deadline is 45–180 min away (else exits), then refresh, news, predicted line-ups (their only run each GW), model, predict, team sync and optimize. About 10 Actions minutes and $1–2 of Claude credits per GW. GitHub's own schedule was dropped after the GW8 run fired 2 h after the deadline.</td></tr>
       <tr><td><b>fpl-optimize</b><br><code>optimize.yml</code></td><td><code>workflow_dispatch</code> from the web app (inputs <code>horizon</code>, <code>user_id</code>)</td><td><code>optimize --plan [--horizon N] [--user id]</code>. Concurrency is per user, and a newer dispatch cancels an older one.</td></tr>
     </tbody>
   </table></div>
@@ -1194,6 +1194,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-09</span><br>GitHub repo renamed to point-taken; the Re-optimize button (<code>web/lib/reoptimize.ts</code>) and the pre-deadline timer (migration 0012) call the new name.</li>
     <li><span class="d">2026-11-09</span><br>New address point-taken-fpl.vercel.app (Vercel project renamed to point-taken); the old address forwards there.</li>
     <li><span class="d">2026-11-09</span><br>Renamed to "Point Taken" with SEO titles, description, keywords and share cards; Guide notes it is independent of the Premier League.</li>
     <li><span class="d">2026-11-09</span><br>New logo ("Captain. Full stop.": a captain&apos;s C on a slanted broadcast tag, the ball as its full stop), new favicon and home-screen icons.</li>

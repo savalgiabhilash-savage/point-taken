@@ -1,7 +1,7 @@
 // Fire the fast optimize-only GitHub workflow so the Optimizer plan reflects a just-changed team,
 // instead of waiting for the 3-hourly data pipeline. Best-effort by design: if the token is missing
 // or GitHub hiccups, the user's action still succeeds and the cron re-optimizes later.
-const REPO = "savalgiabhilash-savage/fpl-selector";
+const REPO = "savalgiabhilash-savage/point-taken";
 
 export type DispatchResult = { ok: boolean; status: number | null; error?: string };
 
