@@ -8,7 +8,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const FPL = "https://fantasy.premierleague.com/api";
 const UA = "Mozilla/5.0 fpl-selector (personal FPL tool)";
-const MAX_LEAGUE = 50; // project leagues that fit on one standings page; bigger ones show FPL's rank only
+const MAX_LEAGUE = 50; // project whole leagues that fit on one standings page
+// Bigger private leagues: estimate from the standings page you're on (≈50 managers around your rank). Rivals far
+// above or below rarely swap places with you in one GW, so your projected place among them, offset by the
+// page's first rank, estimates your league rank. Capped per user to keep FPL API calls down; system leagues
+// (Overall, country, club) keep FPL's own ranks.
+const MAX_BIG = 3;
 const POS = ["", "GK", "DEF", "MID", "FWD"];
 
 async function fpl<T>(path: string, revalidate = 60): Promise<T> {
@@ -22,7 +27,7 @@ type Picks = { active_chip: string | null; picks: Pick[]; entry_history: { point
 type Fixture = { id: number; team_h: number; team_a: number; started: boolean; finished: boolean; finished_provisional: boolean; minutes: number };
 type LiveEl = { id: number; stats: { minutes: number; total_points: number } };
 type Entry = { current_event: number | null; leagues: { classic: { id: number; name: string; league_type: string; entry_rank: number | null; rank_count: number | null }[] } };
-type Member = { entry: number; entry_name: string; player_name: string };
+type Member = { entry: number; entry_name: string; player_name: string; rank: number };
 type Standings = { standings: { results: Member[] } };
 
 export type LivePlayer = {
@@ -40,6 +45,8 @@ export type LiveLeague = {
   id: number; name: string; members: number | null;
   gwLiveRank: number | null; gwProjRank: number | null; liveRank: number | null; projRank: number | null;
   fplGwRank: number | null; fplRank: number | null; leaderGap: number | null; table: LeagueRow[] | null;
+  estimated?: boolean; // big league: ranks estimated from the managers around you (table = those managers)
+  offset?: number; // estimated leagues: league rank of the manager just above the table's first row
 };
 export type LiveData = {
   gw: number; status: "upcoming" | "live" | "final"; updatedAt: string;
@@ -139,7 +146,15 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   const small = entry.leagues.classic.filter((l) => (l.rank_count ?? Infinity) <= MAX_LEAGUE);
   const members = await pool(small, 4, (l) =>
     fpl<Standings>(`leagues-classic/${l.id}/standings/`).then((s) => s.standings.results).catch(() => [] as Member[]));
-  const rivalIds = [...new Set(members.flat().map((m) => m.entry))].filter((id) => id !== entryId);
+  const big = entry.leagues.classic
+    .filter((l) => (l.rank_count ?? 0) > MAX_LEAGUE && l.league_type === "x")
+    .sort((a, b) => (a.rank_count ?? 0) - (b.rank_count ?? 0))
+    .slice(0, MAX_BIG);
+  const windows = await pool(big, 3, (l) =>
+    fpl<Standings>(`leagues-classic/${l.id}/standings/?page_standings=${Math.max(1, Math.ceil((l.entry_rank ?? 1) / 50))}`)
+      .then((s) => s.standings.results)
+      .catch(() => [] as Member[]));
+  const rivalIds = [...new Set([...members, ...windows].flat().map((m) => m.entry))].filter((id) => id !== entryId);
   const rivalPicks = new Map<number, Picks>();
   await pool(rivalIds, 8, async (id) => {
     const p = await fpl<Picks>(`entry/${id}/event/${gw}/picks/`).catch(() => null);
@@ -167,19 +182,8 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   const rivals = new Map([...rivalPicks].map(([id, p]) => [id, scoreSquad(ctx, p)]));
 
   const CHIP: Record<string, string> = { bboost: "BB", "3xc": "TC", freehit: "FH", wildcard: "WC" };
-  const leagues: LiveLeague[] = entry.leagues.classic.map((l) => {
-    const k = small.indexOf(l);
-    if (k < 0) {
-      // The game-wide "Overall" league: FPL's own live GW and overall ranks; other big leagues: FPL's last rank.
-      const overall = l.name === "Overall";
-      return {
-        id: l.id, name: l.name, members: l.rank_count, gwLiveRank: null, gwProjRank: null, liveRank: null, projRank: null,
-        fplGwRank: overall ? mine.entry_history.rank : null,
-        fplRank: overall ? (mine.entry_history.overall_rank ?? l.entry_rank) : l.entry_rank,
-        leaderGap: null, table: null,
-      };
-    }
-    const table: LeagueRow[] = members[k]
+  const rowsFor = (list: Member[]): LeagueRow[] =>
+    list
       .map((m) => {
         const isMe = m.entry === entryId;
         const r = isMe ? me : rivals.get(m.entry);
@@ -194,6 +198,38 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
       })
       .filter((r) => r != null)
       .sort((a, b) => b.totalProj - a.totalProj);
+
+  const leagues: LiveLeague[] = entry.leagues.classic.map((l) => {
+    const k = small.indexOf(l);
+    const b = big.indexOf(l);
+    if (b >= 0 && windows[b].length) {
+      // Estimated: your projected place among the managers on your standings page, offset by its first rank.
+      // This GW's rank needs the whole league, so only the season ranks are estimated.
+      const table = rowsFor(windows[b]);
+      const meRow = table.find((r) => r.me);
+      const others = table.filter((r) => !r.me);
+      const offset = Math.min(...windows[b].map((m) => m.rank)) - 1;
+      if (meRow) {
+        return {
+          id: l.id, name: l.name, members: l.rank_count, fplGwRank: null, fplRank: l.entry_rank, table, estimated: true, offset,
+          gwLiveRank: null, gwProjRank: null,
+          liveRank: offset + rankOf(meRow.totalLive, others.map((r) => r.totalLive)),
+          projRank: offset + rankOf(meRow.totalProj, others.map((r) => r.totalProj)),
+          leaderGap: null,
+        };
+      }
+    }
+    if (k < 0) {
+      // The game-wide "Overall" league: FPL's own live GW and overall ranks; other big leagues: FPL's last rank.
+      const overall = l.name === "Overall";
+      return {
+        id: l.id, name: l.name, members: l.rank_count, gwLiveRank: null, gwProjRank: null, liveRank: null, projRank: null,
+        fplGwRank: overall ? mine.entry_history.rank : null,
+        fplRank: overall ? (mine.entry_history.overall_rank ?? l.entry_rank) : l.entry_rank,
+        leaderGap: null, table: null,
+      };
+    }
+    const table = rowsFor(members[k]);
     const others = table.filter((r) => !r.me);
     const meRow = table.find((r) => r.me);
     if (!meRow) return { id: l.id, name: l.name, members: l.rank_count, gwLiveRank: null, gwProjRank: null, liveRank: null, projRank: null, fplGwRank: null, fplRank: l.entry_rank, leaderGap: null, table };

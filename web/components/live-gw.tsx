@@ -177,6 +177,9 @@ export function LiveGw() {
                     <button type="button" onClick={() => setOpenId(l.id)} className="min-h-11 text-left">
                       <span className="text-emerald-400 underline-offset-2 hover:underline">{l.name}</span>{" "}
                       <span className="text-xs text-muted-foreground">{l.members?.toLocaleString()} ›</span>
+                      {l.estimated && (
+                        <span className="block text-xs text-muted-foreground">Est. from the {l.table.length} managers around you</span>
+                      )}
                       {l.leaderGap != null && (
                         <span className="block text-xs text-muted-foreground">
                           {l.leaderGap >= 0 ? `Projected lead +${l.leaderGap.toFixed(1)}` : `Projected ${Math.abs(l.leaderGap).toFixed(1)} behind leader`}
@@ -191,7 +194,12 @@ export function LiveGw() {
                   {l.gwProjRank != null ? <Ranks live={l.gwLiveRank} proj={l.gwProjRank} /> : <span className="text-muted-foreground">{l.fplGwRank?.toLocaleString() ?? "—"}</span>}
                 </div>
                 <div className="self-stretch border-t border-border/40 py-1.5 text-right tabular-nums flex items-center justify-end">
-                  {l.projRank != null ? <Ranks live={l.liveRank} proj={l.projRank} /> : <span className="text-muted-foreground">{l.fplRank?.toLocaleString() ?? "—"}</span>}
+                  {l.projRank != null ? (
+                    <span className="inline-flex items-center gap-1">
+                      {l.estimated && <span className="text-[10px] uppercase text-muted-foreground">est.</span>}
+                      <Ranks live={l.liveRank} proj={l.projRank} />
+                    </span>
+                  ) : <span className="text-muted-foreground">{l.fplRank?.toLocaleString() ?? "—"}</span>}
                 </div>
               </React.Fragment>
             ))}
@@ -241,7 +249,11 @@ function LeagueDialog({ league, gw, onClose }: { league: LiveLeague | null; gw: 
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold">{league.name}</h3>
-              <p className="text-xs text-muted-foreground">• Sorted by projected season total · GW{gw} points net of hits</p>
+              <p className="text-xs text-muted-foreground">
+                {league.estimated
+                  ? `• The ${league.table?.length ?? 0} managers around your rank, sorted by projected season total; ranks are estimates · GW${gw} points net of hits`
+                  : `• Sorted by projected season total · GW${gw} points net of hits`}
+              </p>
             </div>
             <button type="button" onClick={onClose} aria-label="Close" className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground">
               <X className="size-5" />
@@ -262,7 +274,7 @@ function LeagueDialog({ league, gw, onClose }: { league: LiveLeague | null; gw: 
               <tbody>
                 {league.table.map((r, i) => (
                   <tr key={r.entry} className={`border-t border-border/40 ${r.me ? "bg-emerald-500/10" : ""}`}>
-                    <td className="py-1.5 pr-2 tabular-nums text-muted-foreground">{i + 1}</td>
+                    <td className="py-1.5 pr-2 tabular-nums text-muted-foreground">{(league.offset ?? 0) + i + 1}</td>
                     <td className="py-1.5 pr-3">
                       <div className="font-medium">{r.team}{r.me && <span className="ml-1.5 text-xs text-emerald-400">you</span>}</div>
                       <div className="text-xs text-muted-foreground">
