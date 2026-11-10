@@ -160,8 +160,16 @@ def log_best_squads(sb, pool, xp_by_gw, gw) -> None:
 def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None = None) -> None:
     """fpl_ep: FPL's own expected points for this GW (bootstrap ep_next), stored alongside only as a possible
     future model input. Accuracy is always measured against actual points, never against FPL's numbers."""
+    # Also keep each player's expected minutes and appearance points for the GW (migration 0014): the model
+    # deletes a GW's projections once its deadline passes, and the live panel needs them to project players
+    # who are on the pitch or on the bench mid-game (web/lib/live.ts).
+    extra = {r["player_id"]: r for r in _all(
+        sb, "projections", "player_id, gw, x_appearance_pts, exp_minutes:components->exp_minutes",
+        eq=("gw", gw), eq2=("model_version", MODEL_VERSION))}
     rows = [{"gw": gw, "player_id": p["fpl_id"], "position": p["position"],
              "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3),
+             "exp_minutes": _round(extra.get(p["fpl_id"], {}).get("exp_minutes"), 1),
+             "x_app_pts": _round(extra.get(p["fpl_id"], {}).get("x_appearance_pts"), 3),
              **({"fpl_ep": fpl_ep.get(p["fpl_id"])} if fpl_ep is not None else {})}
             for p in pool if gw in xp_by_gw.get(p["fpl_id"], {})]
     # Replace the unscored snapshot for this GW rather than upserting over it, so players who have
@@ -171,13 +179,18 @@ def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None
     sb.table("prediction_log").delete().eq("gw", gw).eq("scored", False).execute()
     try:
         db.upsert(sb, "prediction_log", rows, on_conflict="gw,player_id")
-    except Exception:  # noqa: BLE001 — fpl_ep needs migration 0010; store our prediction regardless
-        db.upsert(sb, "prediction_log", [{k: v for k, v in r.items() if k != "fpl_ep"} for r in rows],
+    except Exception:  # noqa: BLE001 — fpl_ep needs 0010, exp_minutes/x_app_pts 0014; store the prediction regardless
+        optional = {"fpl_ep", "exp_minutes", "x_app_pts"}
+        db.upsert(sb, "prediction_log", [{k: v for k, v in r.items() if k not in optional} for r in rows],
                   on_conflict="gw,player_id")
     print(f"  snapshotted {len(rows)} player predictions for GW{gw}")
 
 
 # --- helpers ------------------------------------------------------------------
+
+def _round(v, nd: int):
+    return None if v is None else round(float(v), nd)
+
 
 def _all(sb, table, cols, eq=None, eq2=None, gte=None) -> list[dict]:
     """Paginated select (PostgREST caps at 1000 rows)."""

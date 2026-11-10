@@ -60,15 +60,36 @@ type Ctx = {
   fx: Map<number, Fixture[]>; // team -> its fixtures this GW
   team: Map<number, number>; // player -> team
   xp: Map<number, number>;
+  // Per game, from the pre-deadline snapshot (prediction_log): expected appearance points and expected minutes
+  // (his scoring rate = the rest of his points ÷ his minutes). Missing → the plain share-of-match formula.
+  rate: Map<number, { app: number; mins: number }>;
 };
+
+// Live, in a game that has kicked off: a player with minutes is on the pitch (or was), one with 0 is on the bench.
+const BENCH_ON_P = 0.4; // chance an unused sub still comes on, scaled by the share of the match left
+const CAMEO_MIN = 20; // minutes a sub typically gets
 
 function playerState(ctx: Ctx, id: number) {
   const s = ctx.live.get(id) ?? { minutes: 0, total_points: 0 };
   const games = ctx.fx.get(ctx.team.get(id) ?? -1) ?? [];
   const done = (f: Fixture) => f.finished || f.finished_provisional;
-  // Share of the GW projection still to play, game by game (a double GW splits it evenly).
-  const left = games.reduce((a, f) => a + (done(f) ? 0 : f.started ? Math.max(0, 90 - (f.minutes ?? 0)) / 90 : 1), 0);
-  const rem = games.length ? ((ctx.xp.get(id) ?? 0) * left) / games.length : 0;
+  // Points still to come, game by game (a double GW splits the projection evenly).
+  //  - not kicked off: the full pre-deadline projection for that game
+  //  - in progress, he has minutes (on the pitch): his scoring rate × minutes left, plus the 60' appearance point
+  //    if he'll still reach it; without a rate, the projection × share of the match left (old formula)
+  //  - in progress, 0 minutes (on the bench): BENCH_ON_P × share left of a CAMEO_MIN-minute cameo
+  const perGame = games.length ? (ctx.xp.get(id) ?? 0) / games.length : 0;
+  const r = ctx.rate.get(id);
+  const ppm = r && r.mins > 0 ? Math.max(0, perGame - r.app) / r.mins : null; // points per minute played
+  const rem = games.reduce((a, f) => {
+    if (done(f)) return a;
+    if (!f.started) return a + perGame;
+    const left = Math.max(0, 90 - (f.minutes ?? 0));
+    if (ppm == null) return a + (perGame * left) / 90;
+    if (s.minutes > 0) return a + ppm * left + (s.minutes < 60 && s.minutes + left >= 60 ? 1 : 0);
+    const cameo = Math.min(CAMEO_MIN, left);
+    return a + BENCH_ON_P * (left / 90) * (1 + ppm * cameo);
+  }, 0);
   const allDone = games.every(done);
   const state: LivePlayer["state"] = !games.length ? "blank"
     : allDone ? (s.minutes > 0 ? "done" : "dnp")
@@ -162,18 +183,31 @@ export async function liveGameweek(sb: SupabaseClient, entryId: number): Promise
   });
 
   const ids = [...new Set([mine, ...rivalPicks.values()].flatMap((p) => p.picks.map((k) => k.element)))];
-  const [playersRes, xpRes, teamsRes] = await Promise.all([
+  const [playersRes, xpRes, rateRes, teamsRes] = await Promise.all([
     sb.from("players").select("fpl_id, web_name, team_id").in("fpl_id", ids),
     sb.from("prediction_log").select("player_id, predicted_xp").eq("gw", gw).in("player_id", ids),
+    // Separate query: before migration 0014 these columns don't exist, the query fails and live projections
+    // fall back to the plain share-of-match formula, while predicted_xp above still loads.
+    sb.from("prediction_log").select("player_id, exp_minutes, x_app_pts").eq("gw", gw).in("player_id", ids),
     sb.from("teams").select("fpl_id, short_name"),
   ]);
   const fx = new Map<number, Fixture[]>();
   for (const f of fixtures) for (const t of [f.team_h, f.team_a]) (fx.get(t) ?? fx.set(t, []).get(t)!).push(f);
+  const teamOf = new Map((playersRes.data ?? []).map((p) => [p.fpl_id as number, p.team_id as number]));
   const ctx: Ctx = {
     live: new Map(liveRes.elements.map((e) => [e.id, e.stats])),
     fx,
-    team: new Map((playersRes.data ?? []).map((p) => [p.fpl_id as number, p.team_id as number])),
+    team: teamOf,
     xp: new Map((xpRes.data ?? []).map((r) => [r.player_id as number, Number(r.predicted_xp ?? 0)])),
+    // exp_minutes and x_app_pts cover the whole GW, so a double GW splits them per game like the points.
+    rate: new Map(
+      (rateRes.data ?? [])
+        .filter((r) => r.exp_minutes != null)
+        .map((r) => {
+          const n = Math.max(1, fx.get(teamOf.get(r.player_id as number) ?? -1)?.length ?? 1);
+          return [r.player_id as number, { app: Number(r.x_app_pts ?? 0) / n, mins: Number(r.exp_minutes) / n }];
+        }),
+    ),
   };
   const name = new Map((playersRes.data ?? []).map((p) => [p.fpl_id as number, p.web_name as string]));
   const short = new Map((teamsRes.data ?? []).map((t) => [t.fpl_id as number, t.short_name as string]));
