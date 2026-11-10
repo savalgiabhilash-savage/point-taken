@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TOOLS, runTool } from "@/lib/assistant-tools";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { addUsage, emptyUsage, logUsage } from "@/lib/ai-usage";
 import { MODEL_VERSION } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -30,7 +31,8 @@ function badKey(): string {
 
 export async function POST(req: Request) {
   // Signed-in users only: every call spends Anthropic credits, so the endpoint must not be open.
-  const { data: auth } = await (await createServerSupabase()).auth.getUser();
+  const sb = await createServerSupabase();
+  const { data: auth } = await sb.auth.getUser();
   if (!auth.user) return Response.json({ error: "Log in to use the assistant." }, { status: 401 });
   const userId = auth.user.id;
 
@@ -59,6 +61,9 @@ export async function POST(req: Request) {
     content: m.content,
   }));
 
+  // Token usage across every round of the tool loop, logged once for Settings → AI usage.
+  let usage = emptyUsage();
+  let calls = 0;
   try {
     let response: Anthropic.Message | null = null;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -69,6 +74,8 @@ export async function POST(req: Request) {
         tools: TOOLS as Anthropic.Tool[],
         messages,
       });
+      usage = addUsage(usage, response.usage);
+      calls++;
       if (response.stop_reason !== "tool_use") break;
 
       const toolUses = response.content.filter(
@@ -94,8 +101,10 @@ export async function POST(req: Request) {
       .map((b) => b.text)
       .join("")
       .trim();
+    await logUsage(sb, auth.user.id, "assistant", MODEL, usage, calls);
     return Response.json({ answer: answer || "I couldn't find an answer for that in your data." });
   } catch (err) {
+    await logUsage(sb, userId, "assistant", MODEL, usage, calls); // rounds that ran before the error still cost
     const msg = err instanceof Error ? err.message : String(err);
     if (/credit balance|billing|insufficient|quota/i.test(msg)) {
       return Response.json(

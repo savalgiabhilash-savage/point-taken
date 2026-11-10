@@ -39,16 +39,25 @@ export function AccountMenu({ placement }: { placement: "top" | "side" }) {
         <Link href="/login" className={`press inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md bg-grad px-4 text-sm font-bold uppercase tracking-wide glow ${placement === "side" ? "w-full justify-center" : ""}`}>
           <LogIn className="size-4" aria-hidden /> Log in
         </Link>
-        <Link href="/settings" aria-label="Settings" className={placement === "side" ? `${row} text-muted-foreground` : "flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"}>
-          <Settings className="size-4" aria-hidden />{placement === "side" && "Settings"}
-        </Link>
+        {/* The sidebar has its own Settings link; phones get the gear here. */}
+        {placement === "top" && (
+          <Link href="/settings" aria-label="Settings" className="flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
+            <Settings className="size-4" aria-hidden />
+          </Link>
+        )}
       </div>
     );
   }
 
   const initial = email[0]?.toUpperCase() ?? "?";
   return (
-    <div className="relative">
+    <div className="relative flex items-center gap-1">
+      {/* Phones: Settings is one tap away next to the avatar (the sidebar has its own Settings link). */}
+      {placement === "top" && (
+        <Link href="/settings" aria-label="Settings" className="flex size-10 items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
+          <Settings className="size-4" aria-hidden />
+        </Link>
+      )}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

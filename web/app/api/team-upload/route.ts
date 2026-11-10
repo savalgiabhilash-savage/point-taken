@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { addUsage, emptyUsage, logUsage } from "@/lib/ai-usage";
 import { triggerReoptimize } from "@/lib/reoptimize";
 
 export const runtime = "nodejs";
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
         },
       ],
     });
+    await logUsage(supabase, user.id, "team_upload", MODEL, addUsage(emptyUsage(), resp.usage), 1);
     const tu = resp.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
     players = ((tu?.input as { players?: typeof players })?.players) ?? [];
   } catch (err) {

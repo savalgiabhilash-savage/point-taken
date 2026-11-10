@@ -7,6 +7,7 @@ import { TeamUpload } from "@/components/team-upload";
 import { toast } from "@/components/toast";
 import { Loader2 } from "lucide-react";
 import { PageHeader, ThemePicker } from "@/components/shell";
+import { AiUsage } from "@/components/ai-usage";
 
 function Appearance() {
   return (
@@ -147,6 +148,7 @@ export default function SettingsPage() {
       </div>
 
       <Appearance />
+      <AiUsage userId={userId} />
     </main>
   );
 }

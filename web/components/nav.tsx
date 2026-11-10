@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { SECTIONS, sectionFor, inkMix, tint, visiblePages } from "@/lib/sections";
 import { useOwner } from "@/lib/use-owner";
 import { AccountMenu } from "@/components/auth-button";
+import { Settings } from "lucide-react";
 
 /**
  * The logo: a captain's "C" on a slanted broadcast tag, with the ball as its full stop: "Captain. Full stop."
@@ -98,7 +99,16 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-      <div className="mt-auto pt-3"><AccountMenu placement="side" /></div>
+      <div className="mt-auto space-y-1 pt-3">
+        <Link
+          href="/settings"
+          aria-current={path === "/settings" ? "page" : undefined}
+          className={`press flex min-h-11 items-center gap-3 rounded-lg px-3 font-display text-[17px] tracking-wide ${path === "/settings" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <Settings aria-hidden className="size-5" /> Settings
+        </Link>
+        <AccountMenu placement="side" />
+      </div>
     </aside>
   );
 }
