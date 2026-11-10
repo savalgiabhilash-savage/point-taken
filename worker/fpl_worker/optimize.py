@@ -29,6 +29,7 @@ from . import db
 from .fpl_client import FplClient
 from .model import LAST_GW, MODEL_VERSION
 from .sync_team import CHIP_HALF_END, selling_prices
+from .active_users import active_profiles
 
 BUDGET = 1000  # £100.0m in tenths of a million (used by --fresh)
 SQUAD_QUOTA = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
@@ -915,12 +916,10 @@ def _write_run(sb, gw, squad, captain, transfers, gain, objective, horizon=5, ch
 
 
 def _all_user_ids(sb) -> list[str]:
-    """The shared "me" demo plus every registered user (profiles) with an FPL entry."""
+    """The shared "me" demo plus every recently active registered user with an FPL entry (active_users.py)."""
     ids = ["me"]
     try:
-        for p in sb.table("profiles").select("id, fpl_entry_id").execute().data:
-            if p.get("fpl_entry_id"):
-                ids.append(p["id"])
+        ids += [p["id"] for p in active_profiles(sb)]
     except Exception:  # noqa: BLE001 — profiles table may not exist yet
         pass
     return ids

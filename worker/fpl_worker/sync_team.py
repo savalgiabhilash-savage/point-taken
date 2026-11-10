@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from . import db
 from .fpl_client import FplClient
+from .active_users import active_profiles
 
 ALL_CHIPS = ["wildcard", "freehit", "bboost", "3xc"]
 FT_CAP = 5
@@ -135,14 +136,14 @@ def _sync_one(sb, client: FplClient, entry_id: int, user_id: str) -> None:
 
 
 def sync_all(sb) -> None:
-    """Sync the shared "me" demo (FPL_ENTRY_ID) plus every registered user's team."""
+    """Sync the shared "me" demo (FPL_ENTRY_ID) plus every recently active registered user's team."""
     targets: list[tuple[int, str]] = []
     env_entry = os.environ.get("FPL_ENTRY_ID")
     if env_entry:
         targets.append((int(env_entry), "me"))
-    for p in sb.table("profiles").select("id, fpl_entry_id").execute().data:
-        if p.get("fpl_entry_id"):
-            targets.append((p["fpl_entry_id"], p["id"]))
+    # Only users seen recently (active_users.py); returning users are re-optimized by the site.
+    for p in active_profiles(sb):
+        targets.append((p["fpl_entry_id"], p["id"]))
 
     print(f"Syncing {len(targets)} team(s) ...")
     with FplClient() as client:

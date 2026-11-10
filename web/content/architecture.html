@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 62</span>
+    <span>doc rev 63</span>
     <span>updated 2026-11-10</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -673,6 +673,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><b>Manual sync</b> (<code>POST /api/sync</code>): the same logic for the logged-in user, then dispatches <code>fpl-optimize</code>.</li>
     <li><b>Screenshot upload</b> (<code>POST /api/team-upload</code>): Claude Haiku reads 15 names, roles and armbands through a forced tool call. Names are matched to <code>web_name</code> by exact match after accent folding, then by substring. At least 11 matches are needed. Preseason it's saved as <code>gw = 0</code> with all chips. In-season it's saved as the latest synced GW + 1, with bank, free transfers and chips carried over, so it overrides the synced squad until that deadline, when FPL's real picks replace it. Uploaded rows have no <code>fpl_entry_id</code>. Then re-optimized.</li>
     <li><b>On-demand optimize</b> (<code>POST /api/optimize</code>, signed in): validates horizon 1–38 and dispatches the workflow for that user. The Optimizer page polls <code>optimizer_runs</code> until the new plan lands, in about 1–2 minutes.</li>
+    <li><b>Active users only</b> (<code>worker/fpl_worker/active_users.py</code>, migration 0013): scheduled sync and optimize (refresh, deadline) cover "me" plus users seen in the last 7 days (<code>profiles.last_seen_at</code>), so GitHub Actions minutes grow with active users, not sign-ups (≈15 s per user per run; the private repo&apos;s 2,000 free minutes a month otherwise ran out at ~12 users). The proxy (<code>lib/supabase/middleware.ts</code>) writes <code>last_seen_at</code> at most once per 6 hours per signed-in user (cookie <code>pt_seen</code>) and dispatches <code>fpl-optimize</code> for a user returning after more than 7 days. Before migration 0013 runs, everyone counts as active. Manual Sync / Re-optimize work for everyone.</li>
     <li><b>Stale plan warning</b>: if the current squad's IDs differ from <code>transfers.based_on</code>, the Optimizer page warns instead of showing old transfers.</li>
   </ul>
 </section>
@@ -1204,6 +1205,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-10</span><br>Scheduled sync and optimize only for users seen in the last 7 days (<code>profiles.last_seen_at</code>, migration 0013); returning users re-optimize on their first visit.</li>
     <li><span class="d">2026-11-10</span><br>Compare: horizon switch (next GW, 3, 5, 8), the app&apos;s pick with reasons, points range, points breakdown, GW by GW, DefCon &amp; defence, attack and minutes tables.</li>
     <li><span class="d">2026-11-10</span><br>Compare page (Scout → Compare): 2–3 players as FC Ultimate Team-style cards with OVR and six attributes, verdict, head-to-head bars and key numbers.</li>
     <li><span class="d">2026-11-10</span><br>Mobile app: Sign in with Google (in-app browser, PKCE, <code>pointtaken://auth/callback</code>); app renamed Point Taken, scheme <code>pointtaken</code>.</li>
