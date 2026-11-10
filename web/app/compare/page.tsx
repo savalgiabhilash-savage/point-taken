@@ -14,7 +14,16 @@ export default async function ComparePage({ searchParams }: { searchParams: Prom
   const h = (HORIZONS as readonly number[]).includes(Number(sp.h)) ? (Number(sp.h) as Horizon) : 5;
 
   const { players, gws } = await loadCompare();
-  const ids = fromUrl.length ? fromUrl : players.slice(0, 2).map((p) => p.id);
+  // One player (from a "Compare" button): add a suggested rival, the highest-projected player in the same
+  // position within £1m of his price, else the highest-projected in his position at any price.
+  // None given: the two highest-projected players.
+  let ids = fromUrl.length ? fromUrl : players.slice(0, 2).map((p) => p.id);
+  if (ids.length === 1) {
+    const me = players.find((p) => p.id === ids[0]);
+    const samePos = me ? players.filter((p) => p.id !== me.id && p.pos === me.pos) : []; // sorted by xPts
+    const rival = samePos.find((p) => Math.abs(p.price - me!.price) <= 1) ?? samePos[0];
+    if (rival) ids = [ids[0], rival.id];
+  }
   const details = await loadCompareDetails(ids, h);
 
   return (

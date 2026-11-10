@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import type { Insight } from "@/lib/insight";
+import { CompareLink } from "@/components/compare-link";
 
 // The "i" on every recommended player. Click opens a panel explaining the pick factor by factor:
 // page-specific reasons first ("why"), then the model's own reasoning from /api/insight.
@@ -108,6 +109,7 @@ function InsightDialog({
         {error ? <p className="mt-4 text-sm text-rose-400">{error}</p> : null}
         {!data && !error ? <p className="mt-4 text-sm text-muted-foreground">Loading the model&apos;s reasoning…</p> : null}
         {data?.sections.map((s) => <Section key={s.title} title={s.title} bullets={s.bullets} />)}
+        {data ? <CompareLink playerId={playerId} className="mt-4" /> : null}
       </div>
     </div>
   );

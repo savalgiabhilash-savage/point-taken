@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { PlayerInfo } from "@/components/player-info";
+import { CompareLink } from "@/components/compare-link";
 import {
   type ColumnDef,
   type SortingState,
@@ -262,6 +263,7 @@ function PlayerDrawer({
             <div className="text-sm text-muted-foreground">
               {player.team?.name ?? ""} · {price(player.now_cost)} · {one(player.selected_by_percent)}% owned
             </div>
+            <CompareLink playerId={player.fpl_id} className="mt-2" />
           </div>
           <button
             onClick={onClose}
