@@ -29,6 +29,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+      VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -79,3 +81,9 @@ jobs:
       - name: Optimize (multi-week + chips)
         if: steps.near.outputs.go == 'true'
         run: uv run python -m fpl_worker.optimize --plan
+
+      # Push: deadline reminder with the fresh plan, plus any new injury flags (needs VAPID secrets).
+      - name: Notify (deadline reminder + injury alerts)
+        if: steps.near.outputs.go == 'true'
+        continue-on-error: true
+        run: uv run python -m fpl_worker.notify --deadline --injuries

@@ -28,6 +28,8 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       FPL_ENTRY_ID: ${{ secrets.FPL_ENTRY_ID }}
+      VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,3 +71,8 @@ jobs:
       # 6) Multi-week transfer path + chip timing.
       - name: Optimize (multi-week + chips)
         run: uv run python -m fpl_worker.optimize --plan
+
+      # 7) Push alerts: a player in a subscriber's squad newly flagged (needs VAPID secrets; skips without).
+      - name: Notify (injury alerts)
+        continue-on-error: true
+        run: uv run python -m fpl_worker.notify --injuries

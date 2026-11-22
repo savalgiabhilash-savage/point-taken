@@ -85,7 +85,7 @@ export default function GuidePage() {
             <B><b>Scout</b> → <b>Compare</b>: 2 or 3 players side by side, Ultimate Team style: an overall rating, six attributes (form, attack, defence, minutes, fixtures, value); then, for a horizon you pick (next GW, 3, 5 or 8 GWs), the app&apos;s pick with reasons, the likely points range, where the points come from, DefCon and defence, attack and minutes, best in each row marked ▲</B>
             <B><b>Predict</b> → <b>Best XI</b> and <b>Accuracy</b>: the best squad for this gameweek, then how the predictions scored against actual points</B>
             <B><b>Ask</b> → <b>Assistant</b>: ask about captains, transfers, hits and chips; it only cites real numbers</B>
-            <B>Settings (in the sidebar on a computer; the gear, top right, on a phone): FPL team, sync, Dark / Light / Match device, and your AI usage with an estimated cost for 7 days, 30 days, this month or all time</B>
+            <B>Settings (in the sidebar on a computer; the gear, top right, on a phone): FPL team, sync, Dark / Light / Match device, notifications (deadline reminders and injury alerts), and your AI usage with an estimated cost for 7 days, 30 days, this month or all time</B>
           </ul>
         </Card>
 
