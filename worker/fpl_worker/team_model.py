@@ -38,9 +38,6 @@ FIT_ITERATIONS = 40
 # one 5-xG game can't define a team's attack for months. None = off.
 XG_CAP: float | None = 3.0   # tuned on 2023-24 (2.0-3.0 tested; RMSE unchanged, 3.0 best top-20 / captain)
 XG_OVER = 0.5
-# Team form from results: each side's "chances" = (1 - GOALS_WEIGHT) x xG + GOALS_WEIGHT x goals actually
-# scored, so a side that keeps failing to score (or keeps out-scoring its xG) moves its rating. 0 = xG only.
-GOALS_WEIGHT = 0.0  # 0.25 / 0.5 tested 2026-10-18 (next GW and 1-3 GWs ahead): no RMSE gain, top-20 worse; off
 
 # football-data.co.uk names that differ from FPL's; others match exactly or as a prefix
 # ("Coventry" -> "Coventry City"), which FPL uses for some seasons' promoted clubs but not others.
@@ -68,9 +65,6 @@ def fit(matches: list[dict], ref: datetime, teams: list[str], promoted: set[str]
     for m in matches:
         age = max(0.0, (ref - m["date"]).total_seconds() / 86400.0)
         hx, ax = _damp(float(m["hxg"])), _damp(float(m["axg"]))
-        if GOALS_WEIGHT and m.get("hg") is not None:
-            hx = (1 - GOALS_WEIGHT) * hx + GOALS_WEIGHT * float(m["hg"])
-            ax = (1 - GOALS_WEIGHT) * ax + GOALS_WEIGHT * float(m["ag"])
         rows.append((m["home"], m["away"], hx, ax, 0.5 ** (age / HALF_LIFE_DAYS)))
 
     att = {t: prior[t]["att"] for t in teams}

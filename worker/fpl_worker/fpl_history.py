@@ -59,8 +59,6 @@ def load_season(season: str) -> pd.DataFrame:
     # The team's xG in each fixture, and the part of it created while this player was on the pitch.
     df["team_fx_xg"] = df.groupby(["fixture", "team"])["expected_goals"].transform("sum")
     df["team_xg_on"] = df["team_fx_xg"] * df["minutes"] / 90.0
-    # BPS for minutes alone (6 for 60'+, 3 for less): removed to get his background BPS (bonus_sim).
-    df["mbps"] = (df["minutes"] >= 60) * 3.0 + (df["minutes"] > 0) * 3.0
     return df
 
 
@@ -70,38 +68,26 @@ def teams(season: str) -> pd.DataFrame:
 
 def last_season_profiles(prev: pd.DataFrame) -> dict[str, dict]:
     """{code: {pos, xg, xa, minutes, bonus, yellow_cards, team_xg_on}} season totals."""
-    from .form_model import cap_xg
-    prev = prev.assign(xg_c=prev["expected_goals"].map(cap_xg))
     agg = prev.groupby("code").agg(
-        pos=("pos", "last"), xg=("xg_c", "sum"), xa=("expected_assists", "sum"),
+        pos=("pos", "last"), xg=("expected_goals", "sum"), xa=("expected_assists", "sum"),
         minutes=("minutes", "sum"), bonus=("bonus", "sum"), yellow_cards=("yellow_cards", "sum"),
-        team_xg_on=("team_xg_on", "sum"), bps=("bps", "sum"), goals=("goals_scored", "sum"),
-        assists=("assists", "sum"), cs=("clean_sheets", "sum"), gc=("goals_conceded", "sum"),
-        mbps=("mbps", "sum"), dc=("defensive_contribution", "sum"), pts=("total_points", "sum"),
-        rows=("fixture", "size"))
+        team_xg_on=("team_xg_on", "sum"), dc=("defensive_contribution", "sum"))
     return {str(int(c)): r._asdict() for c, r in zip(agg.index, agg.itertuples(index=False))}
 
 
 def entries_before(rows: pd.DataFrame, latest_round: int) -> dict[int, list[dict]]:
     """This season's per-GW history for each player (by element) from dataset rows:
-    {age, games, starts, minutes, xg, xa, bonus, yellow, team_xg_on, home (None in a double)}."""
-    from .form_model import cap_xg
-    rows = rows.assign(xg_c=rows["expected_goals"].map(cap_xg))
+    {age, games, starts, minutes, xg, xa, bonus, yellow, team_xg_on}."""
     g = rows.groupby(["element", "round"]).agg(
         games=("fixture", "size"), starts=("starts", "sum"), minutes=("minutes", "sum"),
-        xg=("xg_c", "sum"), xa=("expected_assists", "sum"), bonus=("bonus", "sum"),
-        yellow=("yellow_cards", "sum"), team_xg_on=("team_xg_on", "sum"), home=("was_home", "first"),
-        bps=("bps", "sum"), goals=("goals_scored", "sum"), assists=("assists", "sum"), cs=("clean_sheets", "sum"),
-        gc=("goals_conceded", "sum"), mbps=("mbps", "sum"), pts=("total_points", "sum")).reset_index()
+        xg=("expected_goals", "sum"), xa=("expected_assists", "sum"), bonus=("bonus", "sum"),
+        yellow=("yellow_cards", "sum"), team_xg_on=("team_xg_on", "sum")).reset_index()
     out: dict[int, list[dict]] = {}
     for h in g.itertuples(index=False):
         out.setdefault(int(h.element), []).append({
             "age": latest_round - int(h.round), "games": int(h.games), "starts": float(h.starts),
             "minutes": float(h.minutes), "xg": float(h.xg), "xa": float(h.xa), "bonus": float(h.bonus),
-            "yellow": float(h.yellow), "team_xg_on": float(h.team_xg_on),
-            "home": bool(h.home) if h.games == 1 else None,
-            "bps": float(h.bps), "goals": float(h.goals), "assists": float(h.assists), "cs": float(h.cs),
-            "gc": float(h.gc), "mbps": float(h.mbps), "pts": float(h.pts)})
+            "yellow": float(h.yellow), "team_xg_on": float(h.team_xg_on)})
     return out
 
 
@@ -110,15 +96,13 @@ def season_matches(df: pd.DataFrame) -> list[dict]:
     for the team goals model."""
     side = df.groupby(["fixture", "was_home"]).agg(
         team=("team", "first"), xg=("expected_goals", "sum"),
-        kickoff=("kickoff_time", "first"), round=("round", "first"),
-        hg=("team_h_score", "first"), ag=("team_a_score", "first")).reset_index()
+        kickoff=("kickoff_time", "first"), round=("round", "first")).reset_index()
     home = side[side["was_home"]].set_index("fixture")
     away = side[~side["was_home"]].set_index("fixture")
     out = []
     for f in home.index.intersection(away.index):
         h, a = home.loc[f], away.loc[f]
         out.append({"home": h["team"], "away": a["team"], "hxg": h["xg"], "axg": a["xg"], "round": int(h["round"]),
-                    "hg": None if pd.isna(h["hg"]) else float(h["hg"]), "ag": None if pd.isna(h["ag"]) else float(h["ag"]),
                     "date": datetime.fromisoformat(str(h["kickoff"]).replace("Z", "+00:00"))})
     return out
 

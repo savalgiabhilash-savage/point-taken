@@ -49,7 +49,6 @@ type Why = {
   bonus90?: number;
   own?: number;
   net?: number;
-  home_mult?: { home: number; away: number };
   price?: { net: number; pressure: number; p_rise: number; p_fall: number };
   return?: { base: number; ramp: number; absent: number } | null;
   manager_reset?: boolean;
@@ -246,8 +245,6 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
     if (why.last) fb.push(`Last season: ${f1(why.last.xg)} xG, ${f1(why.last.xa)} xA in ${why.last.min} min (counts less than this season)`);
     else fb.push("No last-season Premier League data (new to the league or promoted)");
     fb.push("Pulled toward the average for his position, more so when minutes are few");
-    if (why.home_mult && (Math.abs(why.home_mult.home - 1) >= 0.03 || Math.abs(why.home_mult.away - 1) >= 0.03))
-      fb.push(`Home/away: ×${f2(why.home_mult.home)} at home, ×${f2(why.home_mult.away)} away (his own split)`);
     if (why.bonus90 != null) fb.push(`Bonus: ${f2(why.bonus90)} bonus points per 90 from his own record`);
     const pen = c.f?.penalty;
     if (why.setpieces?.pen) fb.push(`First-choice penalty taker${pen ? `: +${f2(pen.term)} expected goals this GW (learned weight applied)` : ""}`);

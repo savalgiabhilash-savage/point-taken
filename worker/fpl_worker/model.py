@@ -34,23 +34,11 @@ ASSIST_PTS = 3
 DEFCON_PTS = 2
 DEFCON_THRESHOLD = {"DEF": 10, "MID": 12, "FWD": 12}  # actions per match for the 2 pts; GKs can't earn it
 # DefCon count per start = dc90 x minutes / 90: "82" (old fixed 82'), "start" (his own minutes per start from
-# the minutes model) or "90". And opponent pressure: count x (xG against / DEFCON_OPP_REF) ^ DEFCON_OPP_BETA.
+# the minutes model) or "90".
 DEFCON_MINS = "82"     # "start" / "90" tested 2026-10-20: tiny RMSE gain, 90 lost 41 pts in the 2025-26 replay; off
-DEFCON_OPP_BETA = 0.0  # opponent pressure is real (~-7% vs weak to +5% vs strong attacks) but 0.15 / 0.3 gave no gain
-DEFCON_OPP_REF = 1.4
 DEFCON_VMR = 1.0     # DefCon variance / mean (1 = Poisson). 1.5-2.5 tested on 2025-26: RMSE gain 0.0006, captain worse; off
 SAVES_PER_XGA = 2.1   # saves ~ Poisson(2.1 x xGA), 1 pt per 3 (2.0-2.1 in 2023-26 data); None = old xGA x 2/3 rule
 DEFCON_K = 3.0
-DEFCON_LAST_W = 0.0  # last season's DefCon in a player's rate; 1-2 tested on 2026-27 (worse RMSE, top-20), off
-CS_DISP = 0.0        # gamma-mixed clean sheets; 0.1-0.35 tested on 2023-24 (worse RMSE), off = plain Poisson
-# Recent-points blend (accuracy plan step 6, first piece): per position, x_pts' = a·x_pts + b·form4 + c, where
-# form4 = his average FPL points over his club's last 4 GWs (last season's points per game before that).
-# Fitted by least squares on past seasons (see backtest); None = off.
-# Tested 2026-10-11 on 2023-24 .. 2026-27 GW1-5, off: least-squares fits (a 0.82-0.95, b 0.06-0.15) lowered
-# RMSE slightly but cost top-20 points in 3 of 4 seasons; a light b = 0.05 was a wash (RMSE -0.002 at best,
-# one season's captain points -0.8); b >= 0.2 clearly hurts the picks. Chasing recent points loses to the
-# underlying-numbers model. e.g. {"MID": (1.0, 0.05, -0.061), ...}
-FORM_BLEND: dict[str, tuple[float, float, float]] | None = None
 # Crowd signal (rules-v7): what the model gets wrong, predicted from ownership and this window's net transfers,
 # both relative to the most-owned player's count. x_pts' = x_pts + b·own + c·net + d per position, as available
 # as he is. Net transfers react to team news, injuries and form faster than any of our inputs.
@@ -101,9 +89,6 @@ FACTOR_WEIGHTS = {"penalty": 0.0, "setpiece": 0.0, "return": 0.0, "lineup": 0.0}
 TUNED_PARAMS = {"congestion": (context_model, "CONGESTION"), "last_season_weight": (form_model, "LAST_SEASON_WEIGHT"),
                 "share_k": (form_model, "SHARE_K")}
 BONUS_MODEL = True   # factor 17: bonus from his own bonus rate (False = the old involvement proxy)
-BONUS_SIM = False    # bonus from simulating each match's BPS ranking (bonus_sim.py); backtest-only, lost on RMSE (rev 16)
-GAME_STATE = 0.0     # factor 16: start minutes x (1 - GAME_STATE x max(0, xG_for - xG_against)). Off: its MAE gain
-                     # was only a lower overall level; RMSE (the right score for expected points) didn't improve
 
 # --- minutes -----------------------------------------------------------------
 
@@ -192,10 +177,9 @@ def availability(player: dict) -> tuple[float, float]:
     return min(fpl, news), fpl
 
 
-def _minutes(player: dict, game_state: float = 1.0, rotation: float = 1.0,
+def _minutes(player: dict, rotation: float = 1.0,
              lineup: tuple[bool, float] | None = None) -> tuple[float, float, float, float, float]:
     """Return (p_start, p_play, exp_minutes, p_60). `player["mprof"]` comes from minutes_profile().
-    `game_state` (<= 1) shortens start minutes when his team is a heavy favourite (early subs);
     `rotation` (<= 1) lowers his start chance when his club has another match within a few days;
     `lineup` = (named in a predicted XI?, source confidence) moves it toward LINEUP_TARGET.
     Returns (p_start, p_play, exp_minutes, p_60, p_start before the line-up adjustment)."""
@@ -208,7 +192,7 @@ def _minutes(player: dict, game_state: float = 1.0, rotation: float = 1.0,
         p_start = min(1.0, max(0.0, p_start))
     p_cameo = (1.0 - p_start) * (m["cameo_rate"] if avail > 0 else 0.0)
     p_play = min(1.0, p_start + p_cameo)
-    exp_minutes = p_start * m["start_mins"] * game_state + p_cameo * m["cameo_mins"]
+    exp_minutes = p_start * m["start_mins"] + p_cameo * m["cameo_mins"]
     p_60 = p_start * m["p60_start"]
     return p_start, p_play, exp_minutes, p_60, p_start0
 
@@ -259,20 +243,13 @@ def _expected_half_goals(lam: float) -> float:
     return total
 
 
-def defcon_rates(elements: list[dict], last: dict[str, dict] | None = None) -> dict[int, float]:
+def defcon_rates(elements: list[dict]) -> dict[int, float]:
     """{fpl_id: DefCon actions per 90}, shrunk toward the position average. From FPL bootstrap, which
-    counts CBIT for defenders and CBIRT for midfielders/forwards: the same count the threshold uses.
-    `last` (last-season profiles by player code) adds last season's actions and minutes at DEFCON_LAST_W,
-    so early-season rates aren't near zero; ignored when last season had no DefCon (before 2025/26)."""
+    counts CBIT for defenders and CBIRT for midfielders/forwards: the same count the threshold uses."""
     pos = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
-    use_last = bool(last) and DEFCON_LAST_W > 0 and sum(p.get("dc", 0) for p in last.values()) > 0
     totals = {}
     for e in elements:
         dc, mins = float(e.get("defensive_contribution") or 0), float(e.get("minutes") or 0)
-        lp = last.get(str(e.get("code"))) if use_last else None
-        if lp:
-            dc += DEFCON_LAST_W * lp.get("dc", 0)
-            mins += DEFCON_LAST_W * lp.get("minutes", 0)
         totals[e["id"]] = (pos[e["element_type"]], dc, mins)
     agg: dict[str, list[float]] = {}
     for p, dc, mins in totals.values():
@@ -283,22 +260,13 @@ def defcon_rates(elements: list[dict], last: dict[str, dict] | None = None) -> d
     return {i: (dc + DEFCON_K * base[p]) / (mins / 90.0 + DEFCON_K) for i, (p, dc, mins) in totals.items()}
 
 
-def form4(entries: list[dict], last: dict | None) -> float:
-    """His average FPL points over his club's last 4 GWs this season; before he has any, last season's
-    points per game (0 for a newcomer)."""
-    recent = sorted(entries, key=lambda e: e["age"])[:4]
-    if recent:
-        return sum(e.get("pts", 0) for e in recent) / len(recent)
-    return last["pts"] / last["rows"] if last and last.get("rows") else 0.0
-
-
 # --- base-rate blending ------------------------------------------------------
 
 # --- core projection ---------------------------------------------------------
 
 def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float, base_for: float,
                     base_against: float, is_home: bool, form_mult: float = 1.0,
-                    opp_mult: float = 1.0, rotation: float = 1.0, extras: dict | None = None) -> dict:
+                    rotation: float = 1.0, extras: dict | None = None) -> dict:
     """One player, one fixture -> component dict of expected points.
 
     `prof` is the player's form profile (form_model.form_profile + dc90). `form_mult` is a
@@ -306,20 +274,18 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
     change. It scales the attacking rates only, so it flows through goals, assists, and bonus.
 
     `lam_for` / `lam_against` are this fixture's expected goals for and against the player's team
-    (team_model). His expected goals = his share of team xG x lam_for x home/away multiplier x minutes;
+    (team_model). His expected goals = his share of team xG x lam_for x minutes;
     `base_for` / `base_against` (the team's expected goals for/against an average opponent) are only used
     to express how favourable the fixture is and to scale bonus."""
     pos = player["position"] or "MID"
-    gs = max(0.6, 1.0 - GAME_STATE * max(0.0, lam_for - lam_against))
     extras = extras or {}
-    p_start, p_play, exp_min, p_60, p_start0 = _minutes(player, gs, rotation, extras.get("lineup"))
+    p_start, p_play, exp_min, p_60, p_start0 = _minutes(player, rotation, extras.get("lineup"))
     mins_frac = exp_min / 90.0
     adj = lam_for / base_for if base_for else 1.0
-    home = prof["home_mult"][is_home]
 
-    # his expected goals per 90 in THIS fixture; opp_mult: how this opponent's conceded chances fall to his position
-    xg90 = prof["xg_share"] * lam_for * home * form_mult * opp_mult
-    xa90 = prof["xa_share"] * lam_for * home * form_mult * opp_mult
+    # his expected goals per 90 in THIS fixture
+    xg90 = prof["xg_share"] * lam_for * form_mult
+    xa90 = prof["xa_share"] * lam_for * form_mult
     yellow90 = prof["yellow90"]
 
     x_goals = xg90 * mins_frac
@@ -337,9 +303,8 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
 
     # clean sheet, saves and goals-conceded deductions all use the fixture's expected goals against
     lam = lam_against
-    # P(clean sheet): Poisson zero, mixed over uncertainty in lam (gamma, CS_DISP) — an uncertain lam makes
-    # a shut-out likelier than exp(-lam) (Jensen), which plain Poisson understated in the backtest.
-    p_cs = (1 + CS_DISP * lam) ** (-1 / CS_DISP) if CS_DISP > 0 else math.exp(-lam)
+    # P(clean sheet): Poisson zero
+    p_cs = math.exp(-lam)
     x_cs_pts = p_cs * CS_PTS[pos] * p_60
 
     # appearance
@@ -357,7 +322,7 @@ def project_fixture(player: dict, prof: dict, lam_for: float, lam_against: float
     thr = DEFCON_THRESHOLD.get(pos)
     dc_mins = (90.0 if DEFCON_MINS == "90" else
                float((player.get("mprof") or {}).get("start_mins", 82.0)) if DEFCON_MINS == "start" else 82.0)
-    dc_mean = prof.get("dc90", 0.0) * dc_mins / 90 * (lam_against / DEFCON_OPP_REF) ** DEFCON_OPP_BETA
+    dc_mean = prof.get("dc90", 0.0) * dc_mins / 90
     p_dc = _count_at_least(dc_mean, thr, DEFCON_VMR) if thr else 0.0
     x_defcon_pts = DEFCON_PTS * p_dc * p_start
 
@@ -550,16 +515,11 @@ def fetch_live(client: FplClient, fixtures: list[dict]) -> dict[int, list[dict]]
 
 def season_entries(live: dict[int, list[dict]], fixtures: list[dict],
                    team_by_player: dict[int, int]) -> dict[int, list[dict]]:
-    """{player_id: [{age, games, starts, minutes, xg, xa, bonus, yellow, team_xg_on, home}, ...]} for every
+    """{player_id: [{age, games, starts, minutes, xg, xa, bonus, yellow, team_xg_on}, ...]} for every
     finished GW this season (same shape as fpl_history.entries_before in the backtest). Only GWs where the
     player's CURRENT club played count, so a blank isn't read as being dropped. team_xg_on = the club's
     xG that GW x his share of its minutes."""
     games = _club_games(fixtures)
-    home_of: dict[tuple[int, int], bool] = {}
-    for f in fixtures:
-        if f["finished"] and f["gw"] is not None:
-            home_of[(f["team_h"], f["gw"])] = True
-            home_of[(f["team_a"], f["gw"])] = False
     latest = max(live) if live else 0
     out: dict[int, list[dict]] = {}
     for gw, elements in live.items():
@@ -576,14 +536,10 @@ def season_entries(live: dict[int, list[dict]], fixtures: list[dict],
             mins = st.get("minutes") or 0
             out.setdefault(e["id"], []).append({
                 "age": latest - gw, "games": n, "starts": st.get("starts") or 0, "minutes": mins,
-                "xg": form_model.cap_xg(float(st.get("expected_goals") or 0)),
+                "xg": float(st.get("expected_goals") or 0),
                 "xa": float(st.get("expected_assists") or 0),
                 "bonus": st.get("bonus") or 0, "yellow": st.get("yellow_cards") or 0,
-                "bps": st.get("bps") or 0, "goals": st.get("goals_scored") or 0, "assists": st.get("assists") or 0,
-                "cs": st.get("clean_sheets") or 0, "gc": st.get("goals_conceded") or 0,
-                "mbps": 6 if mins >= 60 else 3 if mins > 0 else 0, "pts": st.get("total_points") or 0,
                 "team_xg_on": team_xg.get(t, 0.0) * mins / (90.0 * n),
-                "home": home_of.get((t, gw)) if n == 1 else None,
             })
     return out
 
@@ -595,15 +551,11 @@ def season_team_matches(live: dict[int, list[dict]], fixtures: list[dict], team_
     Players are credited to their current club, so a mid-season transfer's earlier xG moves with him."""
     games = _club_games(fixtures)
     xg: dict[tuple[int, int], float] = {}
-    goals: dict[tuple[int, int], float] = {}   # goals its players scored
-    ogs: dict[tuple[int, int], float] = {}     # own goals its players conceded (credited to the opponent)
     for gw, elements in live.items():
         for e in elements:
             t = team_by_player.get(e["id"])
             if t is not None:
                 xg[(t, gw)] = xg.get((t, gw), 0.0) + float(e["stats"].get("expected_goals") or 0)
-                goals[(t, gw)] = goals.get((t, gw), 0.0) + float(e["stats"].get("goals_scored") or 0)
-                ogs[(t, gw)] = ogs.get((t, gw), 0.0) + float(e["stats"].get("own_goals") or 0)
     out = []
     for f in fixtures:
         if not f["finished"] or f["gw"] is None or not f.get("kickoff_time"):
@@ -611,8 +563,6 @@ def season_team_matches(live: dict[int, list[dict]], fixtures: list[dict], team_
         h, a, gw = f["team_h"], f["team_a"], f["gw"]
         out.append({"home": name_by_id[h], "away": name_by_id[a],
                     "hxg": xg.get((h, gw), 0.0) / games[(h, gw)], "axg": xg.get((a, gw), 0.0) / games[(a, gw)],
-                    "hg": (goals.get((h, gw), 0.0) + ogs.get((a, gw), 0.0)) / games[(h, gw)],
-                    "ag": (goals.get((a, gw), 0.0) + ogs.get((h, gw), 0.0)) / games[(a, gw)],
                     "date": datetime.fromisoformat(f["kickoff_time"].replace("Z", "+00:00"))})
     return out
 
@@ -662,7 +612,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         boot = client.bootstrap_static()
         live = fetch_live(client, fixtures)
     history = season_entries(live, fixtures, team_by_player)
-    dc90 = defcon_rates(boot["elements"], profiles)
+    dc90 = defcon_rates(boot["elements"])
     elem = {e["id"]: e for e in boot["elements"]}
     total_managers = boot.get("total_players") or 0
     # Crowd inputs, relative to the most-owned player (the same scale the backtest fitted on).
@@ -681,26 +631,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
     base_for = {t["fpl_id"]: team_model.average_goals_for(strengths, t["name"]) for t in teams}
     base_against = {t["fpl_id"]: team_model.average_goals_against(strengths, t["name"]) for t in teams}
 
-    # Match context: opponent-vs-position ratios (last season + this season) and each club's match dates
-    # across all competitions (league fixtures + ESPN cup/European fixtures near the upcoming GWs).
-    pos_by_player = {p["fpl_id"]: p["position"] for p in players}
-    opp_of = {}
-    for f in fixtures:
-        if f["gw"] is not None:
-            opp_of.setdefault((f["team_h"], f["gw"]), []).append(name_by_id[f["team_a"]])
-            opp_of.setdefault((f["team_a"], f["gw"]), []).append(name_by_id[f["team_h"]])
-    records = [(r.opp_name, r.pos, r.expected_goals + r.expected_assists, f"p{r.fixture}")
-               for r in prev.assign(opp_name=prev["opponent_team"].map(
-                   {int(t.id): t.name for t in fpl_history.teams(fpl_history.prev_season(
-                       fpl_history.season_of(int(first_kickoff[:4])))).itertuples(index=False)})).itertuples(index=False)]
-    for gw, elements in live.items():
-        for e in elements:
-            t = team_by_player.get(e["id"])
-            opps = opp_of.get((t, gw), [])
-            if len(opps) == 1 and pos_by_player.get(e["id"]):
-                xgi = float(e["stats"].get("expected_goals") or 0) + float(e["stats"].get("expected_assists") or 0)
-                records.append((opps[0], pos_by_player[e["id"]], xgi, f"c{gw}-{t}"))
-    opp_ratios = context_model.opp_position_ratios(records)
+    # Each club's match dates across all competitions (league fixtures + ESPN cup/European fixtures near
+    # the upcoming GWs).
     league_dates = [(name_by_id[t], f["kickoff_time"]) for f in fixtures if f.get("kickoff_time")
                     for t in (f["team_h"], f["team_a"])]
     print(f"Team model: {len(matches)} matches, home advantage x{math.exp(strengths['home']):.2f}, "
@@ -773,7 +705,6 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                   "fk": e.get("direct_freekicks_order") == 1, "lam_avg": lam_avg}
         p["news_adj"] = news_adjustment(news.get(p["fpl_id"]), now)
         avail, fpl_avail = availability(p)
-        f4 = form4(hist, last)
         e_boot = elem.get(p["fpl_id"], {})
         own = float(e_boot.get("selected_by_percent") or 0) / top_own if top_own else 0.0
         net = (((e_boot.get("transfers_in_event") or 0) - (e_boot.get("transfers_out_event") or 0)) / top_count
@@ -786,9 +717,8 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             "recent_minutes": sum(h["minutes"] for h in recent),
             "fpl_avail": round(fpl_avail, 2), "news_adj": round(p["news_adj"], 3), "avail": round(avail, 3),
             "xg_share": round(prof["xg_share"], 3), "xa_share": round(prof["xa_share"], 3),
-            "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2), "form4": round(f4, 2),
+            "bonus90": round(prof["bonus90"], 3), "dc90": round(prof["dc90"], 2),
             "own": round(own, 3), "net": round(net, 4),
-            "home_mult": {"home": round(prof["home_mult"][True], 3), "away": round(prof["home_mult"][False], 3)},
             "return": ret, "manager_reset": ra is not None,
             "setpieces": {"pen": extras["pen"], "corner": extras["corner"], "fk": extras["fk"]},
             "price": price_model.price_signal(elem.get(p["fpl_id"], {}).get("transfers_in_event") or 0,
@@ -809,29 +739,18 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
             agg: dict[str, float] = {}
             samples = np.zeros(outcomes.N)  # range of outcomes: simulated GW totals (outcomes.py)
             opp_short = []
-            xg_for, xg_against, with_odds, atk_mult, p_cs, opp_pos, rest_days = [], [], [], [], [], [], []
+            xg_for, xg_against, with_odds, atk_mult, p_cs, rest_days = [], [], [], [], [], []
             for is_home, lam_for, lam_against, opp_id, has_odds, (rot, gap) in fxs:
-                om = context_model.opp_multiplier(opp_ratios, name_by_id[opp_id], p["position"])
                 fx_extras = {**extras, "lineup": lineup.get(p["fpl_id"]) if gw == next_gw else None}
                 comp = project_fixture(p, prof, lam_for, lam_against, base_for[p["team_id"]],
-                                       base_against[p["team_id"]], is_home, form_mult=fm, opp_mult=om,
+                                       base_against[p["team_id"]], is_home, form_mult=fm,
                                        rotation=rot, extras=fx_extras)
-                if FORM_BLEND:
-                    # Recent-points blend: shrink the components by a, add b·form4 + c (only as available as
-                    # he is — an injured player's past points don't score this week). Shown as "Recent form".
-                    a, b, c = FORM_BLEND[p["position"]]
-                    for k in _CALIB_FIELDS[1:]:
-                        comp[k] *= a
-                    parts = sum(comp[k] for k in _CALIB_FIELDS[1:])
-                    comp["x_form_pts"] = max(avail * (b * f4 + c), -parts)
-                    comp["x_pts"] = parts + comp["x_form_pts"]
                 # Crowd signal: shown as its own line ("Crowd signal"), never pushing x_pts below 0.
                 comp["x_crowd_pts"] = max(avail * crowd_term(p["position"], own, net), -comp["x_pts"])
                 comp["x_pts"] += comp["x_crowd_pts"]
                 samples += outcomes.sample_fixture(comp, p["position"], lam_against, prof["yellow90"], rng,
                                                    GOAL_PTS[p["position"]], CS_PTS[p["position"]], SAVES_PER_XGA)
                 samples += comp["x_crowd_pts"]  # shifts his whole range by the same amount
-                opp_pos.append(round(om, 3))
                 rest_days.append(gap)
                 xg_for.append(round(lam_for, 2))
                 xg_against.append(round(lam_against, 2))
@@ -864,8 +783,7 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 "model_version": MODEL_VERSION,
                 "components": {"opponents": opp_short, "n_fixtures": len(fxs), "form": round(fm, 3),
                                "team_xg_for": xg_for, "team_xg_against": xg_against, "odds": with_odds,
-                               "atk_mult": atk_mult, "p_cs": p_cs, "opp_pos": opp_pos, "rest_days": rest_days,
-                               "form_pts": round(agg.get("x_form_pts", 0.0), 3),
+                               "atk_mult": atk_mult, "p_cs": p_cs, "rest_days": rest_days,
                                "crowd_pts": round(agg.get("x_crowd_pts", 0.0), 3),
                                **fx_why, "why": why},
                 "_web_name": p["web_name"],

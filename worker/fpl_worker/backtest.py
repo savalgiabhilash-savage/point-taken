@@ -43,7 +43,7 @@ import pandas as pd
 
 from datetime import datetime
 
-from . import bonus_sim, context_model, form_model, fpl_history, model, schedules, team_model
+from . import context_model, form_model, fpl_history, model, schedules, team_model
 
 CACHE = fpl_history.CACHE
 REPORTS = Path(__file__).resolve().parent.parent / "reports"
@@ -89,7 +89,6 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
 
     # This season's per-GW history per player — the same shape the live model builds from event/{gw}/live.
     history = fpl_history.entries_before(past, asof - 1)
-    opp_ratios = context_model.opp_position_ratios(tm["opp_prev"] + [r[:4] for r in tm["opp_cur"] if r[4] < asof])
 
     # DefCon per-90 (2025/26 rules onward), from this season's counts so far.
     dc90: dict[int, float] = {}
@@ -100,7 +99,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
                 "defensive_contribution": cur.loc[e, "defensive_contribution"] if e in cur.index else 0,
                 "code": int(code[e]) if pd.notna(code[e]) else None}
                for e, p in now.groupby("element")["pos"].first().items()]
-        dc90 = model.defcon_rates(els, profiles)
+        dc90 = model.defcon_rates(els)
 
     # Crowd inputs, relative to the most-owned player that round (live: bootstrap selected / transfers).
     top = float(now["selected"].max()) if "selected" in now and now["selected"].notna().any() else 0.0
@@ -111,8 +110,7 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         hist = history.get(e, [])
         price = float(r.value) if pd.notna(getattr(r, "value", None)) else None
         pri = tm["price_priors"].get(r.pos)
-        prof = form_model.form_profile(hist, last, form_model.prior_base(base[r.pos], pri, price, last is not None),
-                                       pos=r.pos)
+        prof = form_model.form_profile(hist, last, form_model.prior_base(base[r.pos], pri, price, last is not None))
         prof["dc90"] = dc90.get(e, 0.0)
         player = {"position": r.pos, "status": "a", "chance_of_playing_next_round": None,
                   "mprof": model.minutes_profile([h for h in hist if h["age"] < model.MINUTES_WINDOW],
@@ -127,32 +125,20 @@ def predict_gw(df: pd.DataFrame, g: int, season: str, team_list: list[dict], pro
         comp = model.project_fixture(player, prof, lam_for, lam_against,
                                      team_model.average_goals_for(strengths, r.team),
                                      team_model.average_goals_against(strengths, r.team), bool(r.was_home),
-                                     opp_mult=context_model.opp_multiplier(opp_ratios, opp, r.pos), rotation=rot)
-        f4 = model.form4(hist, last)
+                                     rotation=rot)
         if model.CROWD:
             own = float(getattr(r, "selected", 0) or 0) / top if top else 0.0
             net = float(getattr(r, "transfers_balance", 0) or 0) / top if top else 0.0
             comp["x_pts"] = max(0.0, comp["x_pts"] + model.crowd_term(r.pos, own, net))
-        if model.FORM_BLEND:
-            a, b, c = model.FORM_BLEND[r.pos]
-            comp["x_pts"] = max(0.0, a * comp["x_pts"] + b * f4 + c)
-        out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"], "form4": f4,
+        out.append({"element": e, "round": g, "pos": r.pos, "pred": comp["x_pts"], "p_start": comp["p_start"],
                     "actual": r.total_points, "minutes": r.minutes, "starts": r.starts, "xP": r.xP,
-                    "bonus": r.bonus, "fixture": int(r.fixture), "side": 0 if r.was_home else 1, "lam_for": lam_for,
-                    "x_bonus": comp["x_bonus_pts"], "p_play": comp["p_play"], "p_60": comp["p_60"],
-                    "xg90": comp["xg90"], "xa90": comp["xa90"], "bbps90": prof["bbps90"]})
+                    "bonus": r.bonus, "x_bonus": comp["x_bonus_pts"], "p_play": comp["p_play"], "p_60": comp["p_60"]})
     rows = pd.DataFrame(out)
-    if model.BONUS_SIM:
-        rows["pred"] -= rows["x_bonus"]
-        for _, m in rows.groupby("fixture"):
-            lam = tuple(m.loc[m["side"] == s, "lam_for"].iloc[0] if (m["side"] == s).any() else 0.0 for s in (0, 1))
-            rows.loc[m.index, "x_bonus"] = bonus_sim.simulate(m.to_dict("records"), lam)
-        rows["pred"] += rows["x_bonus"]
     # A double gameweek has two rows: sum points and predictions; xP is already the GW total.
     return rows.groupby(["element", "round", "pos"], as_index=False).agg(
         pred=("pred", "sum"), p_start=("p_start", "first"), actual=("actual", "sum"),
         minutes=("minutes", "sum"), starts=("starts", "max"), xP=("xP", "first"),
-        bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"), form4=("form4", "first"))
+        bonus=("bonus", "sum"), x_bonus=("x_bonus", "sum"))
 
 
 def season_setup(season: str) -> tuple:
@@ -173,13 +159,7 @@ def season_setup(season: str) -> tuple:
         "odds": season_odds(season, names),
         "price_priors": price_pri,
     }
-    # Opponent-vs-position records (opponent, position, xG+xA, match key[, round]) and all-competition dates.
-    prev_ids = {int(t.id): t.name for t in teams(_prev(season)).itertuples(index=False)}
-    cur_ids = {t["fpl_id"]: t["name"] for t in team_list}
-    tm["opp_prev"] = [(prev_ids[int(o)], p, x + a, f"p{f}") for o, p, x, a, f in
-                      prev[["opponent_team", "pos", "expected_goals", "expected_assists", "fixture"]].itertuples(index=False)]
-    tm["opp_cur"] = [(cur_ids[int(o)], p, x + a, f"c{f}", int(rd)) for o, p, x, a, f, rd in
-                     df[["opponent_team", "pos", "expected_goals", "expected_assists", "fixture", "round"]].itertuples(index=False)]
+    # All-competition match dates.
     start, end = context_model.season_window(str(df["kickoff_time"].min()), str(df["kickoff_time"].max()))
     league = list(df[["team", "kickoff_time"]].drop_duplicates().itertuples(index=False, name=None))
     tm["dates"] = schedules.team_dates(schedules.season_matches(season, start, end),

@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 70</span>
-    <span>updated 2026-11-22</span>
+    <span>doc rev 71</span>
+    <span>updated 2026-11-23</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
     <span>season 2026/27 · next GW6</span>
@@ -520,7 +520,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>Odds come from <code>fixtures.csv</code>, usually published a few days before each deadline, so only the next round gets them</li>
     <li>Each projection stores its fixture's <code>team_xg_for</code>, <code>team_xg_against</code> and whether odds were used in <code>components</code></li>
     <li>The 90-day half-life and 0.75 odds weight were tuned on 2023/24, and the half-life was re-checked on all four seasons on 2026-10-18 (below)</li>
-    <li>Results can be blended into team form (<code>GOALS_WEIGHT</code>: chances = (1 − w)·xG + w·goals); tested and off. Live, team goals come from players' goals plus the opponent's own goals</li>
+    <li>Results can be blended into team form (<code>GOALS_WEIGHT</code>: chances = (1 − w)·xG + w·goals); tested, no gain, removed from the code</li>
     <li>Blowout guard: a side's xG above 3.0 in one match counts only half of the excess (<code>XG_CAP</code>, <code>XG_OVER</code>), so one 5-xG game can't define a team's attack
       <ul>
         <li>Example: Man Utd's 5.15 xG vs Ipswich (GW2) counts as 4.08; their attack vs an average side drops 1.74 → 1.65 goals</li>
@@ -786,15 +786,13 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>MINUTES_WINDOW · HALF_LIFE · PRIOR_GAMES</td><td class="num">8 GWs · 3 GWs · 0.5</td><td>model.py</td><td>Minutes history length, recency decay, weight of last season</td></tr>
       <tr><td>Minutes-shape defaults · SHAPE_K</td><td class="num">85 min · 0.88 · 0.15 · 20 min · 3</td><td>model.py</td><td>Start minutes, P(60|start), cameo rate, cameo minutes; shrinkage</td></tr>
       <tr><td>SHARE_K · BONUS_K · LAST_SEASON_WEIGHT</td><td class="num">2 · 6 · 1.0</td><td>form_model.py</td><td>Share shrinkage (team-xG units) · bonus/card shrinkage (games) · last season's weight</td></tr>
-      <tr><td>FORM_HALF_LIFE · HOME_SPLIT · GAME_STATE · OPP_POS</td><td class="num">all off</td><td>form_model.py, model.py, context_model.py</td><td>Built and backtested; no RMSE gain</td></tr>
+      <tr><td>FORM_HALF_LIFE · HOME_SPLIT · GAME_STATE · OPP_POS · PLAYER_XG_CAP · FORM_BLEND · DEFCON_LAST_W · DEFCON_OPP_BETA · CS_DISP · GOALS_WEIGHT · BONUS_SIM</td><td class="num">removed</td><td>—</td><td>Built and backtested, no gain; code removed 2026-11-23 (results kept in section 17)</td></tr>
       <tr><td>CONGESTION · SHORT_GAP_DAYS</td><td class="num">0.08 · 3 days (re-tuned weekly)</td><td>context_model.py</td><td>Start-chance cut when another match is near</td></tr>
       <tr><td>Live factor starting weights</td><td class="num">pen 0.5 · set piece 0.5 · return 1.0 · line-up 0.7</td><td>model.py, predict.py</td><td>Re-learned every run from factor_effect_log</td></tr>
       <tr><td>HALF_LIFE_DAYS · PRIOR_MATCHES</td><td class="num">90 · 3</td><td>team_model.py</td><td>Team-strength recency · pull toward prior</td></tr>
       <tr><td>XG_CAP · XG_OVER</td><td class="num">3.0 · 0.5</td><td>team_model.py</td><td>Per-match xG above the cap counts at half weight (blowout guard)</td></tr>
       <tr><td>NEWCOMER_PRIOR</td><td class="num">"new"</td><td>form_model.py</td><td>Price-based start-rate and share priors for players with no last-season data ("all" tested: the same)</td></tr>
       <tr><td>CROWD</td><td class="num">per position (b, c, d)</td><td>model.py</td><td>Crowd signal: ownership and net-transfer weights, intercept (section 07)</td></tr>
-      <tr><td>PLAYER_XG_CAP</td><td class="num">off</td><td>form_model.py</td><td>Per-match player xG soft cap; 0.6–1.0 tested 2026-10-18, top-20 and captain worse</td></tr>
-      <tr><td>FORM_BLEND · DEFCON_LAST_W · CS_DISP</td><td class="num">off · 0 · 0</td><td>model.py</td><td>Recent-points blend · last season's DefCon in the rate · clean-sheet uncertainty; all backtested 2026-10-11, no gain</td></tr>
       <tr><td>SAVES_PER_XGA · DEFCON_VMR</td><td class="num">2.1 · 1.0</td><td>model.py</td><td>Saves per expected goal against · DefCon variance/mean (1 = Poisson; NB tested, off)</td></tr>
       <tr><td>ODDS_WEIGHT · PROMOTED_PRIOR</td><td class="num">0.75 · att −0.25 / def +0.25</td><td>team_model.py</td><td>Odds share of the blend · prior for promoted clubs</td></tr>
       <tr><td>home / away λ</td><td class="num">×0.9 / ×1.1</td><td>model.py</td><td>Goals-conceded tweak</td></tr>
@@ -902,7 +900,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Defensive contributions</td><td>FPL per-90 DefCon count</td><td>P(reach 10 or 12) × 2 pts, Poisson</td><td>Real counts are overdispersed; no opponent effect</td></tr>
       <tr><td>Saves</td><td>Expected goals against</td><td>Saves ~ Poisson(2.1 × λ); only whole sets of 3 score</td><td>No shots-on-target model; 2.1 saves per xGA is a league average</td></tr>
       <tr><td>Crowd</td><td>Ownership, net transfers this window</td><td>b·own + c·net + d per position</td><td>Net transfers are weak early in a window</td></tr>
-      <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it's off (<code>BONUS_SIM</code>)</td></tr>
+      <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it was removed</td></tr>
       <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
       <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
       <tr><td>Calibration</td><td>Scored predictions from GW6</td><td>One multiplier per position (±20%), then one by prediction level (×0.9–1.3, interpolated between bin means, order-preserving)</td><td>Can't fix one component; the level fit has few GWs so far</td></tr>
@@ -1099,7 +1097,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     </li>
   </ul>
   <ul>
-    <li><b>Bonus simulation (step 4, not shipped):</b> <code>bonus_sim.py</code> simulates each match 2,000 times and ranks the BPS to award 3/2/1:
+    <li><b>Bonus simulation (step 4, not shipped; code removed 2026-11-23):</b> <code>bonus_sim.py</code> simulated each match 2,000 times and ranks the BPS to award 3/2/1:
       <ul>
         <li>Team goals from the fixture's expected goals; scorers and assisters drawn by each player's expected goals and assists × minutes</li>
         <li>BPS = his background BPS per 90 from history (passes, tackles, saves…) + minutes, goals, assists, clean sheet and goals-conceded BPS + noise</li>
@@ -1210,6 +1208,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-23</span><br>Housekeeping: switched-off experiments removed from the worker code (form half-life, home/away split, game state, opponent-vs-position, player xG cap, recent-points blend, last-season DefCon, DefCon opponent pressure, clean-sheet uncertainty, goals in team form, bonus simulation). Backtest identical before and after. Repo made public (GitHub Actions minutes).</li>
     <li><span class="d">2026-11-22</span><br>Push notifications: deadline reminders with the plan and injury alerts for your squad (Settings → Notifications; migration 0017; VAPID keys in Vercel and GitHub).</li>
     <li><span class="d">2026-11-22</span><br>"This week" checklist on My Team: transfers, captain and vice, chip, bench order, deadline countdown, links to FPL.</li>
     <li><span class="d">2026-11-22</span><br>Level calibration: mid-range projections (mostly rotation and doubtful players) corrected by a weekly fit on live accuracy; top projections and the order of players unchanged (walk-forward RMSE 2.1975 → 2.1942). Migration 0016.</li>
