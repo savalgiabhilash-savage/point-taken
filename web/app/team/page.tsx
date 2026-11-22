@@ -7,6 +7,8 @@ import { PullToRefresh } from "@/components/pull-refresh";
 import { opponentLabels } from "@/lib/fixtures";
 import type { OutcomeRange } from "@/lib/insight";
 import Link from "next/link";
+import { loadThisWeek } from "@/lib/this-week";
+import { ThisWeekCard } from "@/components/this-week";
 import { PageHeader } from "@/components/shell";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +94,7 @@ export default async function TeamPage() {
   }
 
   const els = picks.map((p) => p.element);
-  const [playersRes, projRes] = await Promise.all([
+  const [playersRes, projRes, thisWeek] = await Promise.all([
     supabase
       .from("players")
       .select("fpl_id, web_name, position, now_cost, status, team:teams(short_name)")
@@ -102,6 +104,7 @@ export default async function TeamPage() {
       .select("player_id, gw, x_pts, components")
       .eq("model_version", MODEL)
       .in("player_id", els),
+    loadThisWeek(supabase, userId, els),
   ]);
 
   const projs = projRes.data ?? [];
@@ -186,11 +189,13 @@ export default async function TeamPage() {
         <ul>
           <li>• Your squad with each player&apos;s projected points for the next gameweek</li>
           <li>• Captain counts double; tap the i on any player for the reasoning</li>
+          <li>• This week: a checklist of what to set in FPL before the deadline (transfers, captain, chip, bench)</li>
           <li>• Live GW: points so far, projected finish and your projected rank in each league</li>
           <li>• Pull down to refresh on a phone</li>
         </ul>
       </PageHeader>
 
+      {thisWeek && <ThisWeekCard w={thisWeek} />}
       {state.fpl_entry_id != null && <LiveGw />}
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
