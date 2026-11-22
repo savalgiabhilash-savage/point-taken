@@ -139,6 +139,45 @@ def update_calibration(sb) -> None:
         print(f"  calibration {pos}: ×{mult:.3f}  (pred {a['pred']:.0f} vs actual {a['actual']:.0f}, {n} GWs)")
 
 
+# Calibration by prediction level (applied in model.py). Bins of the RAW prediction (logged prediction ÷ the
+# level multiplier that was applied to it, so a fitted correction is never corrected again); per bin, the
+# shrunk ratio actual ÷ predicted. Shrinkage pulls a thin bin toward ×1.0 (LEVEL_SHRINK pseudo player-GWs).
+# Chosen by a walk-forward test on GW7–10: k=200 gave the best RMSE (2.1975 → 2.1942) and better 3 of 4 GWs.
+LEVEL_EDGES = (0, 0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 99)
+LEVEL_SHRINK = 200.0
+
+
+def update_level_calibration(sb) -> None:
+    try:
+        rows = _all(sb, "prediction_log", "gw, player_id, predicted_xp, actual_pts, level_mult", eq=("scored", True))
+    except Exception:  # noqa: BLE001 — level_mult needs migration 0016
+        print("  level calibration: migration 0016 not applied — skipped")
+        return
+    pts = [((r["predicted_xp"] or 0.0) / float(r.get("level_mult") or 1.0), r["actual_pts"] or 0.0)
+           for r in rows if r["gw"] >= CALIB_FROM_GW]
+    if not pts:
+        return
+    out = []
+    for b, (lo, hi) in enumerate(zip(LEVEL_EDGES[:-1], LEVEL_EDGES[1:])):
+        sel = [(p, a) for p, a in pts if lo <= p < hi]
+        if not sel:
+            continue
+        sp, sa = sum(p for p, _ in sel), sum(a for _, a in sel)
+        mp = sp / len(sel)
+        mult = (sa + LEVEL_SHRINK * mp) / (sp + LEVEL_SHRINK * mp) if mp > 0 else 1.0
+        out.append({"bin": b, "lo": lo, "hi": hi, "pred_mean": round(mp, 4), "multiplier": round(mult, 4),
+                    "n": len(sel), "updated_at": _now()})
+    # Keep the corrected bin means rising with the prediction, so the correction never re-orders players.
+    prev = 0.0
+    for o in out:
+        cal = max(o["pred_mean"] * o["multiplier"], prev)
+        o["multiplier"] = round(cal / o["pred_mean"], 4) if o["pred_mean"] > 0 else 1.0
+        prev = cal
+    sb.table("calibration_levels").delete().gte("bin", 0).execute()
+    db.upsert(sb, "calibration_levels", out, on_conflict="bin")
+    print("  level calibration: " + ", ".join(f"{o['lo']}-{o['hi']} ×{o['multiplier']:.3f} (n {o['n']})" for o in out))
+
+
 # --- 3. best XI + snapshot ----------------------------------------------------
 
 def log_best_squads(sb, pool, xp_by_gw, gw) -> None:
@@ -164,12 +203,14 @@ def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None
     # deletes a GW's projections once its deadline passes, and the live panel needs them to project players
     # who are on the pitch or on the bench mid-game (web/lib/live.ts).
     extra = {r["player_id"]: r for r in _all(
-        sb, "projections", "player_id, gw, x_appearance_pts, exp_minutes:components->exp_minutes",
+        sb, "projections", "player_id, gw, x_appearance_pts, exp_minutes:components->exp_minutes, "
+        "level_mult:components->level_calibration",
         eq=("gw", gw), eq2=("model_version", MODEL_VERSION))}
     rows = [{"gw": gw, "player_id": p["fpl_id"], "position": p["position"],
              "predicted_xp": round(xp_by_gw[p["fpl_id"]][gw], 3),
              "exp_minutes": _round(extra.get(p["fpl_id"], {}).get("exp_minutes"), 1),
              "x_app_pts": _round(extra.get(p["fpl_id"], {}).get("x_appearance_pts"), 3),
+             "level_mult": _round(extra.get(p["fpl_id"], {}).get("level_mult") or 1.0, 3),
              **({"fpl_ep": fpl_ep.get(p["fpl_id"])} if fpl_ep is not None else {})}
             for p in pool if gw in xp_by_gw.get(p["fpl_id"], {})]
     # Replace the unscored snapshot for this GW rather than upserting over it, so players who have
@@ -180,7 +221,7 @@ def snapshot_predictions(sb, pool, xp_by_gw, gw, fpl_ep: dict[int, float] | None
     try:
         db.upsert(sb, "prediction_log", rows, on_conflict="gw,player_id")
     except Exception:  # noqa: BLE001 — fpl_ep needs 0010, exp_minutes/x_app_pts 0014; store the prediction regardless
-        optional = {"fpl_ep", "exp_minutes", "x_app_pts"}
+        optional = {"fpl_ep", "exp_minutes", "x_app_pts", "level_mult"}
         db.upsert(sb, "prediction_log", [{k: v for k, v in r.items() if k not in optional} for r in rows],
                   on_conflict="gw,player_id")
     print(f"  snapshotted {len(rows)} player predictions for GW{gw}")
@@ -391,6 +432,7 @@ def run(sb, dry_run: bool = False) -> None:
         learn_news_weight(sb, client, finished)
         learn_factor_weights(sb, client, finished)
     update_calibration(sb)
+    update_level_calibration(sb)
     log_best_squads(sb, pool, xp_by_gw, next_gw)
     snapshot_predictions(sb, pool, xp_by_gw, next_gw, fpl_ep)
     log_news_effects(sb, next_gw)

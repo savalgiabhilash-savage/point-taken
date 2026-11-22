@@ -423,6 +423,30 @@ def _load_calibration(sb) -> dict[str, float]:
         return {}
 
 
+# Calibration by prediction level (fitted weekly in predict.py, table calibration_levels): live logs show
+# mid-range predictions (~0.4–2 pts, mostly rotation and doubtful players) running ~0.3 pts low while the
+# top predictions are on target. The multiplier is interpolated between bin means and clamped, so the change
+# is gentle and order-preserving (a bigger prediction stays bigger: top picks, ranking and captain don't move).
+# Walk-forward test on GW7–10 (fit on earlier GWs only): RMSE 2.1975 → 2.1942, better in 3 of 4 GWs.
+LEVEL_CLAMP = (0.9, 1.3)
+
+
+def _load_level_calibration(sb) -> tuple[list[float], list[float]]:
+    """(bin mean predictions, multipliers), ascending. Empty (=> no change) before migration 0016 / any fit."""
+    try:
+        rows = sb.table("calibration_levels").select("pred_mean, multiplier").order("pred_mean").execute().data
+        return [float(r["pred_mean"]) for r in rows], [float(r["multiplier"]) for r in rows]
+    except Exception:  # noqa: BLE001 — table may not exist yet; projections must still run
+        return [], []
+
+
+def _level_mult(x: float, centers: list[float], mults: list[float]) -> float:
+    if not centers:
+        return 1.0
+    m = float(np.interp(x, centers, mults))  # flat beyond the first / last bin
+    return max(LEVEL_CLAMP[0], min(LEVEL_CLAMP[1], m))
+
+
 def _load_news(sb) -> dict[int, dict]:
     """Latest news signal per player (news_sentiment is replaced wholesale by each news_job run)."""
     try:
@@ -861,9 +885,18 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
                 for k in _CALIB_FIELDS:
                     r[k] = round(r[k] * m, 3)
             r["components"]["calibration"] = round(m, 3)
+    # Then by prediction level (after the position multiplier, the same order predict.py fits it in).
+    centers, mults = _load_level_calibration(sb)
+    for r in rows:
+        m2 = _level_mult(r["x_pts"], centers, mults)
+        if m2 != 1.0:
+            for k in _CALIB_FIELDS:
+                r[k] = round(r[k] * m2, 3)
+            r["components"]["level_calibration"] = round(m2, 3)
+        r["_lvl"] = m2
     # Floor / median / ceiling and haul / blank chances, on the same calibrated scale as x_pts.
     for r in rows:
-        r["components"]["range"] = outcomes.summarise(r.pop("_samples") * calib.get(r["_pos"], 1.0))
+        r["components"]["range"] = outcomes.summarise(r.pop("_samples") * calib.get(r["_pos"], 1.0) * r.pop("_lvl"))
 
     if dry_run:
         _print_top(rows, next_gw)

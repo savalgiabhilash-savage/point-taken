@@ -142,8 +142,8 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 67</span>
-    <span>updated 2026-11-10</span>
+    <span>doc rev 68</span>
+    <span>updated 2026-11-22</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
     <span>season 2026/27 · next GW6</span>
@@ -802,6 +802,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>HOME_ADVANTAGE</td><td class="num">0.25</td><td>fdr.py</td><td>FDR home/away nudge</td></tr>
       <tr><td>FORM_WEIGHT · CLAMP</td><td class="num">0.12 · 0.90–1.12</td><td>form.py</td><td>World Cup multiplier size</td></tr>
       <tr><td>CALIB_SHRINK_K · MIN_PRED · CLAMP · FROM_GW</td><td class="num">3 · 2.0 · 0.8–1.2 · 6</td><td>predict.py</td><td>Calibration shrinkage</td></tr>
+      <tr><td>LEVEL_EDGES · LEVEL_SHRINK · LEVEL_CLAMP</td><td class="num">0, .25, .5, 1, 1.5, 2, 2.5, 3, 4 · 200 · 0.9–1.3</td><td>predict.py · model.py</td><td>Level calibration: bins of the raw prediction, shrinkage (pseudo player-GWs), multiplier limits</td></tr>
       <tr><td>BUDGET</td><td class="num">1000 (£100.0m)</td><td>optimize.py</td><td>Fresh squad and capped Best XI</td></tr>
       <tr><td>BENCH_WEIGHT</td><td class="num">0.1</td><td>optimize.py</td><td>Bench value in the objective</td></tr>
       <tr><td>HIT_COST · FT_CAP</td><td class="num">4 · 5</td><td>optimize.py</td><td>Points per extra transfer · FT bank limit</td></tr>
@@ -902,7 +903,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
       <tr><td>Bonus</td><td>His own bonus rate</td><td>bonus/90 × fixture fit</td><td>A full BPS simulation was built and backtested; it lost on RMSE, so it's off (<code>BONUS_SIM</code>)</td></tr>
       <tr><td>Deductions</td><td>λ, last season's yellow rate</td><td>E[⌊GC/2⌋] and cards per 90</td><td>No red cards, own goals or penalty misses</td></tr>
       <tr><td>Double / blank GWs</td><td>Fixture list</td><td>Sum both fixtures or skip</td><td>Fine</td></tr>
-      <tr><td>Calibration</td><td>Scored predictions from GW6</td><td>One multiplier per position (±20%)</td><td>Too coarse: can't fix one component</td></tr>
+      <tr><td>Calibration</td><td>Scored predictions from GW6</td><td>One multiplier per position (±20%), then one by prediction level (×0.9–1.3, interpolated between bin means, order-preserving)</td><td>Can't fix one component; the level fit has few GWs so far</td></tr>
       <tr><td>World Cup form</td><td>FBref WC 2026</td><td>Preseason only</td><td>Retired once the season starts</td></tr>
     </tbody>
   </table></div>
@@ -996,6 +997,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
         <li>Shipped: a pre-deadline run of the whole pipeline about 100 min before each deadline (<code>deadline.yml</code>)</li>
       </ul>
     </li>
+    <li><b>Level calibration (2026-11-22, A1):</b> live logs GW6–10 (2,424 player-GWs) under-predict the middle deciles: predictions 0.38–2.14 score 0.26–0.41 more (players who start 33–87% of the time), while the top two deciles are on target (4.24 → 4.43, 3.20 → 3.28). The replay doesn&apos;t show this gap (it lacks injury flags and news), so the backtest can&apos;t test a fix; the test is a <b>walk-forward on the live logs</b>: for each GW 7–10, fit on earlier GWs only, apply, score on actual points. Shrinkage k=200, limits 0.9–1.3: RMSE 2.1975 → 2.1942, better in 3 of 4 GWs (GW9 worse, 1.834 → 1.840), bias −0.19…−0.28 → −0.08…−0.22; top-20 points, ranking and captain identical by construction (the fitted corrected means rise with the prediction, so the order never changes). Fitted on raw predictions (logged ÷ <code>prediction_log.level_mult</code>) so it never corrects itself twice. Shipped as a small, self-updating gain; the season replay (points gate) can&apos;t measure it, since the gap is live-only. Migration 0016.</li>
     <li><b>Phase 2, newcomer priors → rules-v8 (2026-10-20); priors fitted on the previous season only:</b>
       <ul>
         <li>RMSE 1.9527 → 1.9499 · 1.9367 → 1.9342 · 1.9678 → 1.9648 · 2.1833 → 2.1739 (2023/24 · 24/25 · 25/26 · 26/27)</li>
@@ -1206,6 +1208,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-22</span><br>Level calibration: mid-range projections (mostly rotation and doubtful players) corrected by a weekly fit on live accuracy; top projections and the order of players unchanged (walk-forward RMSE 2.1975 → 2.1942). Migration 0016.</li>
     <li><span class="d">2026-11-10</span><br>Settings → AI usage: this account&apos;s Assistant and screenshot-read usage with an estimated cost per period (migration 0015); Settings visible in the sidebar and as a gear on phones.</li>
     <li><span class="d">2026-11-10</span><br>Live GW: players on the pitch are projected from their scoring rate and minutes left, players on the bench from a likely cameo (snapshot keeps expected minutes and appearance points, migration 0014).</li>
     <li><span class="d">2026-11-10</span><br>Live GW: estimated season ranks for private leagues over 50 managers (from the 50 managers around you).</li>

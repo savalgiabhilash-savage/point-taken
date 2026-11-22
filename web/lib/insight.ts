@@ -73,6 +73,7 @@ type Comp = {
   exp_minutes?: number;
   p_dc?: number;
   calibration?: number;
+  level_calibration?: number;
   range?: OutcomeRange;
   rest_days?: (number | null)[];
   lineup?: [boolean, number] | null;
@@ -276,6 +277,8 @@ export async function buildInsight(playerId: number): Promise<Insight | null> {
       if (c.p_cs?.[i] != null && p.position !== "FWD") fx.push(`Clean-sheet chance: ${pct(c.p_cs[i])}`);
     });
     if (c.calibration != null && c.calibration !== 1) fx.push(`Position calibration ×${c.calibration} from past accuracy`);
+    if (c.level_calibration != null && c.level_calibration !== 1)
+      fx.push(`Level calibration ×${c.level_calibration}: players projected around this level have been scoring ${c.level_calibration > 1 ? "more" : "less"} than projected`);
     sections.push({ title: "Fixture", bullets: fx });
   }
 
