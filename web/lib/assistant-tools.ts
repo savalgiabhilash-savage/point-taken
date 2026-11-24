@@ -221,6 +221,9 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       transfers_out: ((t.out as { web_name: string }[]) ?? []).map((p) => p.web_name),
       transfers_in: ((t.in as { web_name: string }[]) ?? []).map((p) => p.web_name),
       // The app's chip verdict (lib/chips.ts): the same call the Optimizer, Chips and This week screens show.
+      // The user's play style (Safe / Balanced / Bold) the plan was made with, and its cost vs Balanced.
+      play_style: (t.risk as { profile?: string } | undefined)?.profile ?? "balanced",
+      play_style_cost: t.risk ?? null,
       chip_this_gw: (t.chip_now as string | null | undefined) ?? null,
       chip_schedule: ((t.chips as (ChipVerdictInput & { gain: number; gw_type?: string })[]) ?? []).map((c) => ({
         chip: c.chip,

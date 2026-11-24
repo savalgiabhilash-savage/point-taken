@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 72</span>
+    <span>doc rev 73</span>
     <span>updated 2026-11-24</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -350,7 +350,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
       <tr><td>gw_deadlines</td><td class="num">gw</td><td>refresh</td><td>Every GW deadline (from bootstrap events) and when its pre-deadline run was requested (<code>dispatched_at</code>); read by the Supabase timer and the Accuracy tab. Migration 0011.</td></tr>
       <tr><td>decision_log</td><td class="num">user_id, gw</td><td>optimize</td><td>The last pre-deadline plan per user and GW (squad, transfers, captain, chip advice), kept for post-mortems. Migration 0010; own rows only.</td></tr>
       <tr><td>news_sentiment</td><td class="num">id</td><td>news_job</td><td>Sentiment, topics, summary, minutes_risk_adj, source URL. Replaced in full each run.</td></tr>
-      <tr><td>profiles</td><td class="num">id (auth uid)</td><td>web</td><td>FPL entry ID per account</td></tr>
+      <tr><td>profiles</td><td class="num">id (auth uid)</td><td>web</td><td>FPL entry ID per account; play style: <code>risk</code> (safe / balanced / bold, default balanced), <code>goal</code>, <code>quiz_done_at</code> (migration 0018)</td></tr>
       <tr><td>user_team_state</td><td class="num">user_id, gw</td><td>sync_team, web</td><td>Picks jsonb, bank, value, free_transfers, chips_available, rank. <code>gw = 0</code> means an uploaded or preseason squad.</td></tr>
       <tr><td>optimizer_runs</td><td class="num">id</td><td>optimize</td><td>One row per user: suggested squad, transfers (path, chips, plan points, <code>based_on</code>), captain, gain, horizon</td></tr>
     </tbody>
@@ -666,6 +666,22 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li>The Chips tab opens on the planned chip; a used chip shows only that it&apos;s used (no squad plan)</li>
     <li>DGW and BGW labels are attached only when the fixture list confirms them: a GW where a club plays twice is a DGW, one where clubs have no fixture is a BGW</li>
     <li>Available chips = the four codes minus any chip played in the same half as the next deadline</li>
+  </ul>
+</section>
+
+<!-- ===================================================================== -->
+<section id="play-style">
+  <h2>Play style: risk profile and goal</h2>
+  <ul>
+    <li><b>Capture</b>: a 5-question quiz (Settings → Play style, <code>components/play-style.tsx</code>, <code>lib/play-style.ts</code>), offered once on My Team as a dismissible card. Q1 sets the <b>goal</b>; Q2–Q5 (captain blanks, −4 hits, rotation-risk upside, template vs own picks) score −1 / 0 / +1 each: total ≤ −2 Safe, ≥ +2 Bold, else Balanced. <code>POST /api/play-style</code> saves it (RLS own row) and, when the risk changes, re-runs the optimizer for that user. Skipping the quiz = Balanced.</li>
+    <li><b>Override</b>: a Safe · Balanced · Bold switch in the Optimizer controls saves the profile and re-plans (the page follows the run).</li>
+    <li><b>How a profile plans</b> (<code>worker/fpl_worker/risk.py</code>): the optimizer, captain and chips maximise a value per player-GW instead of plain xPts. Bold: xp + 0.25 × (p90 − xp) − 0.15 × xp × ownership. Safe: xp − 0.25 × (xp − p10) + 0.15 × xp × ownership, × 0.9 if P(start) &lt; 0.7. Balanced: xp. p10 / p90 / P(start) come from each projection&apos;s simulated range; ownership from FPL. Hits are charged at 5 (Safe), 4, 3 (Bold) in the plan.</li>
+    <li><b>Honest numbers</b>: for Safe and Bold the Balanced plan is also solved; every number shown (player totals, step gains, XI points, planned points, chip gains, the chip sentence) is restated in plain expected points (<code>_restate</code>, <code>_restate_chips</code>; the Wildcard restated with the rebuilt squad held). The Optimizer shows one line: the profile, its cost this GW (net of hits) and over the plan vs Balanced, and Balanced&apos;s captain. Stored as <code>transfers.risk</code>.</li>
+    <li><b>Goal</b> → My Team strip with shortcuts: best score this GW → Best XI, captain &amp; bench; plan the coming weeks → Transfer plan, Fixtures; beat my mini-league → league gaps, Differentials; climb overall rank → Transfer plan, in-form picks; chips → Chips, plan.</li>
+    <li><b>Nudge</b> (Live GW, advisory, dismissible per GW): 40+ pts behind a projected mini-league leader and not Bold → "a Bold style may suit you"; 40+ clear and Bold → "a Safe style protects the lead". The style is never changed automatically.</li>
+    <li>The assistant gets <code>play_style</code> and its cost from <code>get_optimizer_plan</code> and frames advice to it without overriding the plan.</li>
+    <li>Live example (2026-11-24, 9-GW plan): Bold took a −4 for an extra move and cost 2.7 pts this GW, 5.3 over the plan; Safe avoided the hit and cost 2.6 over the plan.</li>
+    <li>Replay (<code>optimizer_backtest --risk</code>; past seasons have no simulated ranges, so p10 / p90 come from per-position fits on the live ranges and Safe&apos;s rotation rule is live-only): 12-GW plan with chips, 2023/24 · 2024/25 · 2025/26: <b>Balanced</b> 2,592 · 2,685 · 2,419 = 7,696 (25 hits); <b>Safe</b> 2,713 · 2,679 · 2,434 = <b>7,826</b> (3 hits; won 2 of 3 seasons); <b>Bold</b> 2,550 · 2,777 · 2,306 = 7,633 (61 hits; best in 2024/25, worst in the other two, and 7 GWs under 40 pts in 2025/26 vs 2). Safe beating Balanced on real points suggests Balanced may gain from a dearer hit charge or a floor/ownership tilt: a follow-up to test, Balanced unchanged here. Bold&apos;s swings are what the style trades for. Also noted: this chip run at 12 GWs (7,696) scored less than the 8-GW chip run (7,925), so the horizon recommendation (made without chips) should be re-checked with chips</li>
   </ul>
 </section>
 
@@ -1216,6 +1232,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-24</span><br>Play style: Safe / Balanced / Bold risk profiles and a goal, from a 5-question quiz (Settings) with a switch on the Optimizer; the optimizer, captain and chips plan on profile values (risk.py) and show the cost in plain expected points vs Balanced; goal shortcuts on My Team; league-situation nudge; assistant aware of the style. Migration 0018.</li>
     <li><span class="d">2026-11-24</span><br>Fixed: a managerial change logged after a club's last game cut all of its recent games, so every Man Utd and Palace player had a 0% start chance (~0 pts; the assistant then called Mbeumo injured). Minutes now use the new manager's games only once there are 3. Assistant tools give availability in words and the prompt forbids inferring injuries from low xPts. Chips: one verdict everywhere (one planned chip; scheduling every chip lost 308 pts in the replay); second-half chips no longer shown in the first half; Chips tab opens on the planned chip. Optimizer: recommended horizon 12 GWs (replay plateau 8–19; projection skill measured by weeks ahead), default for new users. Scout → Form tab with team profiles and hot picks. Sidebar tabs collapse. Fact audit vs the FPL API: prices, teams, deadlines, team state and chips matched; status and fixture flags lag up to one refresh.</li>
     <li><span class="d">2026-11-23</span><br>Housekeeping: switched-off experiments removed from the worker code (form half-life, home/away split, game state, opponent-vs-position, player xG cap, recent-points blend, last-season DefCon, DefCon opponent pressure, clean-sheet uncertainty, goals in team form, bonus simulation). Backtest identical before and after. Repo made public (GitHub Actions minutes).</li>
     <li><span class="d">2026-11-22</span><br>Push notifications: deadline reminders with the plan and injury alerts for your squad (Settings → Notifications; migration 0017; VAPID keys in Vercel and GitHub).</li>

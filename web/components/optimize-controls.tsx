@@ -6,6 +6,8 @@ import { createBrowserSupabase } from "@/lib/supabase/client";
 import { toast } from "@/components/toast";
 import { Loader2 } from "lucide-react";
 import { RECOMMENDED_HORIZON, furthestSkill, replayFor } from "@/lib/horizon";
+import { RiskSwitch } from "@/components/play-style";
+import { RISK, type Risk } from "@/lib/play-style";
 
 // Horizon slider (1..gameweeks left) + "Optimize my squad" button. The optimizer is a Python MILP
 // that runs on GitHub Actions (it can't run in a serverless function), so this fires a cloud run for
@@ -15,11 +17,13 @@ export function OptimizeControls({
   maxHorizon,
   userId,
   lastComputedAt,
+  risk = "balanced",
 }: {
   initialHorizon: number;
   maxHorizon: number;
   userId: string;
   lastComputedAt: string | null;
+  risk?: Risk;
 }) {
   const router = useRouter();
   const cap = Math.max(1, Math.min(maxHorizon || 5, 38));
@@ -28,6 +32,33 @@ export function OptimizeControls({
   const rec = Math.min(RECOMMENDED_HORIZON, cap);
   const r = replayFor(horizon);
   const [msg, setMsg] = React.useState<string | null>(null);
+
+  // Poll optimizer_runs until a plan newer than the one on screen lands, then refresh the page.
+  const follow = () => {
+    const sb = createBrowserSupabase();
+    const startedAt = Date.now();
+    const timer = setInterval(async () => {
+      const { data: rows } = await sb
+        .from("optimizer_runs")
+        .select("created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const latest = rows?.[0]?.created_at ?? null;
+      if (latest && latest !== lastComputedAt) {
+        clearInterval(timer);
+        setMsg("Done — updating the plan…");
+        toast("New plan ready", "success", "optimize");
+        router.refresh();
+        setBusy(false);
+      } else if (Date.now() - startedAt > 240_000) {
+        clearInterval(timer);
+        setMsg("Still running — reload the page in a moment to see the updated plan.");
+        toast("Still running — reload in a moment for the new plan", "error", "optimize");
+        setBusy(false);
+      }
+    }, 8_000);
+  };
 
   const optimize = async () => {
     setBusy(true);
@@ -46,29 +77,7 @@ export function OptimizeControls({
         setBusy(false);
         return;
       }
-      const sb = createBrowserSupabase();
-      const startedAt = Date.now();
-      const timer = setInterval(async () => {
-        const { data: rows } = await sb
-          .from("optimizer_runs")
-          .select("created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        const latest = rows?.[0]?.created_at ?? null;
-        if (latest && latest !== lastComputedAt) {
-          clearInterval(timer);
-          setMsg("Done — updating the plan…");
-          toast("New plan ready", "success", "optimize");
-          router.refresh();
-          setBusy(false);
-        } else if (Date.now() - startedAt > 240_000) {
-          clearInterval(timer);
-          setMsg("Still running — reload the page in a moment to see the updated plan.");
-          toast("Still running — reload in a moment for the new plan", "error", "optimize");
-          setBusy(false);
-        }
-      }, 8_000);
+      follow();
     } catch {
       setMsg("Couldn't start the optimization — please retry.");
       toast("Couldn't start the optimization — please retry", "error", "optimize");
@@ -79,6 +88,19 @@ export function OptimizeControls({
   return (
     <div className="mt-5 rounded-2xl border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Style</span>
+        <RiskSwitch
+          value={risk}
+          disabled={busy}
+          onChanged={(r) => {
+            setBusy(true);
+            setMsg(`Re-planning as ${RISK[r].label} — runs in the cloud, ~1–2 min.`);
+            toast(`Re-planning as ${RISK[r].label} · ~1–2 min`, "loading", "optimize");
+            follow();
+          }}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Plan horizon</span>
         <div className="flex flex-1 items-center gap-3">
           <input

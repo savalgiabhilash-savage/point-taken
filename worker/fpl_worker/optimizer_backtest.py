@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import backtest, optimize
+from . import backtest, optimize, risk
 
 CUBE = Path(".cache") / "optcube"
 H_MAX = 19  # look-ahead projections per deadline (19 covers the rest of a half, for CHIP_SCAN)
@@ -105,13 +105,27 @@ def _autosub_score(squad: list[dict], pts: dict[int, float], mins: dict[int, flo
     return total
 
 
-def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool = False) -> dict:
+def _apply_risk(xp_by_gw: dict, rounds, profile: str, own: dict, pos: dict) -> None:
+    """Replace projections for `rounds` with the profile's value (risk.py). Past seasons have no simulated
+    ranges, so floor and ceiling come from risk.fitted_range; no start chances, so Safe's rotation rule is
+    live-only."""
+    if profile == "balanced":
+        return
+    for e, by in xp_by_gw.items():
+        for r in rounds:
+            if r in by:
+                p10, p90 = risk.fitted_range(by[r], pos.get(e, "MID"))
+                by[r] = risk.value(by[r], p10, p90, own.get(e, 0.0), None, profile)
+
+
+def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool = False, profile: str = "balanced") -> dict:
     """One season following the optimizer with the current module settings. Returns points and hits."""
     df = backtest.load_season(season)
     cube = projection_cube(season)
     g_rows = df.groupby(["element", "round"]).agg(
         pts=("total_points", "sum"), mins=("minutes", "sum"), value=("value", "first"),
-        pos=("pos", "first"), team=("team", "first"), name=("name", "first")).reset_index()
+        pos=("pos", "first"), team=("team", "first"), name=("name", "first"),
+        selected=("selected", "first")).reset_index()
     rounds = sorted(int(r) for r in df["round"].unique())
     squad: list[dict] = []
     buy_price: dict[int, int] = {}
@@ -131,6 +145,9 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
         for e, r, v in c[["element", "round", "pred"]].itertuples(index=False):
             xp_by_gw.setdefault(int(e), {})[int(r)] = xp_by_gw.get(int(e), {}).get(int(r), 0.0) + float(v)
         price = now["value"].to_dict()
+        managers = max(1.0, now["selected"].sum() / 15.0) if "selected" in now else 1.0
+        own = (now["selected"] / managers).to_dict() if "selected" in now else {}
+        _apply_risk(xp_by_gw, gws, profile, own, now["pos"].to_dict())
 
         def entry(e: int, cost: int, current: bool) -> dict:
             r = now.loc[e] if e in now.index else g_rows[g_rows["element"] == e].iloc[-1]
@@ -160,6 +177,7 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
                 scan = [r for r in rounds if gws[-1] < r <= half_end and r < g + H_MAX]
                 for e, r, v in cube[(cube["asof"] == g) & (cube["round"].isin(scan))][["element", "round", "pred"]].itertuples(index=False):
                     xp_by_gw.setdefault(int(e), {})[int(r)] = xp_by_gw.get(int(e), {}).get(int(r), 0.0) + float(v)
+                _apply_risk(xp_by_gw, scan, profile, own, now["pos"].to_dict())
             cp = optimize._chip_plan(plan["plan_squads"], plan["hits_by_gw"], universe, budget, xp_by_gw, gws, codes,
                                      frees_by_gw=[step["free"] for step in plan["path"]], scan_gws=scan)
             best = cp["best"]
@@ -203,8 +221,9 @@ def simulate(season: str, horizon: int = 5, verbose: bool = False, chips: bool =
         if verbose:
             print(f"    GW{g}: {step['num']} transfers, {hits} hits, {gw_pts:.0f} pts (bank {bank})"
                   + (f" [{chip}]" if chip else ""), flush=True)
+    gw_pts = [x[3] for x in log]
     return {"season": season, "points": total, "hits": hits_total, "transfers": sum(x[1] for x in log[1:]),
-            "chips": played_chips}
+            "chips": played_chips, "big": sum(p >= 80 for p in gw_pts), "poor": sum(p <= 40 for p in gw_pts)}
 
 
 def main() -> None:
@@ -217,6 +236,8 @@ def main() -> None:
     parser.add_argument("--chip-scales", nargs="+", type=float, default=[1.0],
                         help="with --chips: multiply every chip's bar (CHIP_THRESHOLDS) by each value in turn")
     parser.add_argument("--top-shrink", nargs=2, type=float, metavar=("T", "K"), help="test a top-end shrink")
+    parser.add_argument("--risk", choices=risk.PROFILES, default="balanced",
+                        help="plan with a risk profile (risk.py): its values and hit cost")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     global TOP_SHRINK
@@ -232,12 +253,15 @@ def main() -> None:
         for scale in (args.chip_scales if args.chips else [1.0]):
             optimize.CHIP_THRESHOLDS = {k: v * scale for k, v in base_bars.items()}
             t = time.time()
-            res = [simulate(s, args.horizon, args.verbose, args.chips) for s in args.seasons]
+            optimize.HIT_COST = risk.HIT_COST[args.risk]
+            res = [simulate(s, args.horizon, args.verbose, args.chips, args.risk) for s in args.seasons]
             label = " ".join(f"{k}={v}" for k, v in combo.items()) or "current settings"
+            label += f" risk={args.risk}" if args.risk != "balanced" else ""
             if args.chips:
                 label += f" chip bars x{scale}"
             print(f"{label} H={args.horizon}: " + " | ".join(
-                f"{r['season']} {r['points']:.0f} pts ({r['transfers']} transfers, {r['hits']} hits)" for r in res)
+                f"{r['season']} {r['points']:.0f} pts ({r['transfers']} transfers, {r['hits']} hits, "
+                f"{r['big']} GWs 80+, {r['poor']} GWs 40-)" for r in res)
                 + f" | total {sum(r['points'] for r in res):.0f} [{time.time() - t:.0f}s]", flush=True)
             for r in res:
                 if r["chips"]:

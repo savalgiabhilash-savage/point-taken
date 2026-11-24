@@ -70,7 +70,7 @@ export function LiveBadge({ playerId, gw }: { playerId: number; gw: number }) {
 }
 
 // Live GW panel (reads LiveProvider).
-export function LiveGw() {
+export function LiveGw({ risk }: { risk?: "safe" | "balanced" | "bold" }) {
   const ctx = React.useContext(LiveCtx);
   const data = ctx?.data ?? null;
   const err = ctx?.err ?? null;
@@ -207,6 +207,7 @@ export function LiveGw() {
         </div>
       )}
 
+      <StyleNudge leagues={data.leagues} risk={risk ?? "balanced"} gw={data.gw} />
       <ul className="mt-3 space-y-0.5 text-xs text-muted-foreground">
         <li>• Points from FPL&apos;s live feed, provisional bonus included; refreshes every minute while games are on</li>
         <li>• Projected = points so far + the pre-deadline projection for minutes still to play</li>
@@ -294,5 +295,51 @@ function LeagueDialog({ league, gw, onClose }: { league: LiveLeague | null; gw: 
         </div>
       )}
     </dialog>
+  );
+}
+
+// A quiet, dismissible hint when the league situation suggests another play style: far behind a projected
+// mini-league leader and not Bold, or well ahead and Bold. Advisory only; the user's style isn't changed.
+const NUDGE_GAP = 40;
+function StyleNudge({ leagues, risk, gw }: { leagues: { name: string; leaderGap: number | null; estimated?: boolean }[]; risk: string; gw: number }) {
+  const key = `style-nudge-${gw}`;
+  const [hidden, setHidden] = React.useState(true);
+  React.useEffect(() => {
+    try {
+      setHidden(localStorage.getItem(key) === "1");
+    } catch {
+      setHidden(false);
+    }
+  }, [key]);
+  const known = leagues.filter((l) => l.leaderGap != null && !l.estimated);
+  const behind = known.filter((l) => l.leaderGap! <= -NUDGE_GAP).sort((a, b) => a.leaderGap! - b.leaderGap!)[0];
+  const ahead = known.filter((l) => l.leaderGap! >= NUDGE_GAP).sort((a, b) => b.leaderGap! - a.leaderGap!)[0];
+  const msg =
+    behind && risk !== "bold"
+      ? `${Math.abs(behind.leaderGap!).toFixed(0)} pts behind the leader in ${behind.name}: a Bold style may suit you`
+      : ahead && risk === "bold"
+        ? `${ahead.leaderGap!.toFixed(0)} pts clear in ${ahead.name}: a Safe style protects the lead`
+        : null;
+  if (!msg || hidden) return null;
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs">
+      <span className="flex-1">• {msg}</span>
+      <a href="/optimizer" className="text-sky-300 hover:underline">Switch on the Optimizer</a>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        className="text-muted-foreground hover:text-foreground"
+        onClick={() => {
+          setHidden(true);
+          try {
+            localStorage.setItem(key, "1");
+          } catch {
+            // ignore
+          }
+        }}
+      >
+        ×
+      </button>
+    </div>
   );
 }

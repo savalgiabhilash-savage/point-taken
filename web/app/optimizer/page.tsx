@@ -8,6 +8,7 @@ import { PlayerInfo } from "@/components/player-info";
 import { PageHeader } from "@/components/shell";
 import { chipStatus, chipStatusLabel } from "@/lib/chips";
 import { RECOMMENDED_HORIZON } from "@/lib/horizon";
+import { RISK, asRisk } from "@/lib/play-style";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,7 @@ type Transfers = {
   planned_pts?: number;
   hold_pts?: number;
   based_on?: number[]; // the squad (element ids) this plan was computed against
+  risk?: { profile: string; cost_gw?: number; cost_plan?: number; balanced_captain?: string | null };
 };
 
 const POS_ACCENT: Record<Position, string> = {
@@ -177,6 +179,8 @@ export default async function OptimizerPage() {
   }
 
   const squad = (run.suggested_squad ?? []) as OptPlayer[];
+  const { data: prof } = await supabase.from("profiles").select("risk").eq("id", userId).maybeSingle();
+  const risk = asRisk(prof?.risk);
   const transfers = (run.transfers ?? null) as Transfers | null;
 
   // Staleness: the optimizer runs on a schedule (and after a team change), NOT live on this page.
@@ -305,6 +309,7 @@ export default async function OptimizerPage() {
         maxHorizon={maxHorizon}
         userId={userId}
         lastComputedAt={(run.created_at as string | null) ?? null}
+        risk={risk}
       />
 
       {stale && (
@@ -327,6 +332,13 @@ export default async function OptimizerPage() {
           <span className="text-sm text-muted-foreground">
             projected over the next {horizon} GWs vs simply holding your current squad (net of any hits).
           </span>
+          {transfers?.risk && transfers.risk.profile !== "balanced" && transfers.risk.cost_plan != null ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              • {RISK[asRisk(transfers.risk.profile)].label} plan: {RISK[asRisk(transfers.risk.profile)].blurb.toLowerCase()}; costs{" "}
+              {Math.max(0, transfers.risk.cost_gw ?? 0).toFixed(1)} expected pts this GW and {Math.max(0, transfers.risk.cost_plan).toFixed(1)} over the plan vs Balanced
+              {transfers.risk.balanced_captain ? ` (Balanced would captain ${transfers.risk.balanced_captain})` : ""}
+            </div>
+          ) : null}
         </div>
       )}
 

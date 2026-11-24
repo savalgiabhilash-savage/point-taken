@@ -10,6 +10,8 @@ import Link from "next/link";
 import { loadThisWeek } from "@/lib/this-week";
 import { ThisWeekCard } from "@/components/this-week";
 import { PageHeader } from "@/components/shell";
+import { GoalStrip } from "@/components/play-style";
+import { asGoal, asRisk } from "@/lib/play-style";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +74,9 @@ export default async function TeamPage() {
     .order("gw", { ascending: false })
     .limit(1);
   const state = stateRows?.[0];
+  // Play style (migration 0018); missing columns or row -> Balanced, no goal.
+  const { data: prof } = await supabase.from("profiles").select("risk, goal, quiz_done_at").eq("id", userId).maybeSingle();
+  const risk = asRisk(prof?.risk);
   const picks = (state?.picks ?? []) as Pick[];
 
   if (!state || picks.length === 0) {
@@ -195,8 +200,9 @@ export default async function TeamPage() {
         </ul>
       </PageHeader>
 
+      <GoalStrip goal={asGoal(prof?.goal)} quizDone={!!prof?.quiz_done_at} />
       {thisWeek && <ThisWeekCard w={thisWeek} />}
-      {state.fpl_entry_id != null && <LiveGw />}
+      {state.fpl_entry_id != null && <LiveGw risk={risk} />}
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map((s) => (

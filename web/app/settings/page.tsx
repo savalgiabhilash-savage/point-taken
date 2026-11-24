@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 import { PageHeader, ThemePicker } from "@/components/shell";
 import { AiUsage } from "@/components/ai-usage";
 import { Notifications } from "@/components/notifications";
+import { PlayStyleSection } from "@/components/play-style";
 
 function Appearance() {
   return (
@@ -148,6 +149,7 @@ export default function SettingsPage() {
         />
       </div>
 
+      {userId ? <PlayStyleSection userId={userId} /> : null}
       <Appearance />
       <Notifications />
       <AiUsage userId={userId} />

@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from . import db
 from .fpl_client import FplClient
 from .model import LAST_GW, MODEL_VERSION
+from . import risk
 from .sync_team import CHIP_HALF_END, selling_prices
 from .active_users import active_profiles
 
@@ -549,7 +550,7 @@ def _chip_free_hit(plan_squads, universe, budget, xp_by_gw, gws, idxs):
 
 
 def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_available, gw_flags=None,
-               frees_by_gw=None, scan_gws=None):
+               frees_by_gw=None, scan_gws=None, xp_show=None):
     # Each chip comes twice: one copy for GW1-19 and one for GW20-38. Value each copy only inside its
     # own half of the horizon. chips_available describes the half of the next deadline (gws[0]); a
     # later half in the horizon starts with a fresh full set.
@@ -580,7 +581,7 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
         u = meta.get(pid, {})
         return {"fpl_id": pid, "web_name": u.get("web_name", str(pid)), "position": u.get("position"),
                 "team_short": u.get("team_short", "?"), "now_cost": u.get("cost"),
-                "xp": round(xp_by_gw.get(pid, {}).get(g, 0.0), 2), **extra}
+                "xp": round((xp_show or xp_by_gw).get(pid, {}).get(g, 0.0), 2), **extra}
 
     def expand(o: dict) -> dict:
         g = o["gw"]
@@ -775,6 +776,105 @@ def run_transfers(sb) -> None:
                objective="max_xpts_5gw_transfers", horizon=len(gws), chip_reco=None)
 
 
+def _profile_of(sb, user_id) -> str:
+    """The user's risk profile (profiles.risk, set by the quiz or the Optimizer switch); Balanced if unset."""
+    if user_id == "me":
+        return "balanced"
+    try:
+        rows = sb.table("profiles").select("risk").eq("id", user_id).limit(1).execute().data
+        p = (rows[0].get("risk") if rows else None) or "balanced"
+        return p if p in risk.PROFILES else "balanced"
+    except Exception:  # noqa: BLE001 — column missing until migration 0018 is applied
+        return "balanced"
+
+
+def _profile_values(sb, xp_by_gw: dict, gws: list[int], profile: str) -> dict:
+    """xp_by_gw with every player-GW in `gws` replaced by the profile's value (risk.py): his stored range
+    (p10, p90), start chance and ownership."""
+    own = {p["fpl_id"]: float(p["selected_by_percent"] or 0) / 100.0
+           for p in sb.table("players").select("fpl_id, selected_by_percent").execute().data}
+    out = {pid: dict(by) for pid, by in xp_by_gw.items()}
+    frm = 0
+    while True:
+        rows = (sb.table("projections").select("player_id, gw, x_pts, components->range, components->p_start")
+                .eq("model_version", MODEL_VERSION).gte("gw", min(gws)).lte("gw", max(gws))
+                .order("player_id").order("gw").range(frm, frm + 999).execute().data)
+        for r in rows:
+            rg = r.get("range") or {}
+            ps = r.get("p_start")
+            out.setdefault(r["player_id"], {})[r["gw"]] = risk.value(
+                float(r["x_pts"] or 0.0), rg.get("p10"), rg.get("p90"), own.get(r["player_id"], 0.0),
+                float(ps) if isinstance(ps, (int, float)) else None, profile)
+        if len(rows) < 1000:
+            return out
+        frm += 1000
+
+
+def _restate_chips(chips: dict, plan_squads, hits_by_gw, ext_gws: list[int], n_plan: int, xp: dict) -> None:
+    """A profile picks the chip and its week on profile values; restate each option's gain, the details and the
+    verdict sentence in plain expected points (cards already show plain xPts). The Wildcard is restated with
+    the rebuilt squad held for the rest of the plan (no follow-on transfers)."""
+    squads = list(plan_squads) + [plan_squads[-1]] * (len(ext_gws) - len(plan_squads))
+    at = {g: i for i, g in enumerate(ext_gws)}
+
+    def xi_cap(cards):
+        xi = sum(c["xp"] for c in cards if c.get("is_start"))
+        return xi + max((c["xp"] for c in cards if c.get("is_captain")), default=0.0)
+
+    for c in chips["all"]:
+        for o in c["options"]:
+            g, i = o["gw"], at.get(o["gw"])
+            if c["chip"] == "Triple Captain":
+                o["gain"] = round(o["captain"]["xp"] if o.get("captain") else 0.0, 2)
+            elif c["chip"] == "Bench Boost":
+                o["gain"] = round(sum(b["xp"] for b in o.get("bench", [])), 2)
+            elif c["chip"] == "Free Hit" and i is not None:
+                o["gain"] = round(xi_cap(o["squad"]) - _plan_val_at(squads[i], xp, g)["xi_cap"], 2)
+            elif c["chip"] == "Wildcard" and i is not None:
+                new15 = [{"fpl_id": x["fpl_id"], "web_name": x["web_name"], "position": x["position"],
+                          "team_short": x["team_short"]} for x in o["squad"]]
+                window = range(i, n_plan)
+                o["gain"] = round(sum(_plan_val_at(new15, xp, ext_gws[j])["xi_cap"]
+                                      - _plan_val_at(squads[j], xp, ext_gws[j])["xi_cap"] for j in window)
+                                  + 4 * sum(hits_by_gw[j] for j in window), 2)
+        best = next((o for o in c["options"] if o["gw"] == c["gw"]), None)
+        if best:
+            c["gain"] = best["gain"]
+            if c["chip"] == "Triple Captain" and best.get("captain"):
+                c["detail"] = f"captain {best['captain']['web_name']} projects {best['gain']:.1f} pts"
+            elif c["chip"] in ("Free Hit", "Wildcard"):
+                c["detail"] = f"{c['chip']} squad adds {best['gain']:.1f} expected pts over your planned team"
+    planned = sorted((c for c in chips["all"] if c["plan_gw"]), key=lambda c: c["plan_gw"])
+    if planned:
+        c = planned[0]
+        chips["reco"] = (f"Play {c['chip']} this GW (GW{c['gw']}, +{c['gain']:.1f} xPts) — {c['detail']}."
+                         if c["play_now"] else
+                         f"No chip this GW (GW{ext_gws[0]}). Planned: {c['chip']} in GW{c['plan_gw']} (+{c['gain']:.1f}).")
+
+
+def _restate(path_res: dict, xp: dict, gws: list[int]) -> None:
+    """After planning on profile values, restate every number shown (player totals, step gains, XI points,
+    planned points) in plain expected points, so the page never shows adjusted values."""
+    def tot(pid, ws):
+        return sum(xp.get(pid, {}).get(w, 0.0) for w in ws)
+
+    planned = 0.0
+    for gi, step in enumerate(path_res["path"]):
+        rest = gws[gi:]
+        for p in step["in"] + step["out"]:
+            p["xp5"] = round(tot(p["fpl_id"], gws), 3)
+        added = sum(tot(p["fpl_id"], rest) for p in step["in"]) - sum(tot(p["fpl_id"], rest) for p in step["out"])
+        step["added"], step["net"] = round(added, 1), round(added - 4 * step["hits"], 1)
+        sq = path_res["plan_squads"][gi]
+        for p in sq:
+            p["xp5"], p["xpn"] = round(tot(p["fpl_id"], gws), 3), round(xp.get(p["fpl_id"], {}).get(gws[0], 0.0), 3)
+        xi = sum(xp.get(p["fpl_id"], {}).get(gws[gi], 0.0) for p in sq if p["is_start"])
+        cap = sum(xp.get(p["fpl_id"], {}).get(gws[gi], 0.0) for p in sq if p["is_captain"])
+        step["xi"] = round(xi + cap, 2)
+        planned += xi + cap
+    path_res["planned_pts"] = round(planned - 4 * path_res["hits_total"], 1)
+
+
 # Default plan horizon for a user who hasn't picked one: the replay plateau (optimizer_backtest, 2026-11-24:
 # 1 GW 6,794 · 5 GWs 7,368 · 8 GWs 7,551 · 12 GWs 7,623 · 19 GWs 7,572). Mirrored in web/lib/horizon.ts.
 DEFAULT_HORIZON = 12
@@ -795,7 +895,7 @@ def _last_horizon(sb, user_id, default=DEFAULT_HORIZON):
         return default
 
 
-def run_plan(sb, user_id="me", horizon=None) -> None:
+def run_plan(sb, user_id="me", horizon=None, profile=None) -> None:
     pool, all_gws, short_by_id, xp5_by_id, xpn_by_id, xp_by_gw = load_pool(sb)
     if not all_gws:
         print("No projections found — run the model first.")
@@ -811,6 +911,15 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
         horizon = _last_horizon(sb, user_id)
     horizon = max(1, min(int(horizon), len(all_gws)))
     gws = all_gws[:horizon]
+    half_end = CHIP_HALF_END if gws[0] <= CHIP_HALF_END else LAST_GW
+    scan = [g for g in all_gws if gws[-1] < g <= half_end] if CHIP_SCAN else None
+
+    # Risk profile: plan on the profile's values (risk.py); xp_true keeps plain expected points for display,
+    # the "holding" comparison and the profile's cost.
+    profile = profile or _profile_of(sb, user_id)
+    xp_true = xp_by_gw
+    if profile != "balanced":
+        xp_by_gw = _profile_values(sb, xp_true, list(gws) + list(scan or []), profile)
 
     current_ids = set(state["ids"])
     cur_rows = (
@@ -842,8 +951,25 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
 
     # Give the MILP more time as the horizon grows (a 30-GW plan is a far bigger problem than 5).
     solve_time = min(300.0, 45.0 + 7.0 * len(gws))
-    path_res = _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw,
-                           ft_unlimited=(ft is None), time_limit=solve_time)
+    global HIT_COST
+    HIT_COST = risk.HIT_COST[profile]  # the hit charged in the plan; FPL's real -4 is what's reported
+    try:
+        path_res = _solve_path(universe, budget, current_ids, ft0, gws, xp_by_gw,
+                               ft_unlimited=(ft is None), time_limit=solve_time)
+    finally:
+        HIT_COST = 4
+    risk_info = {"profile": profile}
+    if profile != "balanced":
+        # The profile's cost: the Balanced plan for the same squad, in plain expected points.
+        bal = _solve_path(universe, budget, current_ids, ft0, gws, xp_true, ft_unlimited=(ft is None),
+                          time_limit=solve_time)
+        _restate(path_res, xp_true, gws)
+        risk_info.update(cost_gw=round(bal["path"][0]["xi"] - 4 * bal["path"][0]["hits"]
+                                       - (path_res["path"][0]["xi"] - 4 * path_res["path"][0]["hits"]), 1),
+                         cost_plan=round(bal["planned_pts"] - path_res["planned_pts"], 1),
+                         balanced_captain=next((p["web_name"] for p in bal["gw0_squad"] if p["is_captain"]), None))
+        print(f"  {profile} profile: costs {risk_info['cost_gw']:+.1f} this GW, {risk_info['cost_plan']:+.1f} over the plan "
+              f"(Balanced captain: {risk_info['balanced_captain']})")
     squad = path_res["gw0_squad"]
     path = path_res["path"]
     captain = next((p for p in squad if p["is_captain"]), None)
@@ -851,7 +977,7 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     # Value of the plan vs simply holding your current squad (no transfers) over the horizon.
     hold_pts = 0.0
     for g in gws:
-        pls = _owned_at_gw(owned, xp_by_gw, g)
+        pls = _owned_at_gw(owned, xp_true, g)
         val, xi, _ = _best_xi(pls)
         cap_xp = max((p["xp"] for p in xi), default=0.0)
         hold_pts += val + cap_xp
@@ -873,10 +999,11 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     dgw_bgw = [f"GW{g}:{fl['type']}" for g, fl in sorted(gw_flags.items()) if fl["type"]]
     if dgw_bgw:
         print(f"  Fixture flags: {', '.join(dgw_bgw)}")
-    half_end = CHIP_HALF_END if gws[0] <= CHIP_HALF_END else LAST_GW
-    scan = [g for g in all_gws if gws[-1] < g <= half_end] if CHIP_SCAN else None
     chips = _chip_plan(path_res["plan_squads"], path_res["hits_by_gw"], universe, budget, xp_by_gw, gws, chips_avail, gw_flags,
-                       frees_by_gw=[step["free"] for step in path_res["path"]], scan_gws=scan)
+                       frees_by_gw=[step["free"] for step in path_res["path"]], scan_gws=scan, xp_show=xp_true)
+    if profile != "balanced":
+        _restate_chips(chips, path_res["plan_squads"], path_res["hits_by_gw"], list(gws) + list(scan or []), len(gws),
+                       xp_true)
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"
@@ -899,6 +1026,7 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
         "chips": chips["all"],
         "chip_reco": chips["reco"],
         "chip_now": chips["now"]["chip"] if chips["now"] else None,  # the chip to play this GW (one verdict)
+        "risk": risk_info,  # profile used, and its cost in expected points vs Balanced
         "planned_pts": path_res["planned_pts"],
         "hold_pts": round(hold_pts, 1),
         # The squad this plan was computed against, so the web can detect when the user's team has
@@ -955,6 +1083,7 @@ def main() -> None:
     parser.add_argument("--horizon", type=int, default=None,
                         help="number of upcoming GWs to plan over (default: the user's last choice, else 5)")
     parser.add_argument("--user", default=None, help="optimize a single user id (default: every user)")
+    parser.add_argument("--risk", choices=risk.PROFILES, default=None, help="override the users' risk profile (testing)")
     args = parser.parse_args()
     load_dotenv()
     sb = db.get_client()
@@ -965,7 +1094,7 @@ def main() -> None:
     else:
         uids = [args.user] if args.user else _all_user_ids(sb)
         for uid in uids:
-            run_plan(sb, uid, horizon=args.horizon)
+            run_plan(sb, uid, horizon=args.horizon, profile=args.risk)
 
 
 if __name__ == "__main__":
