@@ -58,6 +58,7 @@ def crowd_term(pos: str, own: float, net: float) -> float:
 LAST_GW = 38
 # Minutes model (see minutes_profile): recent gameweeks count most.
 MINUTES_WINDOW = 8          # most recent finished gameweeks used
+RESET_MIN_GAMES = 3         # games under a new manager before minutes are judged on those games alone
 MINUTES_HALF_LIFE = 3.0     # a gameweek's weight halves every 3 GWs back
 PRIOR_GAMES = 0.5           # last season's start rate counts as half a game of evidence (tuned on 2023-24)
 SHAPE_K = 3.0               # shrink minutes-shape rates toward the defaults by 3 virtual games
@@ -694,8 +695,15 @@ def run(sb, horizon: int = 5, dry_run: bool = False) -> None:
         prof = form_model.form_profile(hist, last, form_model.prior_base(base[p["position"]], pri.get(p["position"]),
                                                                          price, last is not None), reset_age=ra)
         prof["dc90"] = dc90.get(p["fpl_id"], 0.0)
-        recent_hist = [h for h in hist if h["age"] < MINUTES_WINDOW and (ra is None or h["age"] < ra)]
-        p["mprof"] = minutes_profile(recent_hist, last["minutes"] if last and ra is None else None,
+        # Manager change: judge minutes on games under the new manager only once there are enough of them.
+        # Before that, the old games are still the best evidence (cutting them left NO games, so every
+        # player at the club got a 0% start rate and ~0 pts: Man Utd and Palace, GW12 2026-11-24).
+        recent_all = [h for h in hist if h["age"] < MINUTES_WINDOW]
+        recent_hist = [h for h in recent_all if ra is None or h["age"] < ra]
+        reset_minutes = ra is not None and sum(h["games"] for h in recent_hist) >= RESET_MIN_GAMES
+        if not reset_minutes:
+            recent_hist = recent_all
+        p["mprof"] = minutes_profile(recent_hist, last["minutes"] if last and not reset_minutes else None,
                                      form_model.prior_start(pri.get(p["position"]), price) if not last else None)
         ret = return_ramp(hist, p)
         if ret:

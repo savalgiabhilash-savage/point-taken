@@ -45,10 +45,9 @@ export default async function ChipsPage() {
         <ul>
         <li>• What each chip would change in your squad, for any gameweek in your plan</li>
         <li>• Gains are extra projected points compared with playing that week normally</li>
-        <li>
-          • A chip is recommended only when its gain clears its bar; in the first half, unused chips are pushed
-          before they expire at GW19
-        </li>
+        <li>• One chip is planned at a time: the one that most clears its bar, played when its best week arrives</li>
+        <li>• The others are held; chips expire at GW19 and GW38</li>
+        <li>• The same verdict shows on the Optimizer, This week and in the assistant</li>
         <li>• Tap the i on any player for why he&apos;s in the chip squad</li>
       </ul>
       </PageHeader>

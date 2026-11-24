@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/client";
 import { toast } from "@/components/toast";
 import { Loader2 } from "lucide-react";
+import { RECOMMENDED_HORIZON, furthestSkill, replayFor } from "@/lib/horizon";
 
 // Horizon slider (1..gameweeks left) + "Optimize my squad" button. The optimizer is a Python MILP
 // that runs on GitHub Actions (it can't run in a serverless function), so this fires a cloud run for
@@ -24,6 +25,8 @@ export function OptimizeControls({
   const cap = Math.max(1, Math.min(maxHorizon || 5, 38));
   const [horizon, setHorizon] = React.useState(Math.max(1, Math.min(initialHorizon || 5, cap)));
   const [busy, setBusy] = React.useState(false);
+  const rec = Math.min(RECOMMENDED_HORIZON, cap);
+  const r = replayFor(horizon);
   const [msg, setMsg] = React.useState<string | null>(null);
 
   const optimize = async () => {
@@ -105,6 +108,33 @@ export function OptimizeControls({
         Choose how many upcoming gameweeks to plan over — 1 to {cap} (the gameweeks left with projections).
       </p>
       {msg ? <p className="mt-1 text-xs text-amber-500">{msg}</p> : null}
+      <div className="mt-3 rounded-lg border border-border/60 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span>
+            Recommended horizon: <b className="text-emerald-400">{rec} GWs</b>
+          </span>
+          {horizon !== rec ? (
+            <button
+              type="button"
+              onClick={() => setHorizon(rec)}
+              disabled={busy}
+              className="rounded-md border border-emerald-500/40 px-2 py-0.5 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-40"
+            >
+              Use {rec}
+            </button>
+          ) : null}
+        </div>
+        <ul className="mt-1 space-y-0.5 text-muted-foreground">
+          <li>• Scored the most actual points when replayed over three past seasons ({r.best.toLocaleString()} pts)</li>
+          <li>
+            • At {horizon} GW{horizon === 1 ? "" : "s"}: the furthest week&apos;s projections are {Math.round(furthestSkill(horizon) * 100)}% as
+            accurate as next week&apos;s; replay {r.pts.toLocaleString()} pts{r.h !== horizon ? ` (tested at ${r.h})` : ""}
+          </li>
+          <li>• 8–19 GWs score about the same; under 8 is clearly worse (5 GWs: 7,368 pts), as short plans miss fixture swings</li>
+          <li>• Accuracy fades slowly with distance: about 85% at 8 GWs, 80% at 18</li>
+          <li>• Each week counts 10% less than the one before, and only this week&apos;s moves are made; the plan is redone every week</li>
+        </ul>
+      </div>
     </div>
   );
 }

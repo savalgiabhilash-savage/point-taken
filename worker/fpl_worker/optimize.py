@@ -56,6 +56,10 @@ POOL_VALUE = {"GK": 4, "DEF": 8, "MID": 8, "FWD": 5}
 CHIP_SCAN = True   # value TC / BB / FH to the end of the chip's half (see _chip_plan); replay 7,794 vs 7,736 (2026-11-02)
 WC_FOLLOW_ON = True   # replay 2023-26 with chips: 7,059 vs 6,965 pts (won 2 of 3 seasons, -9 in the third)
 CHIP_THRESHOLDS = {"Triple Captain": 6.0, "Bench Boost": 9.0, "Wildcard": 4.0, "Free Hit": 4.0}
+# One chip is planned at a time: the held chip that most clears its bar, played when its best week arrives.
+# Scheduling every held chip to its own best week (bar 0 near expiry, or a bar shrinking over the last 3 / 6
+# GWs) was replayed 2026-11-24 (8-GW plan, 2023-26) and lost: 7,617 / 7,714 / 7,617 vs 7,925 pts. Spending
+# chips on modest early weeks costs more than the odd chip that expires unused.
 
 # Map our chip display names to FPL's internal codes (as they appear in chips_available).
 CHIP_CODES = {"Triple Captain": "3xc", "Bench Boost": "bboost", "Wildcard": "wildcard", "Free Hit": "freehit"}
@@ -591,29 +595,33 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
             out["squad"] = [card(x["id"], g, is_start=x["start"], is_captain=x["cap"]) for x in o["squad"]]
         return out
 
+    # Only the half of the next deadline: the other half's chips can't be played yet, and valuing them on
+    # the first week or two of their half (all the horizon reaches) gave misleading "play GW20" calls.
+    half, (lo, hi) = (1, (1, CHIP_HALF_END)) if gws[0] <= CHIP_HALF_END else (2, (CHIP_HALF_END + 1, LAST_GW))
+    # Use-it-or-lose-it: once the plan (or the chip scan) reaches the end of the half, a chip still held has
+    # no later window to save it for, so any positive gain clears its bar.
+    expiring = ext_gws[-1] >= hi
+
     chips = []
-    for half, (lo, hi) in ((1, (1, CHIP_HALF_END)), (2, (CHIP_HALF_END + 1, LAST_GW))):
-        if not ix(ext_gws, lo, hi):
+    for ev in evaluators:
+        c = ev(lo, hi)
+        if c is None:
             continue
-        current_half = lo <= gws[0] <= hi
-        for ev in evaluators:
-            c = ev(lo, hi)
-            if c is None:
-                continue
-            c["options"] = [expand(o) for o in c["options"]]
-            c["half"] = half
-            c["available"] = (avail is None or CHIP_CODES[c["chip"]] in avail) if current_half else True
-            c["threshold"] = CHIP_THRESHOLDS[c["chip"]]
-            # Use-it-or-lose-it: a first-half chip still held when the horizon reaches GW19 has no later
-            # window to save it for, so any positive gain beats letting it expire.
-            if half == 1 and current_half and ext_gws[-1] >= CHIP_HALF_END and c["available"]:
-                c["threshold"] = 0.0
-                c["detail"] += f"; expires after GW{CHIP_HALF_END} — best window left before it's lost"
-            # Same for second-half chips once the horizon reaches the last GW: they expire with the season.
-            if half == 2 and current_half and ext_gws[-1] >= LAST_GW and c["available"]:
-                c["threshold"] = 0.0
-                c["detail"] += f"; expires after GW{LAST_GW} — best window left before it's lost"
-            chips.append(c)
+        c["options"] = [expand(o) for o in c["options"]]
+        c["half"] = half
+        c["available"] = avail is None or CHIP_CODES[c["chip"]] in avail
+        c["threshold"] = 0.0 if expiring else CHIP_THRESHOLDS[c["chip"]]
+        if expiring and c["available"]:
+            c["detail"] += f"; expires after GW{hi}, so it should be used before then"
+        chips.append(c)
+
+    # The plan: the held chip that most clears its bar, at its best week (see the note at CHIP_THRESHOLDS).
+    # Every other chip is held. Every screen and the assistant show this one verdict.
+    ok = [c for c in chips if c["available"] and c["gain"] > 0 and c["gain"] >= c["threshold"]]
+    pick = max(ok, key=lambda c: c["gain"] - c["threshold"]) if ok else None
+    for c in chips:
+        c["plan_gw"] = c["gw"] if c is pick else None      # the week to play it (None = hold)
+        c["play_now"] = c is pick and c["gw"] == gws[0]
     for c in chips:
         # Only attach Double/Blank-GW language to a gameweek the FIXTURE DATA actually confirms as one.
         # DGWs/BGWs don't exist in the base calendar — they're only created mid-season when matches are
@@ -626,12 +634,19 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
         elif fl["type"] == "BGW":
             c["detail"] += f"; GW{c['gw']} is a Blank GW ({fl['n']} clubs have no fixture)"
 
-    # Recommend the chip that most clears its own bar; otherwise hold (the correct default).
+    # One verdict for every screen: the chip to play this GW (if any), then the rest of the schedule.
     any_special = any(f.get("type") for f in gw_flags.values())
-    playable = [c for c in chips if c["available"] and c["gain"] > 0 and c["gain"] >= c["threshold"]]
-    best = max(playable, key=lambda c: c["gain"] - c["threshold"]) if playable else None
-    if best:
-        reco = f"Play {best['chip']} in GW{best['gw']} (+{best['gain']:.1f} xPts) — {best['detail']}."
+    planned = sorted((c for c in chips if c["plan_gw"]), key=lambda c: c["plan_gw"])
+    now = next((c for c in planned if c["play_now"]), None)
+    best = now or (planned[0] if planned else None)
+    later = [c for c in planned if c is not now]
+    later_txt = ", ".join(f"{c['chip']} in GW{c['plan_gw']} (+{c['gain']:.1f})" for c in later)
+    if now:
+        reco = f"Play {now['chip']} this GW (GW{now['gw']}, +{now['gain']:.1f} xPts) — {now['detail']}."
+        if later:
+            reco += f" Planned after: {later_txt}."
+    elif planned:
+        reco = f"No chip this GW (GW{gws[0]}). Planned: {later_txt}."
     elif gws[0] <= CHIP_HALF_END and avail is not None and avail and gws[-1] < CHIP_HALF_END:
         reco = (f"Hold your chips — no window clears the bar over the next {len(gws)} GWs. Your first-half "
                 f"chips ({', '.join(n for n, code in CHIP_CODES.items() if code in avail)}) expire after GW{CHIP_HALF_END}; extend the horizon to "
@@ -645,7 +660,7 @@ def _chip_plan(plan_squads, hits_by_gw, universe, budget, xp_by_gw, gws, chips_a
             "(fixtures rearranged around the FA Cup, usually from late February); the app flags them "
             "automatically once the fixture list confirms it."
         )
-    return {"all": chips, "best": best, "reco": reco}
+    return {"all": chips, "best": best, "now": now, "reco": reco}
 
 
 def _slim(p: dict) -> dict:
@@ -760,7 +775,12 @@ def run_transfers(sb) -> None:
                objective="max_xpts_5gw_transfers", horizon=len(gws), chip_reco=None)
 
 
-def _last_horizon(sb, user_id, default=5):
+# Default plan horizon for a user who hasn't picked one: the replay plateau (optimizer_backtest, 2026-11-24:
+# 1 GW 6,794 · 5 GWs 7,368 · 8 GWs 7,551 · 12 GWs 7,623 · 19 GWs 7,572). Mirrored in web/lib/horizon.ts.
+DEFAULT_HORIZON = 12
+
+
+def _last_horizon(sb, user_id, default=DEFAULT_HORIZON):
     """The horizon this user last planned at. There's only ever one optimizer_runs row per user, so
     reading it back makes the choice sticky: the cron and team-change re-runs keep whatever the user
     picked via the Optimizer's "Optimize my squad" control, instead of reverting to the default."""
@@ -860,7 +880,8 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
     print("\nChip timing:")
     for c in chips["all"]:
         flag = "" if c["available"] else " (used)"
-        print(f"  {c['chip']:15} best GW{c['gw']}  +{c['gain']:.1f}{flag}  — {c['detail']}")
+        when = "play NOW" if c["play_now"] else f"plan GW{c['plan_gw']}" if c["plan_gw"] else "hold"
+        print(f"  {c['chip']:15} {when:10} GW{c['gw']}  +{c['gain']:.1f}{flag}  — {c['detail']}")
     print(f"  => {chips['reco']}")
 
     print(f"\nThis week's XI (captain {captain['web_name'] if captain else '?'}):")
@@ -877,6 +898,7 @@ def run_plan(sb, user_id="me", horizon=None) -> None:
         "path": path,
         "chips": chips["all"],
         "chip_reco": chips["reco"],
+        "chip_now": chips["now"]["chip"] if chips["now"] else None,  # the chip to play this GW (one verdict)
         "planned_pts": path_res["planned_pts"],
         "hold_pts": round(hold_pts, 1),
         # The squad this plan was computed against, so the web can detect when the user's team has

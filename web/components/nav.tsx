@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { SECTIONS, sectionFor, inkMix, tint, visiblePages } from "@/lib/sections";
 import { useOwner } from "@/lib/use-owner";
 import { AccountMenu } from "@/components/auth-button";
-import { Settings } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 
 /**
  * The logo: a captain's "C" on a slanted broadcast tag, with the ball as its full stop: "Captain. Full stop."
@@ -42,11 +42,25 @@ function Logo() {
 // One nav item, shared by the phone bar and the desktop sidebar: icon + condensed-caps label. Active: the tab's
 // colour (mixed toward the text colour for contrast), a soft tint, and a scoreboard-style indicator bar (top
 // edge on the phone bar, left edge in the sidebar).
-function Item({ s, active, vertical }: { s: (typeof SECTIONS)[number]; active: boolean; vertical: boolean }) {
+function Item({
+  s,
+  active,
+  vertical,
+  open,
+  onSelect,
+}: {
+  s: (typeof SECTIONS)[number];
+  active: boolean;
+  vertical: boolean;
+  open?: boolean;
+  onSelect?: () => void;
+}) {
   const { Icon } = s;
   return (
     <Link
       href={s.pages[0].href}
+      onClick={onSelect}
+      aria-expanded={open}
       aria-current={active ? "page" : undefined}
       className={`press relative flex items-center rounded-lg font-display tracking-wide transition-colors ${
         vertical ? "min-h-11 gap-3 px-3 text-[17px]" : "min-h-14 flex-1 flex-col justify-center gap-0.5 text-[13px]"
@@ -62,6 +76,9 @@ function Item({ s, active, vertical }: { s: (typeof SECTIONS)[number]; active: b
       )}
       <Icon aria-hidden className="size-5" />
       {s.label}
+      {open !== undefined ? (
+        <ChevronDown aria-hidden className={`ml-auto size-4 opacity-60 transition-transform ${open ? "" : "-rotate-90"}`} />
+      ) : null}
     </Link>
   );
 }
@@ -72,14 +89,17 @@ export function Sidebar() {
   const path = usePathname();
   const owner = useOwner();
   const cur = sectionFor(path);
+  // Tabs start collapsed; the one you select (or are on) opens to show its pages. Accordion: one open at a time.
+  const [openKey, setOpenKey] = React.useState<string | null>(cur?.key ?? null);
+  React.useEffect(() => setOpenKey(cur?.key ?? null), [cur?.key]);
   return (
     <aside className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r border-border bg-sidebar/70 px-3 py-5 md:flex lg:w-60">
       <div className="px-2"><Logo /></div>
       <nav aria-label="Main" className="mt-8 flex min-h-0 flex-col gap-1 overflow-y-auto [scrollbar-width:none]">
         {SECTIONS.map((s) => (
           <div key={s.key}>
-            <Item s={s} active={cur?.key === s.key} vertical />
-            <ul className="mb-2 ml-[1.375rem] mt-0.5 border-l border-border pl-3">
+            <Item s={s} active={cur?.key === s.key} vertical open={openKey === s.key} onSelect={() => setOpenKey(s.key)} />
+            <ul className={`mb-2 ml-[1.375rem] mt-0.5 border-l border-border pl-3 ${openKey === s.key ? "" : "hidden"}`}>
               {visiblePages(s, owner).map((p) => {
                 const on = path === p.href || path.startsWith(p.href + "/");
                 return (

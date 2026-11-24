@@ -6,6 +6,8 @@ import { opponentLabels } from "@/lib/fixtures";
 import { OptimizeControls } from "@/components/optimize-controls";
 import { PlayerInfo } from "@/components/player-info";
 import { PageHeader } from "@/components/shell";
+import { chipStatus, chipStatusLabel } from "@/lib/chips";
+import { RECOMMENDED_HORIZON } from "@/lib/horizon";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,8 @@ type Chip = {
   threshold?: number;
   half?: number; // 1 = GW1-19 copy, 2 = GW20-38 copy (each chip comes twice a season)
   gw_type?: string; // "DGW" | "BGW" | "" — set once the season's doubles/blanks are announced
+  plan_gw?: number | null; // the week the chip schedule plays it (null = hold)
+  play_now?: boolean;
 };
 
 type Transfers = {
@@ -167,7 +171,7 @@ export default async function OptimizerPage() {
           No plan yet. Pick a horizon and optimize your current squad — it runs in the cloud and
           appears here in a minute or two.
         </p>
-        <OptimizeControls initialHorizon={5} maxHorizon={maxHorizon} userId={userId} lastComputedAt={null} />
+        <OptimizeControls initialHorizon={RECOMMENDED_HORIZON} maxHorizon={maxHorizon} userId={userId} lastComputedAt={null} />
       </main>
     );
   }
@@ -197,15 +201,6 @@ export default async function OptimizerPage() {
   const path = transfers?.path ?? null;
   const chips = transfers?.chips ?? null;
   const hasSpecialGw = (chips ?? []).some((c) => c.gw_type === "DGW" || c.gw_type === "BGW");
-  // Highlight only a chip actually worth playing (gain clears its own bar); otherwise nothing —
-  // the banner says "hold". Never highlight the mere max-gain chip when the call is to hold.
-  const recommended =
-    chips
-      ?.filter((c) => c.available && c.threshold != null && c.gain > 0 && c.gain >= c.threshold)
-      .reduce<Chip | null>(
-        (b, c) => (c.gain - c.threshold! > (b ? b.gain - b.threshold! : -1e9) ? c : b),
-        null,
-      ) ?? null;
 
   const toSP = (p: OptPlayer): SquadPlayer => ({
     fpl_id: p.fpl_id,
@@ -414,7 +409,8 @@ export default async function OptimizerPage() {
           {chips && chips.length > 0 ? (
             <ul className="space-y-2">
               {chips.map((c) => {
-                const isBest = recommended != null && c.chip === recommended.chip && c.gw === recommended.gw;
+                const status = chipStatus(c);
+                const isBest = status === "now" || status === "planned";
                 return (
                   <li
                     key={`${c.chip}-${c.half ?? 1}`}
@@ -428,9 +424,11 @@ export default async function OptimizerPage() {
                         {c.half === 2 ? (
                           <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">GW20–38 set</span>
                         ) : null}
-                        {!c.available ? (
-                          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">used</span>
-                        ) : null}
+                        <span
+                          className={`ml-1.5 text-[10px] font-normal ${status === "now" ? "font-bold text-emerald-300" : "text-muted-foreground"}`}
+                        >
+                          {chipStatusLabel(c)}
+                        </span>
                       </span>
                       <span className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
                         {c.gw_type === "DGW" || c.gw_type === "BGW" ? (
@@ -450,7 +448,7 @@ export default async function OptimizerPage() {
                         </span>
                       </span>
                     </div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div>
+                    {c.available ? <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div> : null}
                   </li>
                 );
               })}

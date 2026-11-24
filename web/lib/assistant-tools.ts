@@ -1,4 +1,12 @@
+import { chipStatus, type ChipVerdictInput } from "@/lib/chips";
 import { createServerSupabase } from "@/lib/supabase/server";
+
+// FPL's availability flag in words, so the assistant never reads a code (or a low projection) as an injury.
+const AVAIL: Record<string, string> = {
+  a: "available (no injury flag)", d: "doubtful (flagged)", i: "injured (flagged)", s: "suspended",
+  u: "unavailable (left club / on loan)", n: "not in squad",
+};
+const availability = (s: string | null | undefined) => AVAIL[s ?? ""] ?? s ?? "unknown";
 import { MODEL_VERSION } from "@/lib/supabase";
 
 // Tools the grounded assistant can call. Each reads live data from Supabase and returns compact
@@ -94,7 +102,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       position: p.position,
       price: r1((p.now_cost ?? 0) / 10),
       ownership: p.selected_by_percent,
-      status: p.status,
+      availability: availability(p.status),
       xpts_next: r1(proj.get(p.fpl_id) ?? 0),
     }));
     const pos = args.position as string | undefined;
@@ -147,7 +155,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       position: p.position,
       price: r1((p.now_cost ?? 0) / 10),
       ownership: p.selected_by_percent,
-      status: p.status,
+      availability: availability(p.status),
       xpts_next: r1(proj.get(p.fpl_id) ?? 0),
       xpts_next5: xp5,
       news: news?.[0] ?? null,
@@ -169,7 +177,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
     const ids = (team.picks as { element: number }[]).map((p) => p.element);
     const { data: players } = await sb
       .from("players")
-      .select("fpl_id, web_name, position, now_cost, team:teams(short_name)")
+      .select("fpl_id, web_name, position, now_cost, status, team:teams(short_name)")
       .in("fpl_id", ids);
     const byId = new Map((players ?? []).map((p) => [p.fpl_id, p]));
     const squad = (team.picks as { element: number; position: number; is_captain?: boolean }[]).map((pick) => {
@@ -180,6 +188,7 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
         position: p?.position,
         price: r1((p?.now_cost ?? 0) / 10),
         xpts_next: r1(proj.get(pick.element) ?? 0),
+        availability: availability(p?.status),
         starting: pick.position <= 11,
         is_captain: !!pick.is_captain,
       };
@@ -211,9 +220,13 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
       this_week_transfers: (t.num as number) ?? 0,
       transfers_out: ((t.out as { web_name: string }[]) ?? []).map((p) => p.web_name),
       transfers_in: ((t.in as { web_name: string }[]) ?? []).map((p) => p.web_name),
-      chip_windows: ((t.chips as { chip: string; gw: number; gain: number; gw_type?: string }[]) ?? []).map((c) => ({
+      // The app's chip verdict (lib/chips.ts): the same call the Optimizer, Chips and This week screens show.
+      chip_this_gw: (t.chip_now as string | null | undefined) ?? null,
+      chip_schedule: ((t.chips as (ChipVerdictInput & { gain: number; gw_type?: string })[]) ?? []).map((c) => ({
         chip: c.chip,
-        best_gw: c.gw,
+        status: chipStatus(c), // now = play this GW · planned = play in planned_gw, not now · hold · used
+        planned_gw: c.plan_gw ?? null,
+        week_shown: c.gw,
         gain: c.gain,
         gameweek_type: c.gw_type || "single",
       })),

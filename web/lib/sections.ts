@@ -23,6 +23,7 @@ export const SECTIONS: Section[] = [
     key: "scout", label: "Scout", Icon: Search, color: "#60a5fa",
     pages: [
       { href: "/players", label: "Players" },
+      { href: "/form", label: "Form" },
       { href: "/differentials", label: "Differentials" },
       { href: "/fixtures", label: "Fixtures" },
       { href: "/compare", label: "Compare" },

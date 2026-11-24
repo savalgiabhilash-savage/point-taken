@@ -4,6 +4,7 @@ import * as React from "react";
 import { PlayerInfo } from "@/components/player-info";
 import { SquadPitch, type SquadPlayer } from "@/components/squad-pitch";
 import type { Position } from "@/lib/supabase";
+import { chipStatus, chipStatusLabel } from "@/lib/chips";
 
 // Shapes written by worker/fpl_worker/optimize.py (_chip_plan -> transfers.chips[].options).
 export type ChipCard = {
@@ -34,6 +35,8 @@ export type ChipEntry = {
   threshold?: number;
   half?: number;
   gw_type?: string;
+  plan_gw?: number | null; // the week the chip schedule plays it (null = hold)
+  play_now?: boolean;
   options: ChipOption[];
 };
 
@@ -58,18 +61,22 @@ export function ChipStrategy({
     (a, b) => (a.half ?? 1) - (b.half ?? 1) || ORDER.indexOf(a.chip) - ORDER.indexOf(b.chip),
   );
   const key = (c: ChipEntry) => `${c.chip}-${c.half ?? 1}`;
-  const [sel, setSel] = React.useState(key(sorted[0]));
+  // Open on the chip to play this GW, else the next planned one, else the first you still hold.
+  const rank = { now: 0, planned: 1, hold: 2, used: 3 } as const;
+  const first = [...sorted].sort((a, b) => rank[chipStatus(a)] - rank[chipStatus(b)] || (a.plan_gw ?? 99) - (b.plan_gw ?? 99))[0];
+  const [sel, setSel] = React.useState(key(first));
   const chip = sorted.find((c) => key(c) === sel) ?? sorted[0];
   const [gw, setGw] = React.useState<number>(chip.gw);
   const opt = chip.options.find((o) => o.gw === gw) ?? chip.options[0];
   const bar = chip.threshold ?? 0;
+  const status = chipStatus(chip);
+  const planned = chips.find((c) => c !== chip && (chipStatus(c) === "now" || chipStatus(c) === "planned"));
 
   return (
     <div className="mt-6 space-y-5">
       {/* chip picker */}
       <div className="flex flex-wrap gap-2">
         {sorted.map((c) => {
-          const recommended = c.available && c.gain > 0 && c.gain >= (c.threshold ?? 0);
           return (
             <button
               key={key(c)}
@@ -84,10 +91,10 @@ export function ChipStrategy({
             >
               <div className={`font-semibold ${STYLE[c.chip] ?? ""}`}>
                 {c.chip}
-                {c.half === 2 ? <span className="ml-1 text-[10px] font-normal text-muted-foreground">GW20–38 set</span> : null}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {!c.available ? "used" : recommended ? `play GW${c.gw} · +${c.gain.toFixed(1)}` : `best GW${c.gw} · +${c.gain.toFixed(1)}`}
+              <div className={`text-xs ${chipStatus(c) === "now" ? "font-semibold text-emerald-300" : "text-muted-foreground"}`}>
+                {chipStatusLabel(c)}
+                {c.available ? ` · +${c.gain.toFixed(1)}` : ""}
               </div>
             </button>
           );
@@ -96,26 +103,34 @@ export function ChipStrategy({
 
       {/* status */}
       <div className="rounded-2xl border border-border bg-card px-4 py-3">
-        <ul className="space-y-0.5 text-sm">
-          <li>
-            • {chip.available ? "You still have this chip" : "Already used in this half of the season"}
-            {chip.half ? ` (${chip.half === 1 ? "GW1–19 set, expires after GW19" : "GW20–38 set"})` : ""}
-          </li>
-          <li>
-            • Best week in your plan: GW{chip.gw}, +{chip.gain.toFixed(1)} pts
-            {chip.gw_type ? ` (${chip.gw_type === "DGW" ? "Double" : "Blank"} gameweek)` : ""}
-          </li>
-          <li>
-            • Bar to recommend it: +{bar.toFixed(0)} pts
-            {chip.gain >= bar && chip.gain > 0 ? " (cleared)" : " (not cleared: holding it is better so far)"}
-          </li>
-          {chip.detail.split(";").map((d, i) => (
-            <li key={i}>• {d.trim().replace(/^./, (x) => x.toUpperCase())}</li>
-          ))}
-        </ul>
+        {!chip.available ? (
+          <ul className="space-y-0.5 text-sm">
+            <li>• Already used in this half of the season</li>
+            <li>• You get a fresh one {chip.half === 1 ? "from GW20" : "next season"}</li>
+          </ul>
+        ) : (
+          <ul className="space-y-0.5 text-sm">
+            <li>
+              • {status === "now"
+                ? `Play it this GW (GW${chip.gw}): +${chip.gain.toFixed(1)} pts`
+                : status === "planned"
+                  ? `Planned for GW${chip.plan_gw}: +${chip.gain.toFixed(1)} pts; don't play it this GW`
+                  : planned
+                    ? `Hold: ${planned.chip} is the planned chip (GW${planned.plan_gw}); best week for this one GW${chip.gw}, +${chip.gain.toFixed(1)} pts`
+                    : `Hold: no week clears its bar yet (best GW${chip.gw}, +${chip.gain.toFixed(1)} pts)`}
+              {chip.gw_type ? ` (${chip.gw_type === "DGW" ? "Double" : "Blank"} gameweek)` : ""}
+            </li>
+            <li>• Bar to play it: +{bar.toFixed(0)} pts (0 once the plan reaches the chip&apos;s expiry)</li>
+            <li>• One chip is planned at a time: the one that most clears its bar (this beat playing every chip in the season replay)</li>
+            {chip.detail.split(";").map((d, i) => (
+              <li key={i}>• {d.trim().replace(/^./, (x) => x.toUpperCase())}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* gameweek picker */}
+      {/* gameweek picker (not for a chip you've already used) */}
+      {chip.available ? (
       <div>
         <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           If you play it in…
@@ -137,7 +152,9 @@ export function ChipStrategy({
         </div>
       </div>
 
-      {opt ? <OptionView chip={chip.chip} opt={opt} ownership={ownership} opponents={opponentsByGw[opt.gw]} /> : null}
+      ) : null}
+
+      {chip.available && opt ? <OptionView chip={chip.chip} opt={opt} ownership={ownership} opponents={opponentsByGw[opt.gw]} /> : null}
     </div>
   );
 }

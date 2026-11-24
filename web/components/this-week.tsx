@@ -56,7 +56,13 @@ export function ThisWeekCard({ w }: { w: ThisWeek }) {
     {
       id: "chip",
       title: w.chip ? `Play ${w.chip.name}` : "No chip this week",
-      detail: w.chip ? <>• +{w.chip.gain.toFixed(1)} projected pts; it clears the bar for playing it</> : <>• Save your chips; see Chips for the best weeks</>,
+      detail: w.chip ? (
+        <>• +{w.chip.gain.toFixed(1)} projected pts; this is its planned week</>
+      ) : w.chipNext ? (
+        <>• Save your chips; next planned: {w.chipNext.name} in GW{w.chipNext.gw}</>
+      ) : (
+        <>• Save your chips; no week clears the bar yet</>
+      ),
     },
     {
       id: "bench",
