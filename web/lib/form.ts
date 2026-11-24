@@ -16,7 +16,7 @@ type FplFixture = {
   id: number; event: number | null; team_h: number; team_a: number; team_h_score: number | null; team_a_score: number | null;
   finished: boolean; kickoff_time: string | null; stats: { identifier: string; h: StatList; a: StatList }[];
 };
-type FplTeam = { id: number; name: string; short_name: string };
+type FplTeam = { id: number; code: number; name: string; short_name: string };
 type FplEl = {
   id: number; web_name: string; team: number; element_type: number; now_cost: number; status: string;
   form: string; selected_by_percent: string; minutes: number; total_points: number;
@@ -36,7 +36,7 @@ export type FormPlayer = {
   form: number; goals: number; assists: number; bonus: number; mins: number; xgi90: number; xp: number; hot: boolean;
 };
 export type TeamForm = {
-  id: number; name: string; short: string;
+  id: number; name: string; short: string; crest: string;
   recent: Result[]; pts: number; ppg: number; gf: number; ga: number; cs: number; // over the last FORM_GAMES
   seasonPpg: number; seasonGf: number; seasonGa: number; played: number;
   formRank: number; attackRank: number; defenceRank: number;
@@ -102,6 +102,7 @@ export async function getForm(sb: SupabaseClient): Promise<{ teams: TeamForm[]; 
     const n = recent.length;
     return {
       id: t.id, name: t.name, short: t.short_name, recent, pts,
+      crest: `https://resources.premierleague.com/premierleague/badges/70/t${t.code}.png`,
       ppg: per(pts, n), gf: per(recent.reduce((s, r) => s + r.gf, 0), n), ga: per(recent.reduce((s, r) => s + r.ga, 0), n),
       cs: recent.filter((r) => r.ga === 0).length,
       seasonPpg: per(seasonPts, all.length), seasonGf: per(sumG(all, true), all.length), seasonGa: per(sumG(all, false), all.length),

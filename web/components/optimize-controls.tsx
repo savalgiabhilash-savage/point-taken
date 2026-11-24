@@ -147,12 +147,12 @@ export function OptimizeControls({
           ) : null}
         </div>
         <ul className="mt-1 space-y-0.5 text-muted-foreground">
-          <li>• Scored the most actual points when replayed over three past seasons ({r.best.toLocaleString()} pts)</li>
+          <li>• Scored the most actual points when replayed over three past seasons with chips ({r.best.toLocaleString()} pts)</li>
           <li>
             • At {horizon} GW{horizon === 1 ? "" : "s"}: the furthest week&apos;s projections are {Math.round(furthestSkill(horizon) * 100)}% as
             accurate as next week&apos;s; replay {r.pts.toLocaleString()} pts{r.h !== horizon ? ` (tested at ${r.h})` : ""}
           </li>
-          <li>• 8–19 GWs score about the same; under 8 is clearly worse (5 GWs: 7,368 pts), as short plans miss fixture swings</li>
+          <li>• Beat 12 GWs in all three seasons; shorter plans miss fixture swings, longer ones lean on less certain weeks</li>
           <li>• Accuracy fades slowly with distance: about 85% at 8 GWs, 80% at 18</li>
           <li>• Each week counts 10% less than the one before, and only this week&apos;s moves are made; the plan is redone every week</li>
         </ul>

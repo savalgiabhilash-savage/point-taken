@@ -92,7 +92,9 @@ export function PlayerRows({ players, gws, showTeam = true }: { players: FormPla
             <tr key={p.id} className="border-b border-border/50 last:border-0">
               <td className="px-3 py-1.5">
                 <span className="mr-1.5 inline-block w-8 text-[10px] font-bold text-muted-foreground">{p.pos}</span>
-                <span className="font-medium">{p.name}</span>
+                <Link href={`/compare?p=${p.id}`} className="font-medium hover:text-sky-300 hover:underline">
+                  {p.name}
+                </Link>
                 {showTeam ? <span className="ml-1 text-xs text-muted-foreground">{p.team}</span> : null}
                 <span className="ml-1 text-xs text-muted-foreground">£{p.price.toFixed(1)}</span>
                 {p.hot ? <span className="ml-1.5 rounded bg-orange-500/20 px-1 text-[10px] font-bold text-orange-300">HOT</span> : null}

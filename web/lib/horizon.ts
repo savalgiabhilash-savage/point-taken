@@ -1,12 +1,13 @@
 // Which plan horizon to use, from evidence (worker/fpl_worker/optimizer_backtest.py, rules-v8, 2026-11-24):
-// - REPLAY: actual points over 2023/24–2025/26, following the optimizer every week at that horizon (no chips).
+// - REPLAY: actual points over 2023/24–2025/26, following the optimizer and its chip plan every week at that horizon.
 // - LEAD_SKILL: how well projections k GWs ahead rank players vs the next GW's (correlation with actual points,
 //   lead 0 = next GW = 100%). Accuracy falls slowly: ~89% four weeks out, ~80% by 18.
 export const HORIZON_REPLAY: Record<number, number> = {
-  1: 6794, 2: 7119, 3: 7356, 4: 7474, 5: 7368, 6: 7459, 8: 7551, 10: 7532, 12: 7623, 15: 7525, 19: 7572,
+  5: 7782, 6: 7733, 8: 7925, 10: 7693, 12: 7696, 15: 7690,
 };
-// 8–19 GWs form a plateau (within ~100 pts, noise between seasons); 12 scored most and beat 8 in 2 of 3 seasons.
-export const RECOMMENDED_HORIZON = 12;
+// With chips, 8 GWs scored most and beat 12 in all three seasons (2,692 · 2,789 · 2,444 vs 2,592 · 2,685 · 2,419);
+// without chips 8 and 12 were close (7,551 vs 7,623), so 8 is best overall (2026-11-25).
+export const RECOMMENDED_HORIZON = 8;
 const LEAD_SKILL = [1.0, 0.96, 0.93, 0.908, 0.891, 0.88, 0.865, 0.856, 0.846, 0.837, 0.827, 0.822, 0.818, 0.814, 0.813, 0.81, 0.806, 0.803, 0.801];
 
 /** Accuracy of the furthest GW in a plan of h GWs, as a share of next-GW accuracy. */

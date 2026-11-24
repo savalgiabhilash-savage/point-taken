@@ -875,9 +875,9 @@ def _restate(path_res: dict, xp: dict, gws: list[int]) -> None:
     path_res["planned_pts"] = round(planned - 4 * path_res["hits_total"], 1)
 
 
-# Default plan horizon for a user who hasn't picked one: the replay plateau (optimizer_backtest, 2026-11-24:
-# 1 GW 6,794 · 5 GWs 7,368 · 8 GWs 7,551 · 12 GWs 7,623 · 19 GWs 7,572). Mirrored in web/lib/horizon.ts.
-DEFAULT_HORIZON = 12
+# Default plan horizon for a user who hasn't picked one (optimizer_backtest with chips, 2026-11-25: 5 GWs 7,782 ·
+# 6 7,733 · 8 7,925 · 10 7,693 · 12 7,696 · 15 7,690; 8 beat 12 in all three seasons). Mirrored in web/lib/horizon.ts.
+DEFAULT_HORIZON = 8
 
 
 def _last_horizon(sb, user_id, default=DEFAULT_HORIZON):

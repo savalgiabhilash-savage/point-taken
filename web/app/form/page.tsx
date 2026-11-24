@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase";
 import { getForm, FORM_GAMES } from "@/lib/form";
 import { PageHeader } from "@/components/shell";
 import { NextChips, PlayerRows, ResultChips, Tags, TeamLink } from "@/components/form-bits";
+import { CardTile, Crest } from "@/components/form-cards";
+import { loadCompare } from "@/lib/compare";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +15,13 @@ const POSITIONS = ["ALL", "GK", "DEF", "MID", "FWD"] as const;
 export default async function FormPage({ searchParams }: { searchParams: Promise<{ pos?: string }> }) {
   const { pos: rawPos } = await searchParams;
   const pos = POSITIONS.find((p) => p === rawPos?.toUpperCase()) ?? "ALL";
-  const { teams, players, gws } = await getForm(createSupabaseServerClient());
+  const [{ teams, players, gws }, { players: cards }] = await Promise.all([getForm(createSupabaseServerClient()), loadCompare()]);
+  const cardOf = new Map(cards.map((c) => [c.id, c]));
   const inForm = players
     .filter((p) => (pos === "ALL" || p.pos === pos) && p.mins >= 270)
     .sort((a, b) => b.form - a.form || b.xp - a.xp)
     .slice(0, 25);
-  const hot = players.filter((p) => p.hot).sort((a, b) => b.xp - a.xp).slice(0, 8);
+  const hot = players.filter((p) => p.hot && cardOf.has(p.id)).sort((a, b) => b.xp - a.xp).slice(0, 10);
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
@@ -33,19 +36,13 @@ export default async function FormPage({ searchParams }: { searchParams: Promise
 
       {hot.length ? (
         <section className="mt-6">
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hot picks right now</h2>
-          <div className="flex flex-wrap gap-2">
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Hot picks right now</h2>
+            <span className="text-[11px] text-muted-foreground">Tap a card to compare · swipe for more</span>
+          </div>
+          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:thin] sm:mx-0 sm:px-0">
             {hot.map((p) => (
-              <Link
-                key={p.id}
-                href={`/form/${p.team.toLowerCase()}`}
-                className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-sm hover:border-orange-500/60"
-              >
-                <span className="font-semibold">{p.name}</span>{" "}
-                <span className="text-xs text-muted-foreground">
-                  {p.team} · form {p.form.toFixed(1)} · {p.xp.toFixed(1)} xPts
-                </span>
-              </Link>
+              <CardTile key={p.id} p={cardOf.get(p.id)!} f={p} />
             ))}
           </div>
         </section>
@@ -75,7 +72,10 @@ export default async function FormPage({ searchParams }: { searchParams: Promise
                   <tr key={t.id} className="border-b border-border/50 last:border-0">
                     <td className="px-3 py-2 tabular-nums text-muted-foreground">{t.formRank}</td>
                     <td className="px-2 py-2 whitespace-nowrap">
-                      <TeamLink t={t} />
+                      <span className="inline-flex items-center gap-2">
+                        <Crest t={t} size={22} />
+                        <TeamLink t={t} />
+                      </span>
                       <span
                         className={`ml-1 text-xs ${trend >= 0.4 ? "text-emerald-400" : trend <= -0.4 ? "text-rose-400" : "text-muted-foreground"}`}
                         title={`${t.ppg.toFixed(1)} pts a game lately vs ${t.seasonPpg.toFixed(1)} this season`}
