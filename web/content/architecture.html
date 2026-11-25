@@ -142,7 +142,7 @@ ul.lede{font-size:16px;color:var(--muted);max-width:66ch;padding-left:20px}
     <li>It describes what the code does today, including where that differs from what it was meant to do</li>
   </ul>
   <div class="meta">
-    <span>doc rev 75</span>
+    <span>doc rev 76</span>
     <span>updated 2026-11-25</span>
     <span>code @ all fixed except H7</span>
     <span>model rules-v8</span>
@@ -728,6 +728,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
   <ul>
     <li>Claude Haiku 4.5 with up to 6 tool rounds</li>
     <li>The system prompt forbids stating numbers a tool didn't return, requires citing them, and routes "what should I do" questions to the optimizer plan</li>
+    <li><b>Current data only</b> (prompt in <code>lib/assistant-prompt.ts</code>): the model&apos;s own football knowledge is treated as out of date; it may name only players, clubs and facts a tool returned (it once recommended Salah, who is no longer in the FPL game). Transfer questions: <code>get_player</code> for the player, then <code>list_top_players</code> in his position within his price + bank. <code>get_player</code> matches FPL&apos;s short or full name, then each word longest first ("Florian Wirtz" used to find nothing), and says when a name isn&apos;t in this season&apos;s game; <code>list_top_players</code> leaves out players who left their club (status u)</li>
     <li>Chips: it must state the app's chip verdict (<code>chip_this_gw</code>, <code>chip_schedule</code>) and never a different chip or week</li>
     <li>Injuries: only from the availability field or news; a low xPts is never called an injury (it once called Mbeumo injured when a model bug had zeroed his start chance)</li>
     <li>Signed-in users only: logged-out requests get 401, because every call spends Anthropic credits</li>
@@ -1232,6 +1233,7 @@ blend:   xG = 0.75·odds + 0.25·fitted where odds are published, else fitted</c
     <li><span class="d">2026-10-18</span><br>rules-v7: crowd signal (ownership + net transfers) added to every projection, shown as its own breakdown line; better RMSE, ranking and top-20 points in all three out-of-sample seasons. Player-level xG cap tested and left off.</li>
     <li><span class="d">2026-10-18</span><br>Optimizer: Wildcard valued with the free transfers you'd keep making after the rebuild (+94 pts over three replayed seasons); solver pinned to one thread so plans are reproducible; bench weight split GK / outfield (both kept at 0.1 after testing).</li>
     <li><span class="d">2026-10-18</span><br>Team form re-tested (faster half-life, goals blended with xG) on next-GW and 1–3-GW-ahead projections over four seasons: no gain, current setting kept. Match scores now flow into the team model data (switch <code>GOALS_WEIGHT</code>, off).</li>
+    <li><span class="d">2026-11-25</span><br>Assistant: answers only from current FPL data (it had recommended Salah, who has left the game); full-name player lookup ("Florian Wirtz" wasn&apos;t found); transfer questions compare within position and budget; players who left their club excluded.</li>
     <li><span class="d">2026-11-25</span><br>Tested floor and ownership tilts for Balanced at 8 GWs with chips: all lost (7,701–7,856 vs 7,925); Balanced unchanged. Migration 0018 applied.</li>
     <li><span class="d">2026-11-25</span><br>Recommended and default horizon 12 → 8 GWs (replay with chips: 7,925 vs 7,696; won all three seasons). Balanced hit charge −5 tested and rejected (7,615 vs 7,696). Form tab redesign: hot picks and each club's key players as Compare cards that open Compare, crests, rank bars, results timeline.</li>
     <li><span class="d">2026-11-24</span><br>Play style: Safe / Balanced / Bold risk profiles and a goal, from a 5-question quiz (Settings) with a switch on the Optimizer; the optimizer, captain and chips plan on profile values (risk.py) and show the cost in plain expected points vs Balanced; goal shortcuts on My Team; league-situation nudge; assistant aware of the style. Migration 0018.</li>
