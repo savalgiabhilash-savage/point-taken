@@ -85,8 +85,8 @@ export const TOOLS = [
   },
 ];
 
-export async function runTool(name: string, input: unknown, userId = "me"): Promise<unknown> {
-  const sb = await createServerSupabase();
+export async function runTool(name: string, input: unknown, userId = "me", client?: SB): Promise<unknown> {
+  const sb = client ?? (await createServerSupabase());
   const args = (input ?? {}) as Record<string, unknown>;
 
   if (name === "list_top_players") {
@@ -96,7 +96,8 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
     const { data: players } = await sb
       .from("players")
       .select("fpl_id, web_name, position, now_cost, selected_by_percent, status, team:teams(short_name)");
-    let rows = (players ?? []).map((p) => ({
+    // "u" = left the club / on loan: not pickable, so never a transfer target.
+    let rows = (players ?? []).filter((p) => p.status !== "u").map((p) => ({
       name: p.web_name,
       team: (p.team as { short_name?: string } | null)?.short_name ?? "?",
       position: p.position,
@@ -116,18 +117,29 @@ export async function runTool(name: string, input: unknown, userId = "me"): Prom
   }
 
   if (name === "get_player") {
-    const q = String(args.name ?? "").trim();
+    // Letters (any script), spaces, hyphens, apostrophes and dots only: the name goes into a PostgREST filter.
+    const q = String(args.name ?? "").replace(/[^\p{L}\s.'-]/gu, "").trim();
     if (!q) return { error: "No name given." };
-    const { data: matches } = await sb
-      .from("players")
-      .select("fpl_id, web_name, position, now_cost, selected_by_percent, status, team:teams(short_name)")
-      .ilike("web_name", `%${q}%`)
-      .order("selected_by_percent", { ascending: false })
-      .limit(10);
-    if (!matches?.length) return { error: `No player found matching "${q}".` };
+    // FPL's short name ("Wirtz") or full name ("Florian Wirtz"); if neither holds the whole query, try each
+    // word, longest first (a user may type "Florian Wirtz" or just "Florian").
+    const find = (term: string) =>
+      sb
+        .from("players")
+        .select("fpl_id, web_name, full_name, position, now_cost, selected_by_percent, status, team:teams(short_name)")
+        .or(`web_name.ilike.%${term}%,full_name.ilike.%${term}%`)
+        .order("selected_by_percent", { ascending: false })
+        .limit(10);
+    let { data: matches } = await find(q);
+    for (const word of q.split(/\s+/).filter((w) => w.length >= 3).sort((a, b) => b.length - a.length)) {
+      if (matches?.length) break;
+      ({ data: matches } = await find(word));
+    }
+    if (!matches?.length)
+      return { error: `No player matching "${q}" in this season's FPL game: he may have left the Premier League or the name is spelt differently. Don't describe him from memory.` };
     // Several players can share a name (two Palmers): prefer an exact name match, then the most-owned,
     // and tell the model about the others so it can ask or switch.
-    const p = matches.find((m) => m.web_name.toLowerCase() === q.toLowerCase()) ?? matches[0];
+    const lower = q.toLowerCase();
+    const p = matches.find((m) => m.web_name.toLowerCase() === lower || (m.full_name ?? "").toLowerCase() === lower) ?? matches[0];
     const others = matches
       .filter((m) => m.fpl_id !== p.fpl_id)
       .map((m) => `${m.web_name} (${(m.team as { short_name?: string } | null)?.short_name ?? "?"}, £${r1((m.now_cost ?? 0) / 10)}m)`);
