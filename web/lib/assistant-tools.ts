@@ -134,6 +134,16 @@ export async function runTool(name: string, input: unknown, userId = "me", clien
       if (matches?.length) break;
       ({ data: matches } = await find(word));
     }
+    // Typos ("Mbuemo" for Mbeumo, from the user or the model): the closest real name, if it's close enough.
+    let fuzzyFrom: string | null = null;
+    if (!matches?.length) {
+      const { data: all } = await sb.from("players").select("fpl_id, web_name, full_name, selected_by_percent");
+      const best = closestName(q, (all ?? []) as { web_name: string; full_name: string | null; selected_by_percent: number | null }[]);
+      if (best) {
+        ({ data: matches } = await find(best.web_name));
+        fuzzyFrom = q;
+      }
+    }
     if (!matches?.length)
       return { error: `No player matching "${q}" in this season's FPL game: he may have left the Premier League or the name is spelt differently. Don't describe him from memory.` };
     // Several players can share a name (two Palmers): prefer an exact name match, then the most-owned,
@@ -172,6 +182,7 @@ export async function runTool(name: string, input: unknown, userId = "me", clien
       xpts_next5: xp5,
       news: news?.[0] ?? null,
       other_matches: others.length ? others : undefined,
+      matched_from: fuzzyFrom ? `"${fuzzyFrom}" matched to ${p.web_name} (closest name)` : undefined,
     };
   }
 
@@ -278,4 +289,46 @@ export async function runTool(name: string, input: unknown, userId = "me", clien
   }
 
   return { error: `Unknown tool: ${name}` };
+}
+
+const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Edit distance (insertions, deletions, substitutions; a swap of neighbours counts once). */
+function distance(a: string, b: string): number {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  return d[a.length][b.length];
+}
+
+/** The player whose short name, full name or any part of it is nearest the query: at most 1 edit for
+ *  names up to 5 letters, 2 for longer. Accents ignored. Ties: FPL's short name beats a part of the full
+ *  name, then the most-owned player. */
+function closestName<T extends { web_name: string; full_name: string | null; selected_by_percent: number | null }>(
+  q: string,
+  players: T[],
+): T | null {
+  const query = fold(q);
+  const words = query.split(/\s+/).filter((w) => w.length >= 3);
+  let best: T | null = null;
+  let bestD = Infinity;
+  for (const p of players) {
+    const short = fold(p.web_name);
+    const names = [short, ...[p.full_name ?? "", ...(p.full_name ?? "").split(/\s+/)].map(fold).filter(Boolean)];
+    for (const n of names)
+      for (const w of [query, ...words]) {
+        const dd = distance(w, n);
+        if (dd > (Math.min(w.length, n.length) <= 5 ? 1 : 2)) continue;
+        const score = dd + (n === short ? 0 : 0.5) - Number(p.selected_by_percent ?? 0) / 1000;
+        if (score < bestD) {
+          bestD = score;
+          best = p;
+        }
+      }
+  }
+  return best;
 }
