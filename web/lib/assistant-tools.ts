@@ -172,6 +172,7 @@ export async function runTool(name: string, input: unknown, userId = "me", clien
       .order("published_at", { ascending: false })
       .limit(1);
     return {
+      id: p.fpl_id,
       name: p.web_name,
       team: (p.team as { short_name?: string } | null)?.short_name ?? "?",
       position: p.position,

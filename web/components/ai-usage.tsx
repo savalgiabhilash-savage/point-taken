@@ -15,7 +15,7 @@ const PERIODS = [
 ] as const;
 type Period = (typeof PERIODS)[number]["key"];
 
-const FEATURE: Record<string, string> = { assistant: "Assistant answers", team_upload: "Screenshot team reads" };
+const FEATURE: Record<string, string> = { assistant: "Assistant answers", team_upload: "Screenshot team reads", command: "Command box" };
 
 type Row = { feature: string; model: string; calls: number; input_tokens: number; output_tokens: number; cache_write_tokens: number; cache_read_tokens: number; cost_usd: number };
 type Agg = { feature: string; uses: number; calls: number; tin: number; tout: number; cost: number };

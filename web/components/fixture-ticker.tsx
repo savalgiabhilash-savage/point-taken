@@ -7,7 +7,7 @@ import type { TickerFixture, TickerTeam } from "@/lib/ticker";
 // Fixture ticker (lib/ticker.ts has the maths). Every fixture in view is ranked against all the others and
 // split into five equal bands, so the colours are relative: green = among the easiest on show.
 
-type View = "overall" | "attack" | "defence";
+export type View = "overall" | "attack" | "defence";
 const VIEWS: { key: View; label: string; blurb: string }[] = [
   { key: "overall", label: "Overall", blurb: "goals your team should score minus goals it should concede" },
   { key: "attack", label: "Attack", blurb: "goals your team should score: picks for forwards and midfielders" },
@@ -24,9 +24,11 @@ const BANDS = [
 
 const ease = (f: TickerFixture, v: View) => (v === "attack" ? f.gf : v === "defence" ? -f.ga : f.gf - f.ga);
 
-export function FixtureTicker({ teams, gws, formGames, formWeight }: { teams: TickerTeam[]; gws: number[]; formGames: number; formWeight: number }) {
-  const [view, setView] = React.useState<View>("overall");
-  const [h, setH] = React.useState<number>(5);
+export function FixtureTicker({ teams, gws, formGames, formWeight, initialView = "overall", initialH = 5 }: {
+  teams: TickerTeam[]; gws: number[]; formGames: number; formWeight: number; initialView?: View; initialH?: number;
+}) {
+  const [view, setView] = React.useState<View>(initialView);
+  const [h, setH] = React.useState<number>(initialH);
   const [sel, setSel] = React.useState<{ team: TickerTeam; f: TickerFixture } | null>(null);
   const shown = gws.slice(0, Math.min(h, gws.length));
 
